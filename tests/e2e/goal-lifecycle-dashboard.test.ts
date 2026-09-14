@@ -306,7 +306,11 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 	}
 });
 
-test("archive failure never reports success; the complete record stays recoverable (§16.6)", async () => {
+test("archive failure never reports success; the complete record stays recoverable (§16.6)", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("directory mode bits do not reliably block writes on Windows");
+		return;
+	}
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-archive-fail-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const h = createHarness(cwd, {
