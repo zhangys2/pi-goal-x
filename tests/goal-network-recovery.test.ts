@@ -1,3 +1,5 @@
+import { saveGoalSettingsFileConfig } from "../extensions/goal-settings.ts";
+import type { GoalCore } from "../extensions/goal-state.ts";
 /**
  * Regression and lifecycle tests for goal-level provider-error recovery.
  *
@@ -97,6 +99,7 @@ function createHarness(cwd: string) {
 	piGoalExtension(mockPi as never);
 
 	return {
+		core: (mockPi as unknown as { _goalCore: GoalCore })._goalCore,
 		handlers,
 		sentMessages,
 		notifications,
@@ -164,6 +167,7 @@ async function markGoalWork(h: ReturnType<typeof createHarness>): Promise<void> 
 	await h.handlers["turn_start"]!({}, h.ctx);
 	await h.handlers["tool_call"]!({ toolName: "bash", args: { command: "ls" } }, h.ctx);
 	await h.handlers["tool_execution_end"]!({}, h.ctx);
+	assert.equal(h.core.scheduler.declare(h.ctx, { kind: "ready", next_action: "Continue after recovery" }).terminate, true);
 }
 
 // ── Classification unit coverage ─────────────────────────────────────────────
@@ -252,6 +256,7 @@ test("classification: non-transient errors stay non-recoverable", () => {
 
 test("regression: reported 503 payload schedules goal-level recovery after settle", async () => {
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
@@ -281,6 +286,7 @@ test("regression: reported 503 payload schedules goal-level recovery after settl
 test("lifecycle: provider-initiated abort routes into recovery instead of pausing", async () => {
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
@@ -311,6 +317,7 @@ test("lifecycle: full real event ordering (message_end → turn_end → agent_en
 	// aborted assistant message never pauses the goal and recovery engages.
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
@@ -353,6 +360,7 @@ test("lifecycle: full real event ordering (message_end → turn_end → agent_en
 
 test("lifecycle: genuine user abort still pauses the goal", async () => {
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
@@ -396,6 +404,7 @@ function lastNotification(h: ReturnType<typeof createHarness>): string {
 test("lifecycle: unbounded recovery keeps retrying past the old 5-attempt cap", async () => {
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
@@ -427,6 +436,7 @@ test("lifecycle: configured bounded cap exhausts with a resume hint instead of r
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_ATTEMPTS = "2";
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
@@ -465,6 +475,7 @@ test("lifecycle: configured bounded cap exhausts with a resume hint instead of r
 test("lifecycle: a successful turn resets the recovery counter and clears pending backoff", async () => {
 	process.env.PI_GOAL_NETWORK_RECOVERY_MAX_DELAY_MS = "25";
 	const { cwd, goal } = fixtureCwd();
+	saveGoalSettingsFileConfig(cwd, { maxAutonomousRuns: 100 });
 	const h = createHarness(cwd);
 	try {
 		await startSession(h.handlers, h.ctx, sessionEntriesFor(goal));
