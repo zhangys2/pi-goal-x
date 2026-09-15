@@ -9,7 +9,8 @@
  * reflect real persisted state (§2.2).
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -187,6 +188,121 @@ test("rejected and failed task reviews keep tasks pending and record outcomes", 
 			assert.ok(dashboard?.recentActivity.some((item) => item.text.includes(review.error ? "failed" : "rejected")), "reloaded dashboard shows the review result");
 		} finally { rmSync(cwd, { recursive: true, force: true }); }
 	}
+});
+
+test("an unlabelled task is reviewed when git cannot report its changes", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-unknown-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	let invocations = 0;
+	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Unknown changes", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "parser", title: "Implement parser", status: "pending" }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		await callTool(h, "update_goal_task", "unknown-start", { task_id: "parser", status: "start" });
+		await callTool(h, "update_goal_task", "unknown-complete", { task_id: "parser", status: "complete", evidence: "done" });
+		assert.equal(invocations, 1, "unclassifiable tasks fail closed into a review");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+function initGitRepo(cwd: string): void {
+	const git = (...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+	git("init", "-q");
+	git("config", "user.email", "test@example.invalid");
+	git("config", "user.name", "Test");
+	writeFileSync(path.join(cwd, ".gitignore"), ".pi/\n");
+	writeFileSync(path.join(cwd, "src.ts"), "v0\n");
+	git("add", ".");
+	git("commit", "-qm", "baseline");
+}
+
+test("restarting a rejected task keeps its review baseline", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-restart-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const summaries: string[] = [];
+	const h = createHarness(cwd, { runTaskReview: async (args: any) => {
+		summaries.push(args.completionSummary);
+		return summaries.length === 1
+			? { approved: false, disapproved: true, output: "needs work\n<disapproved/>" }
+			: { approved: true, disapproved: false, output: "<approved/>" };
+	} });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Restart review", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		await callTool(h, "update_goal_task", "restart-start-1", { task_id: "code", status: "start" });
+		appendFileSync(path.join(cwd, "src.ts"), "REJECTED_CHANGE\n");
+		await callTool(h, "update_goal_task", "restart-complete-1", { task_id: "code", status: "complete", evidence: "first try" });
+		await callTool(h, "update_goal_task", "restart-start-2", { task_id: "code", status: "start" });
+		appendFileSync(path.join(cwd, "src.ts"), "FIXUP\n");
+		await callTool(h, "update_goal_task", "restart-complete-2", { task_id: "code", status: "complete", evidence: "fixed" });
+		assert.equal(summaries.length, 2);
+		assert.match(summaries[1]!, /^\+REJECTED_CHANGE/m, "the retry review still sees the rejected change as part of the task");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a task added by set_goal_tasks and completed without start is reviewed against the list baseline", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-unstarted-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const summaries: string[] = [];
+	const h = createHarness(cwd, { runTaskReview: async (args: any) => { summaries.push(args.completionSummary); return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Unstarted review", autoContinue: false, sisyphus: false }, h.ctx);
+		const pending = callTool(h, "set_goal_tasks", "unstarted-set", { tasks: [{ id: "code", title: "Implement code", code_change: true }] });
+		h.dialogResult({ decision: "confirm" });
+		await pending;
+		appendFileSync(path.join(cwd, "src.ts"), "UNSTARTED_CHANGE\n");
+		await callTool(h, "update_goal_task", "unstarted-complete", { task_id: "code", status: "complete", evidence: "done" });
+		assert.equal(summaries.length, 1);
+		assert.match(summaries[0]!, /^\+UNSTARTED_CHANGE/m, "the review is scoped to changes since the task list was set");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a rejected batch records no approval for tasks it did not complete", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-batch-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const h = createHarness(cwd, { runTaskReview: async (args: any) => args.goal.taskList.tasks[0].id === "first"
+		? { approved: true, disapproved: false, output: "<approved/>" }
+		: { approved: false, disapproved: true, output: "broken\n<disapproved/>" } });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Batch review", autoContinue: false, sisyphus: false, taskList: { tasks: [
+			{ id: "first", title: "Implement first", status: "pending", codeChange: true },
+			{ id: "second", title: "Implement second", status: "pending", codeChange: true },
+		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		await callTool(h, "update_goal_task", "batch-1", { updates: [
+			{ task_id: "first", status: "complete", evidence: "done" },
+			{ task_id: "second", status: "complete", evidence: "done" },
+		] });
+		const goal = currentGoal(cwd)!;
+		assert.deepEqual(goal.taskList!.tasks.map((task) => task.status), ["pending", "pending"], "a rejected batch applies nothing");
+		const reviews = ledgerEvents(cwd).filter((event) => event.type === "task_review");
+		assert.equal(reviews.some((event) => event.taskId === "first" && event.verdict === "approved"), false, "no approval is recorded for a task that stayed pending");
+		assert.ok(reviews.some((event) => event.taskId === "second" && event.verdict === "disapproved"), "the rejection stays traceable");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("an invalid completion is rejected before any review runs", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-validate-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	let invocations = 0;
+	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Validate first", autoContinue: false, sisyphus: false, taskList: { tasks: [
+			{ id: "single", title: "Implement single", status: "pending", codeChange: true, verificationContract: "Tests pass" },
+			{ id: "batched", title: "Implement batched", status: "pending", codeChange: true, verificationContract: "Tests pass" },
+		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		const single = await callTool(h, "update_goal_task", "validate-single", { task_id: "single", status: "complete" });
+		assert.match(single.content[0].text, /provide evidence/);
+		const batch = await callTool(h, "update_goal_task", "validate-batch", { updates: [{ task_id: "batched", status: "complete" }] });
+		assert.match(batch.content[0].text, /provide evidence/);
+		assert.equal(invocations, 0, "no paid review runs for a completion that validation rejects");
+		assert.equal(ledgerEvents(cwd).some((event) => event.type === "task_review"), false, "no misleading review trace");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
 test("full guided lifecycle: create → focus → tasks → audit → archive (§19.9)", async () => {

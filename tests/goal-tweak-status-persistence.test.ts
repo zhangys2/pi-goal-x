@@ -71,7 +71,7 @@ function createHarness(cwd: string): Harness {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, {});
+	goalExtension(pi as any, { runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
 	return {
 		ctx,
 		commands,

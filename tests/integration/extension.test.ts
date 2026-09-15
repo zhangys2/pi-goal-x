@@ -88,7 +88,7 @@ function createHarness(options: HarnessOptions): Harness {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, options.runCompletionAuditor ? { runCompletionAuditor: options.runCompletionAuditor } : {});
+	goalExtension(pi as any, { runCompletionAuditor: options.runCompletionAuditor, runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
 	return {
 		handlers, tools, commands, ctx, notifies, activeToolsHistory,
 		statusCalls, widgetCalls,

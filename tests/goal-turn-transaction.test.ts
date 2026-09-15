@@ -44,7 +44,7 @@ function makeHarness(cwd: string, runCompletionAuditor?: (...args: any[]) => Pro
 		ui: { notify: (msg: string, level: string) => notifies.push({ msg, level }), setStatus: () => {}, setWidget: () => {}, onTerminalInput: () => () => {}, select: async () => undefined, input: async () => undefined, confirm: async () => true, custom: async () => undefined },
 		getSystemPrompt: () => "", isIdle: () => true, hasPendingMessages: () => false, abort: () => {},
 	};
-	goalExtension(pi as any, runCompletionAuditor ? { runCompletionAuditor } : {});
+	goalExtension(pi as any, { runCompletionAuditor, runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
 	return { handlers, tools, ctx, notifies };
 }
 

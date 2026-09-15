@@ -10,8 +10,9 @@ import { gitBaseline, gitTaskDiff, taskNeedsCodeReview, taskReviewSkipReason } f
 test("code-changing tasks require a review", () => {
 	assert.equal(taskNeedsCodeReview({ title: "Implement the parser", verificationContract: "Tests pass", changedFiles: "src/parser.ts" }), true);
 	assert.equal(taskNeedsCodeReview({ title: "Fix calibration bug", verificationContract: "pytest passes", changedFiles: "src/calibration.py" }), true);
-	assert.equal(taskNeedsCodeReview({ title: "Update docs", verificationContract: "README is accurate" }), false);
-	assert.equal(taskNeedsCodeReview({ title: "Research prior art", verificationContract: "Sources are cited" }), false);
+	assert.equal(taskNeedsCodeReview({ title: "Update docs", verificationContract: "README is accurate", changedFiles: "README.md" }), false);
+	assert.equal(taskNeedsCodeReview({ title: "Research prior art", verificationContract: "Sources are cited", changedFiles: "" }), false);
+	assert.equal(taskNeedsCodeReview({ title: "Update docs", verificationContract: "README is accurate" }), true, "unknown changes fail closed");
 });
 
 test("explicit code-change labels override misleading task and evidence words", () => {
@@ -52,7 +53,27 @@ test("review controls skip disabled, excluded, and auditor-disabled reviews", ()
 
 test("legacy inference ignores completion evidence filenames and documentation words", () => {
 	assert.equal(taskNeedsCodeReview({ title: "Fix report CSV export", verificationContract: "Export verified", evidence: "updated docs and report.json", changedFiles: "src/export.ts" }), true);
-	assert.equal(taskNeedsCodeReview({ title: "Prepare report", verificationContract: "report.yaml generated", evidence: "test passed" }), false);
+	assert.equal(taskNeedsCodeReview({ title: "Prepare report", verificationContract: "report.yaml generated", evidence: "test passed", changedFiles: "reports/report.yaml" }), false);
 	assert.equal(taskNeedsCodeReview({ title: "Update documentation", verificationContract: "README updated", changedFiles: "docs/guide.md\nsrc/parser.ts mentioned in prose" }), false);
 	assert.equal(taskNeedsCodeReview({ title: "Update documentation", verificationContract: "README updated", changedFiles: "docs/guide.md" }), false);
+});
+
+test("task diff includes edited pre-existing untracked files and new files named in the tracked diff", () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-diff-untracked-"));
+	try {
+		execFileSync("git", ["init", "-q"], { cwd });
+		execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd });
+		execFileSync("git", ["config", "user.name", "Test"], { cwd });
+		writeFileSync(path.join(cwd, "tracked.txt"), "before\n");
+		writeFileSync(path.join(cwd, "notes.ts"), "old\n");
+		execFileSync("git", ["add", "tracked.txt"], { cwd });
+		execFileSync("git", ["commit", "-qm", "baseline"], { cwd });
+		const baseline = gitBaseline(cwd)!;
+		writeFileSync(path.join(cwd, "tracked.txt"), "see fresh.ts\n");
+		writeFileSync(path.join(cwd, "notes.ts"), "EDITED_UNTRACKED\n");
+		writeFileSync(path.join(cwd, "fresh.ts"), "FRESH_CONTENT\n");
+		const diff = gitTaskDiff(cwd, baseline);
+		assert.match(diff, /EDITED_UNTRACKED/, "an untracked file edited during the task is reviewed");
+		assert.match(diff, /FRESH_CONTENT/, "a new file is not dropped because its name appears in the tracked diff");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });

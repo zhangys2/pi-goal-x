@@ -183,7 +183,7 @@ export function createHarness(options = {}) {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	};
-	goalExtension(pi, options.runCompletionAuditor ? { runCompletionAuditor: options.runCompletionAuditor } : {});
+	goalExtension(pi, { runCompletionAuditor: options.runCompletionAuditor, runTaskReview: options.runTaskReview });
 	return { handlers, tools, commands, ctx, notifies, activeToolsHistory, get terminalInputHandler() { return terminalInputHandler; } };
 }
 

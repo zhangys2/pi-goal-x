@@ -25,6 +25,7 @@ import {
 	UPDATE_GOAL_TASK_TOOL_NAME,
 } from "./goal-tool-names.ts";
 import { nowIso, currentTaskIdIsPending, type GoalTask, type GoalTaskList } from "./goal-record.ts";
+import type { GoalLedgerEvent } from "./goal-ledger.ts";
 
 export const MAX_TASKS = 50;
 
@@ -154,15 +155,6 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
  * incoming structural fields are authoritative and omission clears them
  * (verification contract, lightweight flag, parentage, child structure).
  */
-export function stampTaskBaselines(tasks: GoalTask[], baseline: string | undefined): GoalTask[] {
- if (!baseline) return tasks;
- return tasks.map((task) => ({
-  ...task,
-  reviewBaseline: task.reviewBaseline ?? baseline,
-  subtasks: task.subtasks ? stampTaskBaselines(task.subtasks, baseline) : undefined,
- }));
-}
-
 export function mergeTasksWithExisting(existing: GoalTask[] | undefined, incoming: GoalTask[]): GoalTask[] {
 	const existingById = new Map<string, GoalTask>();
 	function index(tasks: GoalTask[]): void {
@@ -227,27 +219,38 @@ export interface TaskProgressInput {
  reason?: string;
 }
 
+function untrackedFileHashes(cwd: string): Map<string, string> {
+ const files = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+ if (!files.length) return new Map();
+ // Paths go through stdin: a large untracked set would exceed the Windows command-line limit.
+ const hashes = execFileSync("git", ["hash-object", "--stdin-paths"], { cwd, encoding: "utf8", input: files.join("\n"), stdio: ["pipe", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+ return new Map(files.map((file, index) => [file, hashes[index]!]));
+}
+
 export function gitBaseline(cwd: string): string | undefined {
  try {
   const stash = execFileSync("git", ["stash", "create", "per-task-review"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   const head = stash || execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  const untracked = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const untracked = [...untrackedFileHashes(cwd)].map(([file, hash]) => `${hash}\t${file}`).join("\n");
   return `${head}\n${untracked ? `UNTRACKED\n${untracked}` : ""}`;
  } catch {
   return undefined;
  }
 }
 
-export function gitTaskChangedFiles(cwd: string, baseline: string | undefined): string[] {
- if (!baseline) return [];
+export function gitTaskChangedFiles(cwd: string, baseline: string | undefined): string[] | undefined {
+ if (!baseline) return undefined;
  const [revision, ...rest] = baseline.split("\n");
- const startingUntracked = rest[0] === "UNTRACKED" ? new Set(rest.slice(1)) : new Set<string>();
+ const startingUntracked = new Map((rest[0] === "UNTRACKED" ? rest.slice(1) : []).map((line) => {
+  const [hash, file] = line.split("\t");
+  return [file!, hash!];
+ }));
  try {
   const tracked = execFileSync("git", ["diff", "--name-only", revision!, "--"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
-  const currentUntracked = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
-  return [...new Set([...tracked, ...currentUntracked.filter((file) => !startingUntracked.has(file))])];
+  const changedUntracked = [...untrackedFileHashes(cwd)].filter(([file, hash]) => startingUntracked.get(file) !== hash).map(([file]) => file);
+  return [...new Set([...tracked, ...changedUntracked])];
  } catch {
-  return [];
+  return undefined;
  }
 }
 
@@ -256,7 +259,8 @@ export function gitTaskDiff(cwd: string, baseline: string | undefined): string {
  const [revision] = baseline.split("\n");
  try {
   const tracked = execFileSync("git", ["diff", "--binary", revision!, "--"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-  const newFiles = gitTaskChangedFiles(cwd, baseline).filter((file) => !tracked.includes(file));
+  const trackedFiles = new Set(execFileSync("git", ["diff", "--name-only", revision!, "--"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean));
+  const newFiles = (gitTaskChangedFiles(cwd, baseline) ?? []).filter((file) => !trackedFiles.has(file));
   const untracked = newFiles.map((file) => {
    try { return `\n--- untracked: ${file} ---\n${readFileSync(`${cwd}/${file}`, "utf8")}`; } catch { return `\n--- untracked: ${file} (unreadable) ---`; }
   }).join("\n");
@@ -280,22 +284,23 @@ export function taskNeedsCodeReview(task: Pick<GoalTask, "title" | "verification
  if (typeof task.codeChange === "boolean") return task.codeChange;
  // For legacy tasks, actual changed files are stronger evidence than prose.
  if (task.changedFiles !== undefined) return task.changedFiles.split(/\r?\n/).some((file) => /\.(?:ts|tsx|js|mjs|py|cpp|hpp|c|h|rs|go|java|cs|sql)$/i.test(file.trim()));
- // Historical tasks without a label or observable changed files are not
- // reviewable reliably; fail closed rather than guessing from prose.
- return false;
+ // Without a label or observable changes the task cannot be classified;
+ // fail closed into a review rather than guessing from prose.
+ return true;
 }
 
-async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string): Promise<string | undefined> {
- const taskDiff = gitTaskDiff(ctx.cwd, task.reviewBaseline);
- const changedFiles = task.codeChange === undefined ? gitTaskChangedFiles(ctx.cwd, task.reviewBaseline).join("\n") : undefined;
- if (!taskNeedsCodeReview({ ...task, evidence, changedFiles })) return undefined;
+async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string): Promise<{ failure?: string; approval?: GoalLedgerEvent }> {
+ const reviewBaseline = task.reviewBaseline ?? core.state.goal?.taskList?.reviewBaseline;
+ const taskDiff = gitTaskDiff(ctx.cwd, reviewBaseline);
+ const changedFiles = task.codeChange === undefined ? gitTaskChangedFiles(ctx.cwd, reviewBaseline)?.join("\n") : undefined;
+ if (!taskNeedsCodeReview({ ...task, evidence, changedFiles })) return {};
  const goal = core.state.goal;
- if (!goal) return "Task review could not start because no goal is focused.";
+ if (!goal) return { failure: "Task review could not start because no goal is focused." };
  const settings = loadGoalSettings(ctx.cwd);
  const reason = taskReviewSkipReason(task, { disableTaskReviews: settings.disableTaskReviews, auditorDisabled: settings.disabled || goal.skipAuditor, excludedTypes: settings.taskReviewExcludedTypes });
  if (reason) {
-  core.goalService.appendEvents(ctx, [{ type: "task_review", goalId: goal.id, taskId: task.id, verdict: "skipped", report: reason, baseline: task.reviewBaseline, at: nowIso() }]);
-  return undefined;
+  core.goalService.appendEvents(ctx, [{ type: "task_review", goalId: goal.id, taskId: task.id, verdict: "skipped", report: reason, baseline: reviewBaseline, at: nowIso() }]);
+  return {};
  }
  const reviewGoal: import("./goal-record.ts").GoalRecord = {
   ...goal,
@@ -310,25 +315,42 @@ async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCo
   result = await reviewer({
    ctx,
    goal: reviewGoal,
-   detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${task.reviewBaseline ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}`,
+   detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${reviewBaseline ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}`,
    completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion.\n\nTASK DIFF:\n${taskDiff}`,
    settings: loadGoalSettings(ctx.cwd),
   });
  } catch (error) {
   result = { approved: false, disapproved: true, output: "", error: error instanceof Error ? error.message : String(error) };
  }
- core.goalService.appendEvents(ctx, [{
+ const event: GoalLedgerEvent = {
   type: "task_review",
   goalId: goal.id,
   taskId: task.id,
   verdict: result.approved ? "approved" : result.error ? "error" : "disapproved",
   report: truncateText(result.error ?? (result.output.trim() || "The independent code review did not approve this task."), 4000),
-  baseline: task.reviewBaseline,
+  baseline: reviewBaseline,
   at: nowIso(),
- }]);
- if (result.approved) return undefined;
+ };
+ // Callers write an approval together with the completion, so a completion that never commits leaves no approval behind.
+ if (result.approved) return { approval: event };
+ core.goalService.appendEvents(ctx, [event]);
  const detail = result.error ? `Task review failed: ${result.error}` : result.output.trim() || "The independent code review did not approve this task.";
- return `Task ${task.id} remains pending because its code review did not approve completion. Resolve the findings and retry.\n\n${detail}`;
+ return { failure: `Task ${task.id} remains pending because its code review did not approve completion. Resolve the findings and retry.\n\n${detail}` };
+}
+
+/** Dry-runs a batch in order, so a batch that validation would reject never starts a paid review. */
+function batchValidationFailure(tasks: GoalTask[], specs: GoalTaskUpdateSpec[]): string | undefined {
+ const tree = structuredClone(tasks);
+ for (const spec of specs) {
+  const task = findTaskInTree(tree, spec.taskId);
+  if (!task) return undefined; // GoalService reports the stale task.
+  const valid = spec.validate?.(task);
+  if (valid && !valid.ok) return valid.message;
+  const updated = spec.update(task);
+  if ("ok" in updated) return updated.message;
+  Object.assign(task, updated);
+ }
+ return undefined;
 }
 
 function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext): GoalTaskUpdateSpec {
@@ -353,7 +375,7 @@ function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").
    return {ok: true};
   },
   update: task => {
-   if (input.status === "start") return { ...task, reviewBaseline: gitBaseline(ctx.cwd) };
+   if (input.status === "start") return { ...task, reviewBaseline: task.reviewBaseline ?? gitBaseline(ctx.cwd) };
    if (input.status === "complete") return {...task, status: "complete", completedAt: now, evidence};
    if (input.status === "skipped") {
     const next: GoalTask = {...task, status: "skipped", skippedAt: now, skipReason: reason};
@@ -420,7 +442,6 @@ pi.registerTool(defineTool({
 		}
 		const settings = loadGoalSettings(ctx.cwd);
 		const converted = convertFlatTasks(params.tasks as FlatTaskInput[], { maxSubtaskDepth: settings.subtaskDepth });
-		if (converted.ok) converted.tasks = stampTaskBaselines(converted.tasks, gitBaseline(ctx.cwd));
 		if (!converted.ok) {
 			return {
 				content: [{ type: "text", text: converted.message }],
@@ -468,6 +489,7 @@ pi.registerTool(defineTool({
 				details: goalDetails(core.state.goal),
 			};
 		}
+		const reviewBaseline = gitBaseline(ctx.cwd);
 		const applyResult = core.goalService.apply(ctx, {
 			reconcile: false,
 			focusToken: taskListFocus,
@@ -481,7 +503,7 @@ pi.registerTool(defineTool({
 				// otherwise clear it. Dashboard state recomputes on the next render.
 				const currentTaskId =
 					g.currentTaskId && currentTaskIdIsPending(merged, g.currentTaskId) ? g.currentTaskId : undefined;
-				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now }, updatedAt: now };
+				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now, ...(reviewBaseline ? { reviewBaseline } : {}) }, updatedAt: now };
 			},
 			ledger: (written) => [{
 				type: "task_list_set",
@@ -543,14 +565,22 @@ pi.registerTool(defineTool({
    if (loadGoalSettings(ctx.cwd).disableTasks) return fail("update_goal_task is disabled by settings (disableTasks: true).");
    if (!core.state.goal) return fail("No goal is focused.");
    if (core.state.goal.status !== "active") return fail(`update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).`);
+   const specs = updates.map(u => progressSpec(u, core, ctx));
+   const invalid = batchValidationFailure(core.state.goal.taskList?.tasks ?? [], specs);
+   if (invalid) return fail(invalid);
+   const approvals = new Map<string, GoalLedgerEvent>();
    for (const update of updates) {
     if (update.status !== "complete") continue;
     const task = findTaskInTree(core.state.goal.taskList?.tasks ?? [], update.task_id);
     if (!task) continue; // Let GoalService return its typed stale-task failure.
-    const reviewFailure = await reviewTaskBeforeCompletion(core, ctx, task, update.evidence);
-    if (reviewFailure) return fail(reviewFailure);
+    const review = await reviewTaskBeforeCompletion(core, ctx, task, update.evidence);
+    if (review.failure) return fail(review.failure);
+    if (review.approval) approvals.set(update.task_id, review.approval);
    }
-   const result = core.goalService.updateTasks(ctx, updates.map(u => progressSpec(u, core, ctx)));
+   const result = core.goalService.updateTasks(ctx, specs.map((spec): GoalTaskUpdateSpec => {
+    const approval = approvals.get(spec.taskId);
+    return approval ? {...spec, ledger: (...args) => [approval, ...(spec.ledger?.(...args) ?? [])]} : spec;
+   }));
    if (!result.ok) return fail(result.message);
    core.updateUI(ctx);
    return fail(`${updates.map(u => `${u.task_id} ${u.status}`).join("; ")}. ${buildTaskSummary(result.goal.taskList!)}.`);
@@ -592,7 +622,7 @@ pi.registerTool(defineTool({
 					}
 					return { ok: true };
 				},
-				update: (task) => ({ ...task, reviewBaseline: gitBaseline(ctx.cwd) }),
+				update: (task) => ({ ...task, reviewBaseline: task.reviewBaseline ?? gitBaseline(ctx.cwd) }),
 				// §8.1: set explicit execution focus; a later start replaces it, and
 				// completing/skipping this task clears it.
 				setCurrentTaskId: params.task_id,
@@ -619,26 +649,31 @@ pi.registerTool(defineTool({
 
 		if (params.status === "complete") {
 			const evidence = params.evidence?.trim().slice(0, 200) || undefined;
+			const validate = (task: GoalTask): { ok: true } | { ok: false; message: string } => {
+				if (task.status === "complete") return { ok: false, message: `Task "${params.task_id}" is already complete.` };
+				if (task.status === "skipped") return { ok: false, message: `Task "${params.task_id}" was already skipped.` };
+				if (!settings.disableContracts && task.verificationContract && !evidence) {
+					return { ok: false, message: `Task "${params.task_id}" has a verification contract; provide evidence to complete it.` };
+				}
+				const subtaskGate = checkSubtasksComplete(task);
+				if (subtaskGate) return { ok: false, message: subtaskGate };
+				return { ok: true };
+			};
 			const task = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
+			let approval: GoalLedgerEvent | undefined;
 			if (task) {
-				const reviewFailure = await reviewTaskBeforeCompletion(core, ctx, task, evidence);
-				if (reviewFailure) return { content: [{ type: "text", text: reviewFailure }], details: goalDetails(core.state.goal) };
+				const valid = validate(task);
+				if (!valid.ok) return { content: [{ type: "text", text: valid.message }], details: goalDetails(core.state.goal) };
+				const review = await reviewTaskBeforeCompletion(core, ctx, task, evidence);
+				if (review.failure) return { content: [{ type: "text", text: review.failure }], details: goalDetails(core.state.goal) };
+				approval = review.approval;
 			}
 			const result = core.goalService.updateTask(ctx, {
 				focusToken: taskFocus,
 				taskId: params.task_id,
-				validate: (task) => {
-					if (task.status === "complete") return { ok: false, message: `Task "${params.task_id}" is already complete.` };
-					if (task.status === "skipped") return { ok: false, message: `Task "${params.task_id}" was already skipped.` };
-					if (!settings.disableContracts && task.verificationContract && !evidence) {
-						return { ok: false, message: `Task "${params.task_id}" has a verification contract; provide evidence to complete it.` };
-					}
-					const subtaskGate = checkSubtasksComplete(task);
-					if (subtaskGate) return { ok: false, message: subtaskGate };
-					return { ok: true };
-				},
+				validate,
 				update: (task) => ({ ...task, status: "complete" as const, completedAt: now, evidence }),
-				ledger: (written) => [{
+				ledger: (written) => [...(approval ? [approval] : []), {
 					type: "task_complete",
 					goalId: written.id,
 					taskId: params.task_id,

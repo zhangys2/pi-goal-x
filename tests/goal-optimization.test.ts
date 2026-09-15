@@ -17,7 +17,7 @@ const tasks: GoalTask[] = [{id: "parent", title: "Parent", status: "pending", su
 async function fixture() {
  const f = focusedFixture();
  const goal = writeActiveGoalFile({cwd: f.cwd}, {...f.goal, taskList: {tasks: structuredClone(tasks), blockCompletion: true, proposedAt: "2026-09-07T00:00:00Z"}});
- const h = createHarness({cwd: f.cwd, sessionEntries: f.sessionEntries}); await startHarness(h);
+ const h = createHarness({cwd: f.cwd, sessionEntries: f.sessionEntries, runTaskReview: async () => ({approved: true, disapproved: false, output: "<approved/>"})}); await startHarness(h);
  return {...f, goal, h, update: (input: unknown) => h.tools.get("update_goal_task").execute("test", input, new AbortController().signal, undefined, h.ctx)};
 }
 
@@ -55,7 +55,7 @@ test("ordered batch completes child then parent and starts the next task in one 
   const disk = parseGoalFile(path.join(f.cwd,f.goal.activePath))!;
   assert.equal(disk.currentTaskId, "next"); assert.equal(disk.taskList!.tasks[0]!.status, "complete");
   assert.equal(disk.revision, (before.revision ?? 0)+1);
-  assert.deepEqual(readGoalLedger(f.h.ctx).events.filter(e=>e.type.startsWith("task_")).map(e=>e.type), ["task_complete","task_complete","task_started"]);
+  assert.deepEqual(readGoalLedger(f.h.ctx).events.filter(e=>e.type.startsWith("task_")).map(e=>e.type), ["task_review","task_complete","task_review","task_complete","task_started"]);
  } finally {f.cleanup();}
 });
 
