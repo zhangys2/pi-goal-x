@@ -27,6 +27,7 @@ export type GoalLedgerEvent =
   | { type: "task_skipped"; goalId: string; taskId: string; reason: string; at: string }
   | { type: "task_reopened"; goalId: string; taskId: string; at: string }
   | { type: "task_started"; goalId: string; taskId: string; at: string }
+  | { type: "task_review"; goalId: string; taskId: string; verdict: "approved" | "disapproved" | "error" | "skipped"; report?: string; baseline?: string; at: string }
   | { type: "goal_budget_limited"; goalId: string; budget: number; tokensUsed: number; at: string }
   | { type: "goal_budget_warning"; goalId: string; budget: number; tokensUsed: number; pct: number; at: string }
   | { type: "goal_stalled"; goalId: string; reason: string; at: string }
@@ -721,6 +722,11 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
       return typeof obj.goalId === "string" && typeof obj.taskId === "string";
     case "task_started":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string";
+    case "task_review":
+      return typeof obj.goalId === "string" && typeof obj.taskId === "string" &&
+        (obj.verdict === "approved" || obj.verdict === "disapproved" || obj.verdict === "error" || obj.verdict === "skipped") &&
+        (obj.report === undefined || typeof obj.report === "string") &&
+        (obj.baseline === undefined || typeof obj.baseline === "string");
     case "goal_budget_limited":
       return typeof obj.goalId === "string" && typeof obj.budget === "number" && typeof obj.tokensUsed === "number";
     case "goal_budget_warning":

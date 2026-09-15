@@ -67,6 +67,15 @@ test("audit-skipped distinguishes disabled from user-aborted", () => {
 	assert.equal(aborted[0]!.text, "Completion review was aborted by the user.");
 });
 
+test("task review outcomes appear in dashboard activity", () => {
+	const items = deriveGoalActivity([
+		ev("task_review", "2026-01-01T00:00:00Z", { taskId: "t1", verdict: "disapproved", report: "fix" }),
+		ev("task_review", "2026-01-01T00:00:01Z", { taskId: "t2", verdict: "error", report: "failed" }),
+	], "g1", { taskTitles: TITLES, limit: 5 });
+	assert.match(items[0]!.text, /Review reports page/);
+	assert.match(items[1]!.text, /Implement filtered CSV export/);
+});
+
 test("task events prefer task titles over ids", () => {
 	const events = [
 		ev("task_started", "2026-01-01T09:00:00.000Z", { taskId: "t3" }),

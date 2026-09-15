@@ -169,6 +169,19 @@ test("latestEventsForGoal returns capped recent events", () => {
   assert.equal((result[1] as { reason: string }).reason, "c");
 });
 
+test("task review outcomes persist and reload, including rejection and failure", () => {
+  const ctx = tempCtx();
+  try {
+    const events: GoalLedgerEvent[] = [
+      { type: "task_review", goalId: "g1", taskId: "t1", verdict: "disapproved", report: "fix issue", baseline: "stash-1", at: "2026-01-01T00:00:00Z" },
+      { type: "task_review", goalId: "g1", taskId: "t2", verdict: "error", report: "provider failed", baseline: "stash-1", at: "2026-01-01T00:00:01Z" },
+    ];
+    for (const event of events) appendGoalEvent(ctx, event);
+    const reloaded = readGoalLedger(ctx).events;
+    assert.deepEqual(reloaded.filter((event) => event.type === "task_review"), events);
+  } finally { cleanup(ctx); }
+});
+
 test("latestGoalLifecycleEvent returns last event for goal", () => {
   const events: GoalLedgerEvent[] = [
     { type: "goal_created", goalId: "g1", objective: "o1", sisyphus: false, autoContinue: true, at: "2024-01-01T00:00:00.000Z" },

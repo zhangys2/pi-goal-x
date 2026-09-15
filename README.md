@@ -83,12 +83,17 @@ Tasks can also have their own completion requirements—for example, “The down
 
 ### Per-task code review gate
 
-When a task looks code- or test-changing (implementation, fix, build, calibration, integration,
-refactor, or evidence naming source files), `update_goal_task(status="complete")` runs a
-separate read-only code review first. The task remains pending when the reviewer finds an issue,
-so the executor must resolve the findings and retry completion. Documentation, research, report,
-and planning tasks do not trigger this gate. Batch task completions use the same gate for every
-code task before any task state is mutated. The review uses the configured auditor provider/model.
+When a task is declared code-changing (`code_change: true` in `set_goal_tasks`),
+`update_goal_task(status="complete")` runs a separate read-only code review first. The task
+remains pending when the reviewer finds an issue, so the executor must resolve the findings and
+retry completion. Set `code_change: false` for documentation, research, report, and planning
+tasks; legacy tasks without the label are reviewed only when actual changed source files are
+observed (otherwise the gate fails closed). Completion evidence and prose filenames are never
+used for classification. Each task records its review baseline and review outcome in the ledger.
+The review uses the configured auditor provider/model. Set `disableTaskReviews: true` in settings
+to skip this gate (the skip is recorded), or set `taskReviewExcludedTypes` to a list of
+`review_type` values to skip selectively. These controls are independent of the goal-level
+completion auditor unless the auditor itself is disabled, in which case task reviews are skipped too.
 
 Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
 

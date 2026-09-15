@@ -103,6 +103,18 @@ function mapEvent(event: GoalLedgerEvent, taskTitles: ReadonlyMap<string, string
 		}
 		case "task_reopened":
 			return { at: event.at, kind: "task", text: `Reopened ${quote(titleFor(taskTitles, event.taskId))}.` };
+		case "task_review":
+			return {
+				at: event.at,
+				kind: "verification",
+				text: event.verdict === "approved"
+					? `Code review approved ${quote(titleFor(taskTitles, event.taskId))}.`
+					: event.verdict === "skipped"
+						? `Code review skipped for ${quote(titleFor(taskTitles, event.taskId))}.`
+						: event.verdict === "error"
+							? `Code review failed for ${quote(titleFor(taskTitles, event.taskId))}${event.report ? ` — ${truncateText(oneLine(event.report), ACTIVITY_REASON_MAX)}` : ""}.`
+							: `Code review rejected ${quote(titleFor(taskTitles, event.taskId))}${event.report ? ` — ${truncateText(oneLine(event.report), ACTIVITY_REASON_MAX)}` : ""}.`,
+			};
 		case "completion_requested":
 			return { at: event.at, kind: "verification", text: "Requested completion review." };
 		case "audit_started":
@@ -151,7 +163,7 @@ export function activityEventKey(event: GoalLedgerEvent): string | undefined {
 const activityTypes = new Set([
  "goal_created", "goal_tweaked", "auditor_toggled", "goal_paused", "goal_resumed", "goal_blocked",
  "goal_budget_limited", "goal_completed", "goal_aborted", "task_started", "task_complete", "task_skipped",
- "task_reopened", "completion_requested", "audit_started", "audit_result", "audit_skipped", "goal_archived",
+ "task_reopened", "task_review", "completion_requested", "audit_started", "audit_result", "audit_skipped", "goal_archived",
 ]);
 export function isActivityEvent(event: GoalLedgerEvent): boolean { return activityTypes.has(event.type); }
 

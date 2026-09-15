@@ -8,6 +8,8 @@
  */
 
 import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { defineTool, type AgentToolResult, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
@@ -31,6 +33,10 @@ export interface FlatTaskInput {
 	title: string;
 	parent_id?: string;
 	verification_contract?: string;
+	/** Whether this task changes code and should receive a per-task review. */
+	code_change?: boolean;
+	/** Optional category matched by taskReviewExcludedTypes settings. */
+	review_type?: string;
 	lightweight_subtasks?: boolean;
 }
 
@@ -112,6 +118,8 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 			verificationContract: typeof item.verification_contract === "string" && item.verification_contract.trim()
 				? item.verification_contract.trim()
 				: undefined,
+			codeChange: typeof item.code_change === "boolean" ? item.code_change : undefined,
+			reviewType: typeof item.review_type === "string" && item.review_type.trim() ? item.review_type.trim() : undefined,
 			lightweightSubtasks: item.lightweight_subtasks === true ? true : undefined,
 		};
 		const children = childrenOf.get(node.id) ?? [];
@@ -146,6 +154,15 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
  * incoming structural fields are authoritative and omission clears them
  * (verification contract, lightweight flag, parentage, child structure).
  */
+export function stampTaskBaselines(tasks: GoalTask[], baseline: string | undefined): GoalTask[] {
+ if (!baseline) return tasks;
+ return tasks.map((task) => ({
+  ...task,
+  reviewBaseline: task.reviewBaseline ?? baseline,
+  subtasks: task.subtasks ? stampTaskBaselines(task.subtasks, baseline) : undefined,
+ }));
+}
+
 export function mergeTasksWithExisting(existing: GoalTask[] | undefined, incoming: GoalTask[]): GoalTask[] {
 	const existingById = new Map<string, GoalTask>();
 	function index(tasks: GoalTask[]): void {
@@ -171,8 +188,11 @@ export function mergeTasksWithExisting(existing: GoalTask[] | undefined, incomin
 			id: input.id,
 			title: input.title,
 			// Structural fields are authoritative; undefined (omitted) clears.
-			verificationContract: input.verificationContract,
-			lightweightSubtasks: input.lightweightSubtasks,
+			...(input.verificationContract ? { verificationContract: input.verificationContract } : {}),
+			...(input.codeChange !== undefined ? { codeChange: input.codeChange } : {}),
+			...(input.reviewType ? { reviewType: input.reviewType } : {}),
+			...(prior?.reviewBaseline ? { reviewBaseline: prior.reviewBaseline } : {}),
+			...(input.lightweightSubtasks ? { lightweightSubtasks: input.lightweightSubtasks } : {}),
 			...progress,
 		};
 		if (input.subtasks && input.subtasks.length > 0) {
@@ -207,17 +227,76 @@ export interface TaskProgressInput {
  reason?: string;
 }
 
-/** Code/test tasks require a read-only review before completion. */
-export function taskNeedsCodeReview(task: Pick<GoalTask, "title" | "verificationContract"> & { evidence?: string }): boolean {
- const text = [task.title, task.verificationContract, task.evidence].filter(Boolean).join(" ").toLowerCase();
- if (/\b(document|documentation|docs?|research|literature|report|write[- ]?up|plan|analysis)\b/.test(text)) return false;
- return /\b(implement|fix|build|test|code|calibrat|integrat|refactor|bug|feature|module|pipeline|script)\b|\.(?:ts|tsx|js|mjs|py|cpp|hpp|c|h|rs|go|java|cs|sql|json|ya?ml|toml)\b/.test(text);
+export function gitBaseline(cwd: string): string | undefined {
+ try {
+  const stash = execFileSync("git", ["stash", "create", "per-task-review"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const head = stash || execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const untracked = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  return `${head}\n${untracked ? `UNTRACKED\n${untracked}` : ""}`;
+ } catch {
+  return undefined;
+ }
+}
+
+export function gitTaskChangedFiles(cwd: string, baseline: string | undefined): string[] {
+ if (!baseline) return [];
+ const [revision, ...rest] = baseline.split("\n");
+ const startingUntracked = rest[0] === "UNTRACKED" ? new Set(rest.slice(1)) : new Set<string>();
+ try {
+  const tracked = execFileSync("git", ["diff", "--name-only", revision!, "--"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+  const currentUntracked = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split(/\r?\n/).filter(Boolean);
+  return [...new Set([...tracked, ...currentUntracked.filter((file) => !startingUntracked.has(file))])];
+ } catch {
+  return [];
+ }
+}
+
+export function gitTaskDiff(cwd: string, baseline: string | undefined): string {
+ if (!baseline) return "(no git baseline available)";
+ const [revision] = baseline.split("\n");
+ try {
+  const tracked = execFileSync("git", ["diff", "--binary", revision!, "--"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const newFiles = gitTaskChangedFiles(cwd, baseline).filter((file) => !tracked.includes(file));
+  const untracked = newFiles.map((file) => {
+   try { return `\n--- untracked: ${file} ---\n${readFileSync(`${cwd}/${file}`, "utf8")}`; } catch { return `\n--- untracked: ${file} (unreadable) ---`; }
+  }).join("\n");
+  return (tracked + untracked).slice(0, 120000) || "(no changes since baseline)";
+ } catch {
+  return "(could not read git diff for baseline)";
+ }
+}
+
+export function taskReviewSkipReason(task: Pick<GoalTask, "reviewType">, options: { disableTaskReviews?: boolean; auditorDisabled?: boolean; excludedTypes?: readonly string[] }): string | undefined {
+ if (options.disableTaskReviews) return "Per-task reviews disabled in settings.";
+ if (options.auditorDisabled) return "Auditor disabled.";
+ if (task.reviewType && options.excludedTypes?.some((type) => type.toLowerCase() === task.reviewType!.toLowerCase())) return `Review type '${task.reviewType}' excluded by settings.`;
+ return undefined;
+}
+
+/** Code-changing tasks require a read-only review before completion. */
+export function taskNeedsCodeReview(task: Pick<GoalTask, "title" | "verificationContract" | "codeChange"> & { evidence?: string; changedFiles?: string }): boolean {
+ // New task lists carry the agent's semantic decision. It is authoritative:
+ // task prose and completion evidence are not a reliable classifier.
+ if (typeof task.codeChange === "boolean") return task.codeChange;
+ // For legacy tasks, actual changed files are stronger evidence than prose.
+ if (task.changedFiles !== undefined) return task.changedFiles.split(/\r?\n/).some((file) => /\.(?:ts|tsx|js|mjs|py|cpp|hpp|c|h|rs|go|java|cs|sql)$/i.test(file.trim()));
+ // Historical tasks without a label or observable changed files are not
+ // reviewable reliably; fail closed rather than guessing from prose.
+ return false;
 }
 
 async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string): Promise<string | undefined> {
- if (!taskNeedsCodeReview({ ...task, evidence })) return undefined;
+ const taskDiff = gitTaskDiff(ctx.cwd, task.reviewBaseline);
+ const changedFiles = task.codeChange === undefined ? gitTaskChangedFiles(ctx.cwd, task.reviewBaseline).join("\n") : undefined;
+ if (!taskNeedsCodeReview({ ...task, evidence, changedFiles })) return undefined;
  const goal = core.state.goal;
  if (!goal) return "Task review could not start because no goal is focused.";
+ const settings = loadGoalSettings(ctx.cwd);
+ const reason = taskReviewSkipReason(task, { disableTaskReviews: settings.disableTaskReviews, auditorDisabled: settings.disabled || goal.skipAuditor, excludedTypes: settings.taskReviewExcludedTypes });
+ if (reason) {
+  core.goalService.appendEvents(ctx, [{ type: "task_review", goalId: goal.id, taskId: task.id, verdict: "skipped", report: reason, baseline: task.reviewBaseline, at: nowIso() }]);
+  return undefined;
+ }
  const reviewGoal: import("./goal-record.ts").GoalRecord = {
   ...goal,
   objective: `Review the code and test changes for task ${task.id}: ${task.title}`,
@@ -226,13 +305,27 @@ async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCo
  // Completion-auditor injections are intentionally not reused here: task
  // completion must always receive an independent review implementation.
  const reviewer = core.dependencies.runTaskReview ?? runGoalCompletionAuditor;
- const result = await reviewer({
-  ctx,
-  goal: reviewGoal,
-  detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}`,
-  completionSummary: "This task is proposed for completion. Review the repository changes and tests before allowing completion.",
-  settings: loadGoalSettings(ctx.cwd),
- });
+ let result: Awaited<ReturnType<typeof runGoalCompletionAuditor>>;
+ try {
+  result = await reviewer({
+   ctx,
+   goal: reviewGoal,
+   detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${task.reviewBaseline ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}`,
+   completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion.\n\nTASK DIFF:\n${taskDiff}`,
+   settings: loadGoalSettings(ctx.cwd),
+  });
+ } catch (error) {
+  result = { approved: false, disapproved: true, output: "", error: error instanceof Error ? error.message : String(error) };
+ }
+ core.goalService.appendEvents(ctx, [{
+  type: "task_review",
+  goalId: goal.id,
+  taskId: task.id,
+  verdict: result.approved ? "approved" : result.error ? "error" : "disapproved",
+  report: truncateText(result.error ?? (result.output.trim() || "The independent code review did not approve this task."), 4000),
+  baseline: task.reviewBaseline,
+  at: nowIso(),
+ }]);
  if (result.approved) return undefined;
  const detail = result.error ? `Task review failed: ${result.error}` : result.output.trim() || "The independent code review did not approve this task.";
  return `Task ${task.id} remains pending because its code review did not approve completion. Resolve the findings and retry.\n\n${detail}`;
@@ -260,7 +353,7 @@ function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").
    return {ok: true};
   },
   update: task => {
-   if (input.status === "start") return task;
+   if (input.status === "start") return { ...task, reviewBaseline: gitBaseline(ctx.cwd) };
    if (input.status === "complete") return {...task, status: "complete", completedAt: now, evidence};
    if (input.status === "skipped") {
     const next: GoalTask = {...task, status: "skipped", skippedAt: now, skipReason: reason};
@@ -297,6 +390,8 @@ pi.registerTool(defineTool({
 			title: Type.String({ description: "Human-readable task title" }),
 			parent_id: Type.Optional(Type.String({ description: "Parent id; omit for roots." })),
 			verification_contract: Type.Optional(Type.String({ description: "Required completion evidence." })),
+			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires a per-task review." })),
+			review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
 			lightweight_subtasks: Type.Optional(Type.Boolean({ description: "Children do not gate parent completion." })),
 		}), { description: "Flat parent-linked task list" }),
 		block_completion: Type.Optional(Type.Boolean({ description: "Require all tasks resolved; default false." })),
@@ -325,6 +420,7 @@ pi.registerTool(defineTool({
 		}
 		const settings = loadGoalSettings(ctx.cwd);
 		const converted = convertFlatTasks(params.tasks as FlatTaskInput[], { maxSubtaskDepth: settings.subtaskDepth });
+		if (converted.ok) converted.tasks = stampTaskBaselines(converted.tasks, gitBaseline(ctx.cwd));
 		if (!converted.ok) {
 			return {
 				content: [{ type: "text", text: converted.message }],
@@ -496,7 +592,7 @@ pi.registerTool(defineTool({
 					}
 					return { ok: true };
 				},
-				update: (task) => task,
+				update: (task) => ({ ...task, reviewBaseline: gitBaseline(ctx.cwd) }),
 				// §8.1: set explicit execution focus; a later start replaces it, and
 				// completing/skipping this task clears it.
 				setCurrentTaskId: params.task_id,

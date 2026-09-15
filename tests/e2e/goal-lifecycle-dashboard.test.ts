@@ -9,7 +9,7 @@
  * reflect real persisted state (§2.2).
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -137,6 +137,58 @@ function dashboardText(goal: GoalRecord, expanded: boolean, cwd: string): string
 	return lines.join("\n");
 }
 
+test("per-task review controls skip the auditor and record the decision", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-controls-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ disableTaskReviews: true }), "utf8");
+	let invocations = 0;
+	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Review control test", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		const result = await callTool(h, "update_goal_task", "controls-1", { task_id: "code", status: "complete", evidence: "verified" });
+		assert.match(result.content[0].text, /complete/i);
+		assert.equal(invocations, 0, "disabled task reviews must not invoke the auditor");
+		assert.equal(ledgerEvents(cwd).some((event) => event.type === "task_review" && event.verdict === "skipped"), true);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("excluded review types and auditor settings prevent task-review invocation", async () => {
+	for (const [settings, skipAuditor] of [[{ taskReviewExcludedTypes: ["generated"] }, false], [{ disabled: true }, false], [{}, true]] as const) {
+		const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-policy-"));
+		mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+		if (Object.keys(settings).length) writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify(settings), "utf8");
+		let invocations = 0;
+		const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
+		try {
+			await h.sessionStart();
+			h.core.replaceGoal({ objective: "Review policy test", autoContinue: false, sisyphus: false, skipAuditor, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true, reviewType: "generated" }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+			await callTool(h, "update_goal_task", "policy-1", { task_id: "code", status: "complete", evidence: "verified" });
+			assert.equal(invocations, 0);
+			assert.ok(ledgerEvents(cwd).some((event) => event.type === "task_review" && event.verdict === "skipped"));
+		} finally { rmSync(cwd, { recursive: true, force: true }); }
+	}
+});
+
+test("rejected and failed task reviews keep tasks pending and record outcomes", async () => {
+	for (const review of [{ approved: false, disapproved: true, output: "Issue found" }, { approved: false, disapproved: false, output: "", error: "provider failed" }]) {
+		const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-rejection-"));
+		mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+		const h = createHarness(cwd, { runTaskReview: async () => review });
+		try {
+			await h.sessionStart();
+			h.core.replaceGoal({ objective: "Review rejection test", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+			const result = await callTool(h, "update_goal_task", "reject-1", { task_id: "code", status: "complete", evidence: "verified" });
+			assert.match(result.content[0].text, /remains pending/i);
+			assert.equal(currentGoal(cwd)!.taskList!.tasks[0]!.status, "pending");
+			const reloadedEvents = ledgerEvents(cwd);
+			assert.ok(reloadedEvents.some((event) => event.type === "task_review" && event.verdict === (review.error ? "error" : "disapproved")));
+			const dashboard = deriveGoalDashboardModel(currentGoal(cwd), { focused: true, otherOpenGoals: 0, ledgerEvents: reloadedEvents });
+			assert.ok(dashboard?.recentActivity.some((item) => item.text.includes(review.error ? "failed" : "rejected")), "reloaded dashboard shows the review result");
+		} finally { rmSync(cwd, { recursive: true, force: true }); }
+	}
+});
+
 test("full guided lifecycle: create → focus → tasks → audit → archive (§19.9)", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-lifecycle-e2e-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
@@ -227,6 +279,7 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 		await callTool(h, "update_goal_task", "comp-1", { task_id: "t1", status: "complete", evidence: "Source reviewed" });
 		await callTool(h, "update_goal_task", "start-2", { task_id: "t2", status: "start" });
 		await callTool(h, "update_goal_task", "comp-2", { task_id: "t2", status: "complete", evidence: "Export implemented" });
+		assert.ok(ledgerEvents(cwd).some((e) => e.type === "task_review" && e.taskId === "t2" && e.verdict === "approved"), "approved task review is traceable");
 		await callTool(h, "update_goal_task", "start-3", { task_id: "t3", status: "start" });
 		await callTool(h, "update_goal_task", "comp-3", { task_id: "t3.1", status: "complete", evidence: "Loading state" });
 		await callTool(h, "update_goal_task", "comp-4", { task_id: "t3.2", status: "complete", evidence: "Filename" });

@@ -188,7 +188,7 @@ export function buildGoalAuditorPrompt(args: {
 		"You are the independent completion auditor for pi-goal. Decide whether the user's objective is actually satisfied.",
 		"Audit checklist:",
 		"1. The confirmed completion requirements (the goal's verification contract and each task's requirement) are the checklist; the objective is context for what they mean. Disapprove any confirmed requirement that is missing, contradicted, weakly verified or uninspectable. Disapprove for a gap outside the confirmed requirements only when the gap is material to the objective, and say so explicitly.",
-		"2. Inspect real artifacts with read/grep/find/ls/bash as needed. Do not mutate files or run destructive commands. Paperwork, intent, file/word counts, build success and plausible summaries alone are not proof.",
+		"2. Inspect real artifacts with read/grep/find/ls/bash as needed. Do not mutate files or run destructive commands. Paperwork, intent, file/word counts, build success and plausible summaries alone are not proof. When a review scope supplies a git baseline, begin with `git diff <baseline>` (and staged/untracked equivalents as needed) and judge only that task's changes.",
 		...(!args.settings?.disableContracts && args.goal.verificationContract?.trim()
 			? ["3. Verify that the executor has satisfied every item in the <verification_contract>. If any item is missing or weakly addressed, disapprove."] : []),
 		...(previousAuditReport

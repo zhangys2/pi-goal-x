@@ -34,6 +34,15 @@ test("parseGoalSettings: null/undefined returns empty defaults", () => {
 	assert.deepEqual(parseGoalSettings([]), {});
 });
 
+test("per-task review settings parse and reject malformed exclusions", () => {
+	const parsed = parseSettingsLayer({ disableTaskReviews: true, taskReviewExcludedTypes: ["docs", "generated"] }, "project", "t.json");
+	assert.deepEqual(parsed.layer.disableTaskReviews, true);
+	assert.deepEqual(parsed.layer.taskReviewExcludedTypes, ["docs", "generated"]);
+	const invalid = parseSettingsLayer({ taskReviewExcludedTypes: ["docs", ""] }, "project", "t.json");
+	assert.equal(invalid.layer.taskReviewExcludedTypes, undefined);
+	assert.equal(invalid.diagnostics[0]?.code, "invalid_value");
+});
+
 test("parseGoalSettings: empty object returns empty defaults", () => {
 	assert.deepEqual(parseGoalSettings({}), {});
 });

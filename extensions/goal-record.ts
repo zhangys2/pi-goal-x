@@ -16,6 +16,12 @@ export interface GoalTask {
   evidence?: string;
   skipReason?: string;
   verificationContract?: string;
+  /** Agent-declared whether this task changes code and needs a code review. */
+  codeChange?: boolean;
+  /** Optional task category used by configurable review exclusions. */
+  reviewType?: string;
+  /** Git commit at task start, used to scope the task review. */
+  reviewBaseline?: string;
   lightweightSubtasks?: boolean;
   subtasks?: GoalTask[];
 }
@@ -255,6 +261,9 @@ export function normalizeTaskItem(raw: Record<string, unknown>): GoalTask | unde
 		evidence: typeof raw.evidence === "string" ? raw.evidence : undefined,
 		skipReason: typeof raw.skipReason === "string" ? raw.skipReason : undefined,
 		verificationContract: typeof raw.verificationContract === "string" ? raw.verificationContract : undefined,
+		...(typeof raw.codeChange === "boolean" ? { codeChange: raw.codeChange } : {}),
+		...(typeof raw.reviewType === "string" && raw.reviewType.trim() ? { reviewType: raw.reviewType.trim() } : {}),
+		...(typeof raw.reviewBaseline === "string" && raw.reviewBaseline.trim() ? { reviewBaseline: raw.reviewBaseline.trim() } : {}),
 		lightweightSubtasks: raw.lightweightSubtasks === true ? true : undefined,
 		subtasks,
 	};

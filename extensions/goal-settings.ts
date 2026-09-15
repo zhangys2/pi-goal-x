@@ -92,6 +92,10 @@ export function formatGoalKeybinding(key: string): string {
 export interface GoalSettingsResolvedShape {
 	disableTasks?: boolean;
 	disableContracts?: boolean;
+	/** Disable the per-task code review gate without disabling goal auditing. */
+	disableTaskReviews?: boolean;
+	/** Task categories (review_type) that skip the per-task review gate. */
+	taskReviewExcludedTypes?: string[];
 	subtaskDepth?: number;
 	provider?: string;
 	model?: string;
@@ -323,6 +327,8 @@ function asThinkingLevel(value: unknown): ThinkingLevel | undefined {
 const ALLOWED_SETTINGS_KEYS = new Set([
 	"disableTasks",
 	"disableContracts",
+	"disableTaskReviews",
+	"taskReviewExcludedTypes",
 	"subtaskDepth",
 	"provider",
 	"model",
@@ -385,6 +391,7 @@ export function parseSettingsLayer(
 		switch (key) {
 			case "disableTasks":
 			case "disableContracts":
+			case "disableTaskReviews":
 			case "disabled":
 			case "autoSelectSingleGoal":
 			case "auditorProjectResources":
@@ -394,6 +401,15 @@ export function parseSettingsLayer(
 					if (value !== undefined) diagnostics.push(diagnostic("invalid_value", `${key} must be true or false`, key));
 				} else {
 					layer[key] = parsed;
+				}
+				break;
+			}
+			case "taskReviewExcludedTypes": {
+				const entries = Array.isArray(value) ? value.map(asNonEmptyString) : undefined;
+				if (!entries || entries.length === 0 || entries.some((entry) => entry === undefined)) {
+					diagnostics.push(diagnostic("invalid_value", `${key} must be a non-empty list of non-empty strings`, key));
+				} else {
+					layer.taskReviewExcludedTypes = entries as string[];
 				}
 				break;
 			}
@@ -724,6 +740,16 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		defaultValue: false,
 		envVar: "PI_GOAL_DISABLE_TASKS",
 	}));
+	const disableTaskReviews = track("disableTaskReviews", resolveLeaf<boolean>({
+		projectValue: project.layer.disableTaskReviews,
+		globalValue: global.layer.disableTaskReviews,
+		defaultValue: false,
+	}));
+	const taskReviewExcludedTypes = track("taskReviewExcludedTypes", resolveLeaf<string[]>({
+		projectValue: project.layer.taskReviewExcludedTypes,
+		globalValue: global.layer.taskReviewExcludedTypes,
+		defaultValue: undefined as unknown as string[],
+	}));
 	const disableContracts = track("disableContracts", resolveLeaf<boolean>({
 		envValue: envBool("PI_GOAL_DISABLE_CONTRACTS"),
 		projectValue: project.layer.disableContracts,
@@ -862,6 +888,8 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 	const value: ResolvedGoalSettings = {
 		disableTasks,
 		disableContracts,
+		disableTaskReviews,
+		...(taskReviewExcludedTypes ? { taskReviewExcludedTypes } : {}),
 		subtaskDepth,
 		...(provider ? { provider } : {}),
 		...(model ? { model } : {}),
@@ -1201,6 +1229,8 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 	if (settings.disabled !== undefined) persisted.disabled = settings.disabled;
 	if (settings.disableTasks !== undefined) persisted.disableTasks = settings.disableTasks;
 	if (settings.disableContracts !== undefined) persisted.disableContracts = settings.disableContracts;
+	if (settings.disableTaskReviews !== undefined) persisted.disableTaskReviews = settings.disableTaskReviews;
+	if (settings.taskReviewExcludedTypes) persisted.taskReviewExcludedTypes = [...settings.taskReviewExcludedTypes];
 	if (settings.subtaskDepth !== undefined) persisted.subtaskDepth = settings.subtaskDepth;
 	if (settings.autoSelectSingleGoal !== undefined) persisted.autoSelectSingleGoal = settings.autoSelectSingleGoal;
 	if (settings.auditorProjectResources !== undefined) persisted.auditorProjectResources = settings.auditorProjectResources;

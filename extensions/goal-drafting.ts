@@ -11,7 +11,7 @@ import { loadGoalSettings } from "./goal-settings.ts";
 import { DIALOG_UNAVAILABLE_HINT, proposalDialogFailureMessage, formatQuestionnaireAnswers, runGoalQuestionnaire, shouldAutoConfirmProposal, showProposalDialog, type GoalQuestionnaireQuestion, type ProposalDecision } from "./goal-questionnaire.ts";
 import { currentTaskIdIsPending, nowIso, type GoalRecord, type GoalTaskList } from "./goal-record.ts";
 import type { GoalCore } from "./goal-state.ts";
-import { convertFlatTasks, countTasks, mergeTasksWithExisting, type FlatTaskInput } from "./goal-task-tools.ts";
+import { convertFlatTasks, countTasks, mergeTasksWithExisting, stampTaskBaselines, gitBaseline, type FlatTaskInput } from "./goal-task-tools.ts";
 import { PROPOSE_DRAFT_TOOL_NAME, QUESTIONNAIRE_TOOL_NAME, QUESTION_TOOL_NAME } from "./goal-tool-names.ts";
 
 export type GoalDraftMode = GoalDraftingFocus | "tweak";
@@ -187,7 +187,7 @@ function proposedTaskList(core: GoalCore, ctx: ExtensionContext, tasks: FlatTask
 	if (!core.tasksEnabled) return { ok: false, message: "Task lists are disabled by settings; omit tasks from this proposal." };
 	const converted = convertFlatTasks(tasks, { maxSubtaskDepth: loadGoalSettings(ctx.cwd).subtaskDepth ?? 1 });
 	if (!converted.ok) return converted;
-	return { ok: true, value: { tasks: converted.tasks, blockCompletion: blockCompletion === true, proposedAt: nowIso() } };
+	return { ok: true, value: { tasks: stampTaskBaselines(converted.tasks, gitBaseline(ctx.cwd)), blockCompletion: blockCompletion === true, proposedAt: nowIso() } };
 }
 
 export function proposalText(draft: ActiveGoalDraft, objective: string, autoContinue: boolean, taskList: GoalTaskList | undefined, current?: GoalRecord): string {
@@ -228,6 +228,8 @@ function flatTaskSchema() {
 		title: Type.String({ description: "Human-readable task title." }),
 		parent_id: Type.Optional(Type.String({ description: "Optional parent task id in this proposal." })),
 		verification_contract: Type.Optional(Type.String({ description: "Evidence required for this task." })),
+		code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires review." })),
+		review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
 		lightweight_subtasks: Type.Optional(Type.Boolean({ description: "True only for a task with lightweight children." })),
 	}), { description: "Flat parent-linked task tree to confirm with the goal." });
 }
