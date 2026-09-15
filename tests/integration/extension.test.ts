@@ -878,7 +878,11 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 });
 
 describe("completion transaction hardening (follow-up Stage 3)", () => {
-	it("completion commit write failure never reports success and never clears focus", async () => {
+	it("completion commit write failure never reports success and never clears focus", async (t) => {
+		if (process.platform === "win32") {
+			t.skip("POSIX directory permissions do not reliably block writes on Windows");
+			return;
+		}
 		const f = fixture();
 		const goalsDir = path.join(f.cwd, ".pi", "goals");
 		try {

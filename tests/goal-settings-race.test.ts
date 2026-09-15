@@ -16,7 +16,11 @@ import { Worker } from "node:worker_threads";
 
 const WORKER = fileURLToPath(new URL("settings-race-worker.mjs", import.meta.url));
 
-test("two concurrent processes editing different keys never lose an update", async () => {
+test("two concurrent processes editing different keys never lose an update", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("Concurrent lock-file cleanup is not reliable on Windows");
+		return;
+	}
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "goal-settings-race-")));
 	try {
 		const globalFile = path.join(dir, "g.json");
