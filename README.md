@@ -87,13 +87,22 @@ When a task is declared code-changing (`code_change: true` in `set_goal_tasks`),
 `update_goal_task(status="complete")` runs a separate read-only code review first. The task
 remains pending when the reviewer finds an issue, so the executor must resolve the findings and
 retry completion. Set `code_change: false` for documentation, research, report, and planning
-tasks; legacy tasks without the label are reviewed only when actual changed source files are
-observed (otherwise the gate fails closed). Completion evidence and prose filenames are never
-used for classification. Each task records its review baseline and review outcome in the ledger.
-The review uses the configured auditor provider/model. Set `disableTaskReviews: true` in settings
-to skip this gate (the skip is recorded), or set `taskReviewExcludedTypes` to a list of
-`review_type` values to skip selectively. These controls are independent of the goal-level
-completion auditor unless the auditor itself is disabled, in which case task reviews are skipped too.
+tasks. Tasks without the label are reviewed when their changed files include source code, and
+also when their changes cannot be determined (no git repository), so the gate fails closed.
+Completion evidence and prose filenames are never used for classification.
+
+The review sees only the task's own changes: tracked, staged, and untracked files changed since
+the task first started, or since the task list was set if it was never started. Restarting a
+rejected task keeps its original baseline. An oversized diff is marked as truncated and lists every
+changed file. Completion checks such as missing evidence run before the review, so an invalid
+completion never starts one.
+
+Every decision is recorded in the ledger as a `task_review` event: approved (written with the
+completion), rejected, failed, or skipped with its reason. The review uses the configured auditor
+provider/model. Set `disableTaskReviews: true` in settings to skip this gate, or set
+`taskReviewExcludedTypes` to a list of `review_type` values to skip selectively. These controls are
+independent of the goal-level completion auditor unless the auditor itself is disabled, in which
+case task reviews are skipped too.
 
 Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
 

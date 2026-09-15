@@ -305,6 +305,29 @@ test("an invalid completion is rejected before any review runs", async () => {
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("a task that is not reviewed records why", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-not-code-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	let invocations = 0;
+	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Not code", autoContinue: false, sisyphus: false, taskList: { tasks: [
+			{ id: "docs", title: "Write docs", status: "pending", codeChange: false },
+			{ id: "notes", title: "Update notes", status: "pending" },
+		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		await callTool(h, "update_goal_task", "not-code-complete-docs", { task_id: "docs", status: "complete", evidence: "written" });
+		await callTool(h, "update_goal_task", "not-code-start-notes", { task_id: "notes", status: "start" });
+		writeFileSync(path.join(cwd, "notes.md"), "notes\n");
+		await callTool(h, "update_goal_task", "not-code-complete-notes", { task_id: "notes", status: "complete", evidence: "updated" });
+		assert.equal(invocations, 0);
+		const skipped = ledgerEvents(cwd).filter((event) => event.type === "task_review" && event.verdict === "skipped");
+		assert.deepEqual(skipped.map((event) => event.taskId).sort(), ["docs", "notes"], "each unreviewed task leaves a skipped trace");
+		assert.ok(skipped.every((event) => /code/i.test(event.report)), "the reason says the task does not change code");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("full guided lifecycle: create → focus → tasks → audit → archive (§19.9)", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-lifecycle-e2e-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });

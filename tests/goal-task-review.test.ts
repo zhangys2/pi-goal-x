@@ -77,3 +77,22 @@ test("task diff includes edited pre-existing untracked files and new files named
 		assert.match(diff, /FRESH_CONTENT/, "a new file is not dropped because its name appears in the tracked diff");
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+
+test("an oversized task diff says it is truncated and lists every changed file", () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-diff-truncated-"));
+	try {
+		execFileSync("git", ["init", "-q"], { cwd });
+		execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd });
+		execFileSync("git", ["config", "user.name", "Test"], { cwd });
+		writeFileSync(path.join(cwd, "tracked.txt"), "before\n");
+		execFileSync("git", ["add", "tracked.txt"], { cwd });
+		execFileSync("git", ["commit", "-qm", "baseline"], { cwd });
+		const baseline = gitBaseline(cwd)!;
+		writeFileSync(path.join(cwd, "big.ts"), "x".repeat(130000));
+		writeFileSync(path.join(cwd, "small.ts"), "SMALL_CONTENT\n");
+		const diff = gitTaskDiff(cwd, baseline);
+		assert.match(diff, /truncated/i, "the reviewer is told the diff is incomplete");
+		assert.doesNotMatch(diff, /SMALL_CONTENT/, "fixture: small.ts content falls past the limit");
+		assert.match(diff, /small\.ts/, "files past the limit are still named");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});

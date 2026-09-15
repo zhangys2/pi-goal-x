@@ -254,6 +254,8 @@ export function gitTaskChangedFiles(cwd: string, baseline: string | undefined): 
  }
 }
 
+const MAX_TASK_DIFF_CHARS = 120000;
+
 export function gitTaskDiff(cwd: string, baseline: string | undefined): string {
  if (!baseline) return "(no git baseline available)";
  const [revision] = baseline.split("\n");
@@ -264,7 +266,9 @@ export function gitTaskDiff(cwd: string, baseline: string | undefined): string {
   const untracked = newFiles.map((file) => {
    try { return `\n--- untracked: ${file} ---\n${readFileSync(`${cwd}/${file}`, "utf8")}`; } catch { return `\n--- untracked: ${file} (unreadable) ---`; }
   }).join("\n");
-  return (tracked + untracked).slice(0, 120000) || "(no changes since baseline)";
+  const full = tracked + untracked;
+  if (full.length <= MAX_TASK_DIFF_CHARS) return full || "(no changes since baseline)";
+  return `${full.slice(0, MAX_TASK_DIFF_CHARS)}\n\n[Diff truncated: showing ${MAX_TASK_DIFF_CHARS} of ${full.length} characters. Inspect these changed files in the workspace before approving:\n${[...trackedFiles, ...newFiles].join("\n")}]`;
  } catch {
   return "(could not read git diff for baseline)";
  }
@@ -290,18 +294,19 @@ export function taskNeedsCodeReview(task: Pick<GoalTask, "title" | "verification
 }
 
 async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string): Promise<{ failure?: string; approval?: GoalLedgerEvent }> {
- const reviewBaseline = task.reviewBaseline ?? core.state.goal?.taskList?.reviewBaseline;
- const taskDiff = gitTaskDiff(ctx.cwd, reviewBaseline);
- const changedFiles = task.codeChange === undefined ? gitTaskChangedFiles(ctx.cwd, reviewBaseline)?.join("\n") : undefined;
- if (!taskNeedsCodeReview({ ...task, evidence, changedFiles })) return {};
  const goal = core.state.goal;
  if (!goal) return { failure: "Task review could not start because no goal is focused." };
+ const reviewBaseline = task.reviewBaseline ?? goal.taskList?.reviewBaseline;
  const settings = loadGoalSettings(ctx.cwd);
- const reason = taskReviewSkipReason(task, { disableTaskReviews: settings.disableTaskReviews, auditorDisabled: settings.disabled || goal.skipAuditor, excludedTypes: settings.taskReviewExcludedTypes });
- if (reason) {
-  core.goalService.appendEvents(ctx, [{ type: "task_review", goalId: goal.id, taskId: task.id, verdict: "skipped", report: reason, baseline: reviewBaseline, at: nowIso() }]);
+ const skip = (report: string) => {
+  core.goalService.appendEvents(ctx, [{ type: "task_review", goalId: goal.id, taskId: task.id, verdict: "skipped", report, baseline: reviewBaseline, at: nowIso() }]);
   return {};
- }
+ };
+ const reason = taskReviewSkipReason(task, { disableTaskReviews: settings.disableTaskReviews, auditorDisabled: settings.disabled || goal.skipAuditor, excludedTypes: settings.taskReviewExcludedTypes });
+ if (reason) return skip(reason);
+ const changedFiles = task.codeChange === undefined ? gitTaskChangedFiles(ctx.cwd, reviewBaseline)?.join("\n") : undefined;
+ if (!taskNeedsCodeReview({ ...task, evidence, changedFiles })) return skip("Task does not change code.");
+ const taskDiff = gitTaskDiff(ctx.cwd, reviewBaseline);
  const reviewGoal: import("./goal-record.ts").GoalRecord = {
   ...goal,
   objective: `Review the code and test changes for task ${task.id}: ${task.title}`,
@@ -317,7 +322,7 @@ async function reviewTaskBeforeCompletion(core: import("./goal-state.ts").GoalCo
    goal: reviewGoal,
    detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${reviewBaseline ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}`,
    completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion.\n\nTASK DIFF:\n${taskDiff}`,
-   settings: loadGoalSettings(ctx.cwd),
+   settings,
   });
  } catch (error) {
   result = { approved: false, disapproved: true, output: "", error: error instanceof Error ? error.message : String(error) };
@@ -353,7 +358,7 @@ function batchValidationFailure(tasks: GoalTask[], specs: GoalTaskUpdateSpec[]):
  return undefined;
 }
 
-function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext): GoalTaskUpdateSpec {
+function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, startBaseline?: string): GoalTaskUpdateSpec {
  const settings = loadGoalSettings(ctx.cwd);
  const now = nowIso();
  const evidence = input.evidence?.trim().slice(0, 200) || undefined;
@@ -375,7 +380,7 @@ function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").
    return {ok: true};
   },
   update: task => {
-   if (input.status === "start") return { ...task, reviewBaseline: task.reviewBaseline ?? gitBaseline(ctx.cwd) };
+   if (input.status === "start") return { ...task, reviewBaseline: task.reviewBaseline ?? startBaseline };
    if (input.status === "complete") return {...task, status: "complete", completedAt: now, evidence};
    if (input.status === "skipped") {
     const next: GoalTask = {...task, status: "skipped", skippedAt: now, skipReason: reason};
@@ -565,7 +570,10 @@ pi.registerTool(defineTool({
    if (loadGoalSettings(ctx.cwd).disableTasks) return fail("update_goal_task is disabled by settings (disableTasks: true).");
    if (!core.state.goal) return fail("No goal is focused.");
    if (core.state.goal.status !== "active") return fail(`update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).`);
-   const specs = updates.map(u => progressSpec(u, core, ctx));
+   const needsStartBaseline = updates.some(u => u.status === "start" && !findTaskInTree(core.state.goal!.taskList?.tasks ?? [], u.task_id)?.reviewBaseline);
+   // Outside the specs: GoalService may re-run update closures, and batch validation dry-runs them.
+   const startBaseline = needsStartBaseline ? gitBaseline(ctx.cwd) : undefined;
+   const specs = updates.map(u => progressSpec(u, core, ctx, startBaseline));
    const invalid = batchValidationFailure(core.state.goal.taskList?.tasks ?? [], specs);
    if (invalid) return fail(invalid);
    const approvals = new Map<string, GoalLedgerEvent>();
@@ -613,6 +621,8 @@ pi.registerTool(defineTool({
 		const taskFocus = core.focusedOperationToken(core.state.goal.id);
 
 		if (params.status === "start") {
+			// Outside the update closure: GoalService retries it once on a conflicting write.
+			const startBaseline = findTaskInTree(core.state.goal.taskList.tasks, params.task_id)?.reviewBaseline ? undefined : gitBaseline(ctx.cwd);
 			const result = core.goalService.updateTask(ctx, {
 				focusToken: taskFocus,
 				taskId: params.task_id,
@@ -622,7 +632,7 @@ pi.registerTool(defineTool({
 					}
 					return { ok: true };
 				},
-				update: (task) => ({ ...task, reviewBaseline: task.reviewBaseline ?? gitBaseline(ctx.cwd) }),
+				update: (task) => ({ ...task, reviewBaseline: task.reviewBaseline ?? startBaseline }),
 				// §8.1: set explicit execution focus; a later start replaces it, and
 				// completing/skipping this task clears it.
 				setCurrentTaskId: params.task_id,
