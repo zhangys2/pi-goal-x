@@ -149,6 +149,11 @@ export class GoalScheduler {
 					s.phase = "ready"; s.decision = { kind: "ready", nextAction: input.next_action.trim(), purpose: "ready" }; s.wait = undefined;
 				} else if (input.kind === "wait") {
 					if (typeof input.reason !== "string" || !input.reason.trim() || input.reason.length > 2000) throw new Error("wait requires a nonempty reason (at most 2000 characters).");
+					// A wait resumes on its own; something only the user can do never does.
+					if (!s.wait) {
+						if (input.depends_on !== "producer" && input.depends_on !== "user") throw new Error('wait requires depends_on: "producer" for an external condition that resolves itself, or "user" for anything only the user can do.');
+						if (input.depends_on === "user") throw new Error('This wait depends on the user, so waiting would park the goal without asking. Call update_goal({status: "blocked", reason: "…"}) instead; the user resumes with /goal-resume.');
+					}
 					const deadline = Date.parse(input.deadline);
 					if (!/T.*(?:Z|[+-]\d\d:\d\d)$/.test(input.deadline) || !Number.isSafeInteger(deadline) || deadline <= Date.now()) throw new Error("wait requires a future ISO deadline with a timezone.");
 					if (s.wait) {
