@@ -4,7 +4,10 @@ import type { GoalCore } from "./goal-state.ts";
 import { asRecord, type GoalRecord } from "./goal-record.ts";
 import { budgetReached } from "./goal-accounting.ts";
 import { loadGoalSettings, invalidateGoalSettingsCache } from "./goal-settings.ts";
-import { newGoalScheduler, schedulerSummary, type GoalContinuation, type GoalSchedulerState } from "./goal-scheduler-state.ts";
+import { buildWaitNotice, newGoalScheduler, schedulerSummary, type GoalContinuation, type GoalSchedulerState } from "./goal-scheduler-state.ts";
+
+/** How long a wait may stay silent before the user is reminded it is still waiting. */
+const WAIT_HEARTBEAT_MS = 30 * 60_000;
 
 /** Scheduling intent is durable; timers only arrange an opportunity to claim it. */
 export class GoalScheduler {
@@ -64,16 +67,17 @@ export class GoalScheduler {
 		this.timer = setTimeout(() => { this.timer = undefined; this.safe(ctx, fn); }, Math.min(2_147_483_647, Math.max(0, delay)));
 		this.timer.unref?.();
 	}
-	private pause(ctx: ExtensionContext, reason: string): void {
+	private pause(ctx: ExtensionContext, reason: string, suggestedAction?: string): void {
 		this.cancelTimer();
 		this.core.runtime.clearContinuationState();
 		this.write(ctx, g => {
 			if (g.scheduler && g.scheduler.owner !== this.owner(ctx)) throw new Error("Scheduling ownership changed; no pause was applied.");
 			return { ...g, status: "paused", autoContinue: false, stopReason: "agent", pauseReason: reason,
+				...(suggestedAction ? { pauseSuggestedAction: suggestedAction } : {}),
 				scheduler: g.scheduler ? { ...g.scheduler, generation: randomUUID(), phase: "idle", decision: undefined, dispatch: undefined, wait: undefined } : undefined };
 		});
 		this.core.clearActiveAccounting();
-		ctx.ui.notify(reason, "warning");
+		ctx.ui.notify(suggestedAction ? `${reason}\nTo continue: ${suggestedAction}` : reason, "warning");
 	}
 	private allowanceReason(ctx: ExtensionContext): string {
 		return this.limit(ctx) === 0 ? "Automatic continuation disabled by maxAutonomousRuns=0. Change the setting in /goal-settings, then use /goal-resume." : "Autonomous-run allowance exhausted. Increase or remove maxAutonomousRuns, or use /goal-resume to renew.";
@@ -176,6 +180,8 @@ export class GoalScheduler {
 			this.declared = true;
 			this.core.runtime.markTurnStopped(goal.id);
 			const wait = goal.scheduler?.wait;
+			// Announce a new wait immediately, so its existence and deadline are never a surprise.
+			if (wait && input.kind === "wait" && !input.wait_id) ctx.ui.notify(buildWaitNotice(wait, "declared"), "info");
 			return { content: [{ type: "text", text: `Scheduling decision saved. Stop this execution.\n${schedulerSummary(goal.scheduler, this.limit(ctx))}${wait ? `\nWake token: ${wait.token}. Register this token with the producer before completion; adapters must retain early results.` : ""}` }], details: { goal, ...(wait ? { wait_id: wait.id, waitToken: wait.token } : {}) }, terminate: true };
 		} catch (error) { return { content: [{ type: "text", text: `Scheduling decision NOT saved: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true }, terminate: false }; }
 	}
@@ -278,12 +284,26 @@ export class GoalScheduler {
 			if (budgetReached(g)) { this.pause(ctx, "Goal token budget exhausted."); return; }
 			if (!this.available(ctx, s)) { this.pause(ctx, this.allowanceReason(ctx)); return; }
 			// Recovery and repair retain the wait while changing phase to ready.
-			if (s.wait && Date.now() >= s.wait.deadline) { this.pause(ctx, "Wait deadline reached."); return; }
+			if (s.wait && Date.now() >= s.wait.deadline) {
+				this.pause(ctx, `Wait deadline reached without the expected signal: ${s.wait.reason}`, "Check whether that condition happened, then /goal-resume to continue or /goal-tweak to change the plan.");
+				return;
+			}
 			if (s.phase === "waiting" && s.wait) {
 				this.core.clearActiveAccounting();
 				if (!s.wait.signalled && s.wait.remainingChecks === 0) { this.pause(ctx, "Wait check allowance exhausted."); return; }
 				if (!s.wait.signalled && (s.wait.nextCheckAt === undefined || s.wait.nextCheckAt > Date.now())) {
 					const due = Math.min(s.wait.deadline, s.wait.nextCheckAt ?? Infinity);
+					// Sleeping straight to a distant deadline is invisible; wake early
+					// to say the goal is still waiting, then re-arm. This notifies only:
+					// no allowance is spent and no model turn is dispatched.
+					if (Date.now() + WAIT_HEARTBEAT_MS < due) {
+						this.later(ctx, WAIT_HEARTBEAT_MS, () => {
+							const wait = this.core.state.goal?.scheduler?.wait;
+							if (wait) ctx.ui.notify(buildWaitNotice(wait, "heartbeat"), "info");
+							this.schedule(ctx);
+						});
+						return;
+					}
 					this.later(ctx, due - Date.now(), () => this.schedule(ctx)); return;
 				}
 			}

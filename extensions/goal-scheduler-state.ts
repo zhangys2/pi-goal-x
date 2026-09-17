@@ -54,6 +54,29 @@ export function normalizeGoalScheduler(raw: unknown): GoalSchedulerState | undef
 	return structuredClone(s);
 }
 
+/** Rounded "2h 5m" / "45s" for wait notices; the exact deadline is printed beside it. */
+export function formatWaitRemaining(ms: number): string {
+	if (ms <= 0) return "now";
+	const minutes = Math.round(ms / 60_000);
+	if (minutes < 1) return `${Math.max(1, Math.round(ms / 1000))}s`;
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	const rest = minutes % 60;
+	return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+/**
+ * The user-facing wait announcement. A wait used to be invisible until its
+ * deadline, so a goal could sleep for hours with nothing said.
+ */
+export function buildWaitNotice(wait: GoalWait, kind: "declared" | "heartbeat", now = Date.now()): string {
+	const head = kind === "declared" ? "⏳ Goal waiting" : "⏳ Goal still waiting";
+	const lines = [`${head}: ${wait.reason}`, `Deadline ${new Date(wait.deadline).toISOString()} (in ${formatWaitRemaining(wait.deadline - now)}).`];
+	if (wait.nextCheckAt !== undefined) lines.push(`Next check in ${formatWaitRemaining(wait.nextCheckAt - now)}; ${wait.remainingChecks} left.`);
+	lines.push("/goal-resume to continue now, /goal-pause to stop waiting.");
+	return lines.join("\n");
+}
+
 export function schedulerSummary(s: GoalSchedulerState | undefined, limit?: number): string {
 	const lines = [`Autonomous runs: ${s?.used ?? 0}/${limit ?? "unlimited"}${limit === 0 ? " (automatic continuation disabled)" : ""}.`];
 	if (!s) return lines.join("\n");
