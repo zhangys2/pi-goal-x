@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildGoalRunningNotification } from "../extensions/widgets/goal-notifications.ts";
+import { buildGoalAttentionNotification, buildGoalRunningNotification, notifyGoalNeedsUser } from "../extensions/widgets/goal-notifications.ts";
 import { createMockExtensionContext } from "./tui-test-utils.ts";
 
 // ── buildGoalRunningNotification unit tests ────────────────────────────
@@ -121,4 +121,46 @@ test("buildGoalRunningNotification produces consistent 3-line format", () => {
 		assert.match(lines[1]!, /├─ ⟡/);
 		assert.match(lines[2]!, /└─ (auto-continue on|manual mode)/);
 	}
+});
+
+// ── buildGoalAttentionNotification / notifyGoalNeedsUser ───────────────
+
+test("a blocked goal announces the reason, what was tried, the fix and the commands", () => {
+	const message = buildGoalAttentionNotification({
+		objective: "=== Goal ===\nObjective: Finish the roadmap",
+		status: "blocked",
+		reason: "cargo test cannot link: CC/AR point to MinGW for an MSVC target",
+		suggestedAction: "Unset CC and AR, or add .cargo/config.toml forcing MSVC tools, then /goal-resume",
+		attempts: ["unset CC only", "clang-cl override", "rust-lld linker"],
+	});
+	assert.match(message, /^⛔ Goal blocked: Finish the roadmap$/m);
+	assert.match(message, /^Why: cargo test cannot link/m);
+	assert.match(message, /^Already tried: unset CC only; clang-cl override; rust-lld linker$/m);
+	assert.match(message, /^To fix: Unset CC and AR/m);
+	assert.match(message, /\/goal-resume .*\/goal-clear to abandon\./);
+});
+
+test("a paused goal announces without inventing missing fields", () => {
+	const message = buildGoalAttentionNotification({ objective: "Ship it", status: "paused" });
+	assert.match(message, /^⏸ Goal paused: Ship it$/m);
+	assert.doesNotMatch(message, /Why:|Already tried:|To fix:/);
+});
+
+test("notifyGoalNeedsUser only fires for blocked and paused goals", () => {
+	const seen: Array<{ message: string; type?: string }> = [];
+	const ctx = { ui: { notify: (message: string, type?: "info" | "warning" | "error") => { seen.push({ message, type }); } } };
+	const base = { id: "g", objective: "Do the thing", sisyphus: false, autoContinue: true, createdAt: "t", updatedAt: "t", usage: { tokensUsed: 0, activeSeconds: 0 } };
+	notifyGoalNeedsUser(ctx, { ...base, status: "active" } as never);
+	notifyGoalNeedsUser(ctx, { ...base, status: "complete" } as never);
+	notifyGoalNeedsUser(ctx, null);
+	assert.equal(seen.length, 0, "a running or finished goal needs nothing from the user");
+	notifyGoalNeedsUser(ctx, { ...base, status: "blocked", pauseReason: "needs a decision", pauseSuggestedAction: "pick an exchange" } as never);
+	notifyGoalNeedsUser(ctx, { ...base, status: "paused", pauseReason: "user paused" } as never);
+	assert.deepEqual(seen.map((s) => s.type), ["warning", "info"]);
+	assert.match(seen[0]!.message, /To fix: pick an exchange/);
+});
+
+test("a failing notification never breaks the transition", () => {
+	const ctx = { ui: { notify: () => { throw new Error("no UI"); } } };
+	notifyGoalNeedsUser(ctx, { id: "g", objective: "x", status: "blocked", sisyphus: false, autoContinue: true, createdAt: "t", updatedAt: "t", usage: { tokensUsed: 0, activeSeconds: 0 } } as never);
 });
