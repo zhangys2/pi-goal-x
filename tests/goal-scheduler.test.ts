@@ -9,7 +9,7 @@ import type { GoalCore } from "../extensions/goal-state.ts";
 import { createGoal, goalFocusDetails, cloneGoal, normalizeGoalRecord } from "../extensions/goal-record.ts";
 import { writeActiveGoalFile, parseGoalFile } from "../extensions/storage/goal-files.ts";
 import { invalidateGoalSettingsCache, parseGoalSettings, saveGoalSettingsFileConfig, loadGoalSettings } from "../extensions/goal-settings.ts";
-import { normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
+import { buildWaitNotice, formatWaitRemaining, normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
 
 async function fixture(t: TestContext, limit?: number, owner = "owner", existing?: string) {
 	const cwd = existing ?? mkdtempSync(path.join(tmpdir(), "goal-scheduler-"));
@@ -387,4 +387,67 @@ test("a new wait must depend on a producer; a user dependency must be blocked in
 	h.core.scheduler.settled(h.ctx); h.begin();
 	const redeclared = h.core.scheduler.declare(h.ctx, { kind: "wait", wait_id: waitId, reason: "Await the remote build", deadline: new Date(h.core.state.goal!.scheduler!.wait!.deadline).toISOString() });
 	assert.equal(redeclared.terminate, true, "re-declaring an existing wait needs no depends_on");
+});
+
+test("a distant wait announces itself, reminds while waiting, and spends nothing on reminders", async t => {
+	const h = await fixture(t, 5);
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin();
+	const deadline = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+	assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await the remote build", deadline }).terminate, true);
+	assert.match(h.notifications.at(-1)!, /⏳ Goal waiting: Await the remote build/);
+	assert.match(h.notifications.at(-1)!, /in 3h\)/);
+
+	h.core.scheduler.settled(h.ctx);
+	const announced = h.notifications.length;
+	t.mock.timers.tick(29 * 60_000);
+	assert.equal(h.notifications.length, announced, "no reminder before the heartbeat");
+	t.mock.timers.tick(60_000);
+	assert.match(h.notifications.at(-1)!, /⏳ Goal still waiting: Await the remote build/);
+	assert.match(h.notifications.at(-1)!, /in 2h 30m\)/);
+	assert.equal(h.sent.length, 0, "a reminder dispatches no model turn");
+	assert.equal(h.core.state.goal?.scheduler?.used, 0, "and spends no allowance");
+	assert.equal(h.core.state.goal?.status, "active");
+
+	t.mock.timers.tick(30 * 60_000);
+	assert.match(h.notifications.at(-1)!, /still waiting/, "the wait keeps reminding");
+	t.mock.timers.tick(2 * 60 * 60_000);
+	assert.equal(h.core.state.goal?.status, "paused");
+	assert.match(h.core.state.goal?.pauseReason ?? "", /deadline reached without the expected signal: Await the remote build/);
+	assert.match(h.core.state.goal?.pauseSuggestedAction ?? "", /\/goal-resume to continue or \/goal-tweak/);
+	assert.match(h.notifications.at(-1)!, /To continue: Check whether that condition happened/);
+	assert.equal(h.sent.length, 0);
+});
+
+test("a short wait sleeps to its deadline without a reminder, and re-declaration stays quiet", async t => {
+	const h = await fixture(t, 5);
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin();
+	assert.equal(h.wait().terminate, true, "polling wait declared");
+	const declared = h.notifications.length;
+	const first = structuredClone(h.core.state.goal!.scheduler!.wait!);
+	h.core.scheduler.settled(h.ctx);
+	t.mock.timers.tick(1001);
+	assert.equal(h.notifications.length, declared, "a check inside the heartbeat window needs no reminder");
+	assert.equal(h.sent.length, 1, "the due check still dispatches");
+	h.admit();
+	h.core.scheduler.declare(h.ctx, { kind: "wait", wait_id: first.id, reason: first.reason, deadline: new Date(first.deadline).toISOString() });
+	assert.equal(h.notifications.length, declared, "re-declaring the same wait does not re-announce it");
+});
+
+test("wait notices round the remaining time and include polling state", () => {
+	assert.equal(formatWaitRemaining(-5), "now");
+	assert.equal(formatWaitRemaining(20_000), "20s");
+	assert.equal(formatWaitRemaining(45 * 60_000), "45m");
+	assert.equal(formatWaitRemaining(2 * 60 * 60_000), "2h");
+	assert.equal(formatWaitRemaining(125 * 60_000), "2h 5m");
+	const now = Date.parse("2026-09-17T12:00:00.000Z");
+	const polling = buildWaitNotice({ id: "w", token: "t", reason: "Await CI", deadline: now + 90 * 60_000, intervalMs: 600_000, remainingChecks: 2, nextCheckAt: now + 600_000 }, "declared", now);
+	assert.match(polling, /^⏳ Goal waiting: Await CI$/m);
+	assert.match(polling, /^Deadline 2026-09-17T13:30:00\.000Z \(in 1h 30m\)\.$/m);
+	assert.match(polling, /^Next check in 10m; 2 left\.$/m);
+	const plain = buildWaitNotice({ id: "w", token: "t", reason: "Await CI", deadline: now + 60_000 }, "heartbeat", now);
+	assert.match(plain, /^⏳ Goal still waiting: Await CI$/m);
+	assert.doesNotMatch(plain, /Next check/);
+	assert.match(plain, /\/goal-resume to continue now, \/goal-pause to stop waiting\./);
 });

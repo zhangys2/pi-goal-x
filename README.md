@@ -189,6 +189,8 @@ When a goal blocks, you are notified immediately with why it stopped, what the a
 
 A new wait must say what it depends on. `depends_on: "producer"` is an external condition that resolves on its own, such as a remote build. `depends_on: "user"` is rejected: anything only you can do, such as installing a tool, supplying credentials, or making a decision, is a blocker, so the goal is blocked and asks you instead of parking itself until a deadline.
 
+Waits are announced when declared, and one lasting longer than 30 minutes reminds you every 30 minutes with the time left and any remaining checks. The reminders only notify: no model turn runs and no autonomous allowance is spent. If the deadline passes without the expected signal, the goal pauses with the reason and the next step.
+
 Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.json`:
 
 ```json
