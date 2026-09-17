@@ -122,6 +122,12 @@ case task reviews are skipped too.
 
 Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
 
+## Goal report
+
+Each goal keeps one Markdown report under `.pi/goals/reports/`, rewritten once per turn that changes the goal. It holds the plan as a Mermaid DAG, the same graph again coloured by current status, a task table with timings and attempt counts, reviews and completion evidence quoted as claims rather than re-run, every block, pause and wait with how long it lasted, subagent artifacts observed during the goal, a timeline, and recommendations derived from that data — a task rejected three times, two code tasks running at once, changes outside a task's declared scope, a wait that expired, or a completion that names no verification command.
+
+Run `/goal-report` to write it immediately and see its path. Set `disableGoalReport: true` to turn it off. The report is derived state: deleting it loses nothing, and it is never added to the model's prompt. Per-task tokens and cost are not recorded yet, so the table reports time only.
+
 ## Completion auditor
 
 When enabled, a separate agent reviews the work before the goal is accepted as complete. It checks the objective, tasks, recorded evidence, completion requirements, and workspace. The goal's and tasks' completion requirements are its checklist; the objective explains what they mean.

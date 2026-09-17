@@ -15,7 +15,7 @@ import { parseGoalFile } from "../extensions/storage/goal-files.ts";
 
 const CURATED_COMMANDS = [
 	"goal", "sisyphus", "goal-direct", "sisyphus-direct", "goal-tweak", "goal-pause", "goal-resume",
-	"goal-clear", "goal-list", "goal-status", "goal-refresh", "goal-recovery", "goal-focus", "goal-unfocus", "goal-settings", "goal-cancel",
+	"goal-clear", "goal-list", "goal-status", "goal-refresh", "goal-recovery", "goal-focus", "goal-unfocus", "goal-settings", "goal-cancel", "goal-report",
 ];
 
 const REMOVED_COMMANDS = ["goals", "goals-set", "sisyphus-set", "goal-abort"];
@@ -74,7 +74,7 @@ function activeGoalFiles(cwd: string): string[] {
 	}
 }
 
-test("exactly the fourteen curated commands are registered; legacy commands are absent", () => {
+test("exactly the curated commands are registered; legacy commands are absent", () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-palette-"));
 	try {
 		const h = createHarness(cwd);

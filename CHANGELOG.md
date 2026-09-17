@@ -17,6 +17,8 @@ All notable changes to pi-goal-x are documented here.
 
 ### Added
 
+- **Goal report (#14)** — every goal keeps one Markdown report at `.pi/goals/reports/`: plan DAG and current-state flowchart (Mermaid), task table with timings, quoted reviews and evidence, blocks/pauses/waits with elapsed time, observed subagent artifacts, timeline, and recommendations derived from the report's own data (repeat rejections, overlapping code tasks, scope drift, expired waits, completions naming no verification command). Written once per turn that changed goal state, never injected into the prompt. `/goal-report` writes it on demand; `disableGoalReport: true` turns it off.
+
 - **Waits are visible** — declaring a wait announces its reason and deadline, and a wait longer than 30 minutes reminds the user every 30 minutes that it is still waiting, with the time left. Reminders notify only: they dispatch no model turn and spend no autonomous allowance. A wait that expires now pauses with its reason and what to do next.
 
 - **Blocked goals ask for help** — blocking now notifies the user with the reason, what the agent already tried, and the fix, plus the commands to resume, revise or clear. `update_goal({status: "blocked"})` requires `suggested_action` written for the user (the command, install, credential or decision that unblocks it) and records `attempted_actions`; both appear in the notification and the compact dashboard. A session start restates a blocked goal, which previously vanished across restarts. Blocked was the only stop state that notified nothing at all.

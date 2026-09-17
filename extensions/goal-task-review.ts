@@ -56,7 +56,7 @@ function gitTaskChanges(cwd: string, baseline: ReviewBaseline): { tracked: strin
 	return { tracked, untracked };
 }
 
-function gitTaskChangedFiles(cwd: string, baseline: ReviewBaseline | undefined): string[] | undefined {
+export function gitTaskChangedFiles(cwd: string, baseline: ReviewBaseline | undefined): string[] | undefined {
 	if (!baseline) return undefined;
 	try {
 		const { tracked, untracked } = gitTaskChanges(cwd, baseline);

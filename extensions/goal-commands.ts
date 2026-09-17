@@ -73,6 +73,7 @@ import {
 } from "./auditor-selector.ts";
 import type { GoalCore } from "./goal-state.ts";
 import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
+import { regenerateGoalReport } from "./goal-report-runtime.ts";
 
 /**
  * The curated twelve-command palette. /goal and /sisyphus begin guided
@@ -806,6 +807,20 @@ export function registerGoalCommands(core: GoalCore): void {
 		description: "Pause the currently running goal. Esc also pauses while running.",
 		handler: async (_rawArgs, ctx) => {
 			await handleGoalPause(ctx);
+		},
+	});
+	pi.registerCommand("goal-report", {
+		description: "Write the focused goal's report now and show its path.",
+		handler: async (_rawArgs, ctx) => {
+			core.reconcileFocusedGoalFromDisk(ctx);
+			if (!core.state.goal) { ctx.ui.notify("No goal is focused. Use /goal-focus first.", "warning"); return; }
+			if (loadGoalSettings(ctx.cwd).disableGoalReport) { ctx.ui.notify("Goal reports are disabled (disableGoalReport).", "info"); return; }
+			try {
+				const written = regenerateGoalReport(core, ctx);
+				ctx.ui.notify(written ? `Goal report written: ${written}` : "No goal report was written.", "info");
+			} catch (error) {
+				ctx.ui.notify(`Goal report failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			}
 		},
 	});
 	pi.registerCommand("goal-resume", {
