@@ -94,8 +94,16 @@ Completion evidence and prose filenames are never used for classification.
 The review sees only the task's own changes: tracked, staged, and untracked files changed since
 the task first started, or since the task list was set if it was never started. Restarting a
 rejected task keeps its original baseline. An oversized diff is marked as truncated and lists every
-changed file. Completion checks such as missing evidence run before the review, so an invalid
-completion never starts one.
+changed file. Goal and subagent runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`,
+`.pi-subagents/`) is left out of the diff. Completion checks such as missing evidence run before
+the review, so an invalid completion never starts one.
+
+Code tasks run one at a time: a code task cannot start while another started code task is still
+open, because both would share one worktree and each review would include the other's changes.
+A retry review checks the previous review's findings against the task's verification contract. If
+the same task is rejected three times in a row, the goal is blocked until you resume it with
+`/goal-resume`, for example after narrowing the task, fixing the build environment, or revising the
+contract.
 
 Every decision is recorded in the ledger as a `task_review` event: approved (written with the
 completion), rejected, failed, or skipped with its reason. The review uses the configured auditor

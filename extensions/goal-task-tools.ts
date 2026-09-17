@@ -16,7 +16,7 @@ import { goalDetails, renderGoalResult } from "./goal-format.ts";
 import { statusLabel, truncateText } from "./goal-core.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
 import { buildTaskSummary, checkSubtasksComplete, findSubtaskDepthViolation, findTaskInTree, skipAllSubtasks } from "./goal-policy.ts";
-import { gitBaseline, reviewTaskBeforeCompletion } from "./goal-task-review.ts";
+import { gitBaseline, openCodeTaskConflict, openCodeTaskConflictMessage, reviewTaskBeforeCompletion } from "./goal-task-review.ts";
 import { showTaskConfirmation, type TaskConfirmationResult } from "./goal-task-confirmation.ts";
 import {
 	SET_GOAL_TASKS_TOOL_NAME,
@@ -221,6 +221,8 @@ function batchValidationFailure(tasks: GoalTask[], specs: GoalTaskUpdateSpec[]):
  for (const spec of specs) {
   const task = findTaskInTree(tree, spec.taskId);
   if (!task) return undefined; // GoalService reports the stale task.
+  const open = spec.setCurrentTaskId && task.status === "pending" ? openCodeTaskConflict(tree, spec.taskId) : undefined;
+  if (open) return openCodeTaskConflictMessage(open, spec.taskId);
   const valid = spec.validate?.(task);
   if (valid && !valid.ok) return valid.message;
   const updated = spec.update(task);
@@ -288,7 +290,7 @@ pi.registerTool(defineTool({
 			id: Type.String({ description: "Short stable slug e.g. 'task-1'" }),
 			title: Type.String({ description: "Human-readable task title" }),
 			parent_id: Type.Optional(Type.String({ description: "Parent id; omit for roots." })),
-			verification_contract: Type.Optional(Type.String({ description: "Required completion evidence." })),
+			verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
 			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires a per-task review." })),
 			review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
 			lightweight_subtasks: Type.Optional(Type.Boolean({ description: "Children do not gate parent completion." })),
@@ -423,7 +425,7 @@ pi.registerTool(defineTool({
 	label: "Update Goal Task",
 	description: "Update task progress without stopping the turn. Use ordered updates for an atomic batch, or task_id/status for one task. An invalid update rejects the whole batch.",
 	promptSnippet: "Start, complete, skip, or reopen tasks; batch related progress.",
-	promptGuidelines: ["start requires pending and sets current task. complete requires evidence for contracted tasks and completed/skipped non-lightweight children. skipped requires a reason and explicit user direction or a hard contradiction; never skip to avoid work. pending reopens skipped tasks only; completed tasks are immutable. Completing/skipping the current task clears focus."],
+	promptGuidelines: ["start requires pending and sets current task; a code task cannot start while another started code task is unresolved. complete requires evidence naming the exact verification commands run, including environment overrides, for contracted tasks and completed/skipped non-lightweight children. skipped requires a reason and explicit user direction or a hard contradiction; never skip to avoid work. pending reopens skipped tasks only; completed tasks are immutable. Completing/skipping the current task clears focus."],
 	parameters: Type.Object({
 		task_id: Type.Optional(Type.String({ description: "Single-task form; omit with updates." })),
 		status: Type.Optional(StringEnum(["start", "complete", "skipped", "pending"] as const)),
@@ -454,7 +456,7 @@ pi.registerTool(defineTool({
     const task = findTaskInTree(core.state.goal.taskList?.tasks ?? [], update.task_id);
     if (!task) continue; // Let GoalService return its typed stale-task failure.
     const review = await reviewTaskBeforeCompletion(core, ctx, task, update.evidence);
-    if (review.failure) return fail(review.failure);
+    if (review.failure) return {...fail(review.failure), ...(review.blocked ? {terminate: true} : {})};
     if (review.approval) approvals.set(update.task_id, review.approval);
    }
    const result = core.goalService.updateTasks(ctx, specs.map((spec): GoalTaskUpdateSpec => {
@@ -494,7 +496,10 @@ pi.registerTool(defineTool({
 
 		if (params.status === "start") {
 			// Outside the update closure: GoalService retries it once on a conflicting write.
-			const startBaseline = findTaskInTree(core.state.goal.taskList.tasks, params.task_id)?.reviewBaseline ? undefined : gitBaseline(ctx.cwd);
+			const target = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
+			const open = target?.status === "pending" ? openCodeTaskConflict(core.state.goal.taskList.tasks, params.task_id) : undefined;
+			if (open) return { content: [{ type: "text", text: openCodeTaskConflictMessage(open, params.task_id) }], details: goalDetails(core.state.goal) };
+			const startBaseline = target?.reviewBaseline ? undefined : gitBaseline(ctx.cwd);
 			const result = core.goalService.updateTask(ctx, {
 				focusToken: taskFocus,
 				taskId: params.task_id,
@@ -547,7 +552,7 @@ pi.registerTool(defineTool({
 				const valid = validate(task);
 				if (!valid.ok) return { content: [{ type: "text", text: valid.message }], details: goalDetails(core.state.goal) };
 				const review = await reviewTaskBeforeCompletion(core, ctx, task, evidence);
-				if (review.failure) return { content: [{ type: "text", text: review.failure }], details: goalDetails(core.state.goal) };
+				if (review.failure) return { content: [{ type: "text", text: review.failure }], details: goalDetails(core.state.goal), ...(review.blocked ? { terminate: true } : {}) };
 				approval = review.approval;
 			}
 			const result = core.goalService.updateTask(ctx, {

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { gitBaseline, gitTaskDiff, taskNeedsCodeReview, taskReviewSkipReason } from "../extensions/goal-task-review.ts";
+import { gitBaseline, gitTaskDiff, openCodeTaskConflict, taskNeedsCodeReview, taskReviewSkipReason } from "../extensions/goal-task-review.ts";
+import type { GoalTask } from "../extensions/goal-record.ts";
 
 test("code-changing tasks require a review", () => {
 	assert.equal(taskNeedsCodeReview({ title: "Implement the parser", verificationContract: "Tests pass", changedFiles: "src/parser.ts" }), true);
@@ -36,10 +37,10 @@ test("task diff includes new untracked files and excludes pre-existing untracked
 		execFileSync("git", ["add", "tracked.txt"], { cwd });
 		writeFileSync(path.join(cwd, "new-untracked.txt"), "new\n");
 		const diff = gitTaskDiff(cwd, baseline);
-		assert.match(diff, /tracked\.txt/);
+		assert.match(diff, /tracked.txt/);
 		assert.match(diff, /after/);
-		assert.match(diff, /new-untracked\.txt/);
-		assert.doesNotMatch(diff, /old-untracked\.txt/);
+		assert.match(diff, /new-untracked.txt/);
+		assert.doesNotMatch(diff, /old-untracked.txt/);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
@@ -93,6 +94,46 @@ test("an oversized task diff says it is truncated and lists every changed file",
 		const diff = gitTaskDiff(cwd, baseline);
 		assert.match(diff, /truncated/i, "the reviewer is told the diff is incomplete");
 		assert.doesNotMatch(diff, /SMALL_CONTENT/, "fixture: small.ts content falls past the limit");
-		assert.match(diff, /small\.ts/, "files past the limit are still named");
+		assert.match(diff, /small.ts/, "files past the limit are still named");
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("task diff leaves out goal and subagent runtime state that is not ignored", () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-diff-runtime-"));
+	try {
+		execFileSync("git", ["init", "-q"], { cwd });
+		execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd });
+		execFileSync("git", ["config", "user.name", "Test"], { cwd });
+		writeFileSync(path.join(cwd, "src.rs"), "before\n");
+		execFileSync("git", ["add", "."], { cwd });
+		execFileSync("git", ["commit", "-qm", "baseline"], { cwd });
+		const baseline = gitBaseline(cwd)!;
+		mkdirSync(path.join(cwd, ".pi", "goals"), { recursive: true });
+		mkdirSync(path.join(cwd, ".pi-subagents", "artifacts"), { recursive: true });
+		writeFileSync(path.join(cwd, ".pi", "goals", "goal_events.jsonl"), "{}\n");
+		writeFileSync(path.join(cwd, ".pi", ".goals-pool-snapshot.json"), "{}\n");
+		writeFileSync(path.join(cwd, ".pi-subagents", "artifacts", "run_output.md"), "child\n");
+		writeFileSync(path.join(cwd, ".pi", "project-skill.md"), "project file\n");
+		writeFileSync(path.join(cwd, "src.rs"), "after\n");
+		const diff = gitTaskDiff(cwd, baseline);
+		assert.match(diff, /src\.rs/);
+		assert.match(diff, /project-skill\.md/, "other .pi files are still project changes");
+		assert.doesNotMatch(diff, /goal_events|goals-pool-snapshot|pi-subagents/);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a started code task blocks starting an unrelated code task", () => {
+	const baseline = { revision: "abc", untracked: {} };
+	const task = (id: string, extra: Partial<GoalTask> = {}): GoalTask => ({ id, title: id, status: "pending", ...extra });
+	const tasks = [
+		task("w1", { codeChange: true, reviewBaseline: baseline, subtasks: [task("w1a", { codeChange: true })] }),
+		task("w2", { codeChange: true }),
+		task("docs", { codeChange: false }),
+		task("done", { codeChange: true, status: "complete", reviewBaseline: baseline }),
+	];
+	assert.equal(openCodeTaskConflict(tasks, "w2")?.id, "w1");
+	assert.equal(openCodeTaskConflict(tasks, "w1"), undefined, "restarting the open task is allowed");
+	assert.equal(openCodeTaskConflict(tasks, "w1a"), undefined, "a subtask of the open task is allowed");
+	assert.equal(openCodeTaskConflict(tasks, "docs"), undefined, "a task that changes no code is allowed");
+	assert.equal(openCodeTaskConflict([tasks[1]!, tasks[3]!], "w2"), undefined, "completed tasks are not open");
 });

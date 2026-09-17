@@ -4,6 +4,17 @@ All notable changes to pi-goal-x are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Task reviews no longer see goal runtime state** — `.pi/goals/`, `.pi/.goals-pool-snapshot.json`, and `.pi-subagents/` are excluded from task review diffs. Reviewers had rejected tasks for these untracked files, and an agent then deleted them, including the active goal, with `git clean`.
+- **Task reviews converge** — a retry review receives the previous rejection and checks it against the task's verification contract. Environment failures (toolchain, linker, credentials) are reported as environment blockers, not code defects.
+
+### Changed
+
+- **One code task at a time** — `update_goal_task` refuses to start a code task while another started code task is unresolved, so review diffs stay scoped to one task.
+- **Rejection cap** — three consecutive rejected reviews of the same task block the goal until `/goal-resume`.
+- Goal drafting asks for small, independently reviewable code tasks whose verification contracts list the tests, exact commands, and out-of-scope files, and for a toolchain check before confirming build-dependent goals.
+
 ## [0.31.4] — 2026-09-14
 
 ### Changed

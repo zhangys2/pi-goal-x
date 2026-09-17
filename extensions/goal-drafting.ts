@@ -229,7 +229,7 @@ function flatTaskSchema() {
 		id: Type.String({ description: "Short stable slug, for example task-1." }),
 		title: Type.String({ description: "Human-readable task title." }),
 		parent_id: Type.Optional(Type.String({ description: "Optional parent task id in this proposal." })),
-		verification_contract: Type.Optional(Type.String({ description: "Evidence required for this task." })),
+		verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
 		code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires review." })),
 		review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
 		lightweight_subtasks: Type.Optional(Type.Boolean({ description: "True only for a task with lightweight children." })),

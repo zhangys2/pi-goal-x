@@ -328,6 +328,70 @@ test("a task that is not reviewed records why", async () => {
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("a code task cannot start while another started code task is unresolved", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-overlap-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const h = createHarness(cwd, { runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "One code task at a time", autoContinue: false, sisyphus: false, taskList: { tasks: [
+			{ id: "w1", title: "Implement w1", status: "pending", codeChange: true },
+			{ id: "w2", title: "Implement w2", status: "pending", codeChange: true },
+			{ id: "docs", title: "Write docs", status: "pending", codeChange: false },
+		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		await callTool(h, "update_goal_task", "overlap-start-w1", { task_id: "w1", status: "start" });
+		const single = await callTool(h, "update_goal_task", "overlap-start-w2", { task_id: "w2", status: "start" });
+		assert.match(single.content[0].text, /cannot start while code task "w1"/);
+		const batch = await callTool(h, "update_goal_task", "overlap-batch-w2", { updates: [{ task_id: "w2", status: "start" }] });
+		assert.match(batch.content[0].text, /cannot start while code task "w1"/);
+		const docs = await callTool(h, "update_goal_task", "overlap-start-docs", { task_id: "docs", status: "start" });
+		assert.match(docs.content[0].text, /^Started docs/, "a task that changes no code may start");
+		const sequential = await callTool(h, "update_goal_task", "overlap-batch-sequential", { updates: [
+			{ task_id: "w1", status: "complete", evidence: "done" },
+			{ task_id: "w2", status: "start" },
+		] });
+		assert.doesNotMatch(sequential.content[0].text, /cannot start/, "completing the open task in the same batch frees the next start");
+		assert.equal(currentGoal(cwd)!.taskList!.tasks[1]!.reviewBaseline !== undefined, true);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("consecutive task review rejections converge, then block the goal until the user resumes", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-cap-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const previousReports: Array<string | null | undefined> = [];
+	const h = createHarness(cwd, { runTaskReview: async (args: any) => {
+		previousReports.push(args.previousAuditReport);
+		return { approved: false, disapproved: true, output: `finding ${previousReports.length}\n<disapproved/>` };
+	} });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Rejection cap", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		const complete = (n: number) => callTool(h, "update_goal_task", `cap-complete-${n}`, { task_id: "code", status: "complete", evidence: "tests pass" });
+		const first = await complete(1);
+		assert.match(first.content[0].text, /remains pending/);
+		assert.equal(first.terminate, undefined);
+		await complete(2);
+		assert.equal(previousReports[0], undefined, "the first review has no previous findings");
+		assert.match(previousReports[1]!, /finding 1/, "a retry review re-checks the previous findings");
+		const third = await complete(3);
+		assert.match(third.content[0].text, /3 consecutive code reviews/);
+		assert.equal(third.terminate, true, "the blocking rejection stops the turn");
+		assert.equal(currentGoal(cwd)!.status, "blocked");
+		assert.ok(ledgerEvents(cwd).some((event) => event.type === "goal_blocked" && event.source === "system"));
+		const refused = await complete(4);
+		assert.match(refused.content[0].text, /applies only to an active goal/);
+		assert.equal(previousReports.length, 3, "a blocked goal runs no further reviews");
+
+		await h.commands.get("goal-resume")!.handler("", h.ctx);
+		assert.equal(currentGoal(cwd)!.status, "active");
+		const afterResume = await complete(5);
+		assert.match(afterResume.content[0].text, /remains pending/, "the user's resume resets the rejection count");
+		assert.equal(previousReports[3], undefined, "findings from before the resume are not carried over");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("full guided lifecycle: create → focus → tasks → audit → archive (§19.9)", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-lifecycle-e2e-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });

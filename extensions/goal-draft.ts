@@ -147,6 +147,8 @@ export function goalDraftingPrompt(topic: string, focus: GoalDraftingFocus): str
 		"- The goal contract should make the objective, success criteria, boundaries, constraints, and blocker rule explicit.",
 		"- Keep grilling assumptions until the objective, success criteria, boundaries, constraints, and blocker rule are clear enough to confirm.",
 		"- If the objective naturally decomposes into trackable milestones, you MUST include the task list in the `tasks` parameter of `propose_goal_draft` so the user can accept both goal and tasks in a single confirmation dialog. Do NOT propose the goal without tasks and then call `propose_task_list` separately.",
+		"- Size each code-changing task as one independently reviewable change. Its verification_contract is the acceptance checklist, fixed before coding: the tests to add, the exact verification commands, and the files or areas it must not touch. Code tasks run one at a time, and a task rejected by three consecutive reviews blocks the goal.",
+		"- If verification depends on a build or test command, check that it runs in this environment before confirming; if it does not, make fixing the toolchain the first task.",
 		"- For simple single-step goals, no task list is required. The `tasks` parameter can be omitted.",
 		"- After goal creation, `propose_task_list` is still available for user-requested task additions or structural changes.",
 		"- propose_goal_draft opens the user's Confirm / Continue Chatting dialog. Confirm creates and focuses the goal; Continue Chatting means keep refining through normal proposal cycles.",
