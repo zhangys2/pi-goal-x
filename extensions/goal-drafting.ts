@@ -13,6 +13,7 @@ import { currentTaskIdIsPending, nowIso, type GoalRecord, type GoalTaskList } fr
 import type { GoalCore } from "./goal-state.ts";
 import { convertFlatTasks, countTasks, mergeTasksWithExisting, type FlatTaskInput } from "./goal-task-tools.ts";
 import { gitBaseline } from "./goal-task-review.ts";
+import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 import { PROPOSE_DRAFT_TOOL_NAME, QUESTIONNAIRE_TOOL_NAME, QUESTION_TOOL_NAME } from "./goal-tool-names.ts";
 
 export type GoalDraftMode = GoalDraftingFocus | "tweak";
@@ -389,6 +390,7 @@ export function registerDraftingTools(core: GoalCore): void {
 					const derived = deriveTasksFromObjective(extracted.objective);
 					return derived && derived.length > 0 ? { tasks: derived, blockCompletion: false, proposedAt: nowIso() } : undefined;
 				})();
+				await offerProjectOrchestrationSetup(core, ctx);
 				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract);
 				clearGoalDrafting(core, ctx);
 				const created = core.state.goal;

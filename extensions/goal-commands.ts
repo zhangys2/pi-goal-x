@@ -72,6 +72,7 @@ import {
 	type AuditorChoice,
 } from "./auditor-selector.ts";
 import type { GoalCore } from "./goal-state.ts";
+import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 
 /**
  * The curated twelve-command palette. /goal and /sisyphus begin guided
@@ -177,7 +178,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		ctx.ui.notify(`Goal unfocused for this session. It remains open in .pi/goals: ${current.id}`, "info");
 	}
 
-	function handleDirectGoalSet(rawObjective: string, ctx: ExtensionContext, mode: GoalMode): void {
+	async function handleDirectGoalSet(rawObjective: string, ctx: ExtensionContext, mode: GoalMode): Promise<void> {
 		const raw = rawObjective.trim();
 		if (!raw) {
 			const command = mode === "sisyphus" ? "/sisyphus <objective>" : "/goal <objective>";
@@ -193,6 +194,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		clearGoalDrafting(core, ctx);
 		core.clearContinuationState();
 		core.clearActiveAccounting();
+		await offerProjectOrchestrationSetup(core, ctx);
 		core.replaceGoal({ objective, autoContinue: true, sisyphus: mode === "sisyphus" }, ctx, true, verificationContract);
 	}
 
@@ -738,11 +740,11 @@ export function registerGoalCommands(core: GoalCore): void {
 	});
 	pi.registerCommand("goal-direct", {
 		description: "Create and start a regular goal immediately, without drafting.",
-		handler: async (rawArgs, ctx) => { handleDirectGoalSet(rawArgs, ctx, "goal"); },
+		handler: async (rawArgs, ctx) => { await handleDirectGoalSet(rawArgs, ctx, "goal"); },
 	});
 	pi.registerCommand("sisyphus-direct", {
 		description: "Create and start a Sisyphus goal immediately, without drafting.",
-		handler: async (rawArgs, ctx) => { handleDirectGoalSet(rawArgs, ctx, "sisyphus"); },
+		handler: async (rawArgs, ctx) => { await handleDirectGoalSet(rawArgs, ctx, "sisyphus"); },
 	});
 	pi.registerCommand("goal-list", {
 		description: "List all open goals and the current focus.",

@@ -15,6 +15,11 @@ All notable changes to pi-goal-x are documented here.
 - **Rejection cap** — three consecutive rejected reviews of the same task block the goal until `/goal-resume`.
 - Goal drafting asks for small, independently reviewable code tasks whose verification contracts list the tests, exact commands, and out-of-scope files, and for a toolchain check before confirming build-dependent goals.
 
+### Added
+
+- **Project setup check** — when a goal is created in a git repository, goal-x reports existing `.pi/settings.json` subagent settings and `.pi/agents/*.md`, and checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. If rules are missing, it explains why and asks whether to add them to `.git/info/exclude`, `.gitignore`, or nowhere. It asks once per repository per session, and never writes without a choice or without a UI. It never creates agent or settings files.
+- **Isolated implementation workers** — while a goal is active, a `subagent` launch that runs `worker` (or its aliases) without a `worktree` value gets `worktree: true` when the working tree is clean. An explicit `worktree` is kept, and nothing is written to the project.
+
 ## [0.31.4] — 2026-09-14
 
 ### Changed

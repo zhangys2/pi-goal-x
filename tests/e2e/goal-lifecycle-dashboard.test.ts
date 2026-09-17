@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -353,6 +353,32 @@ test("a code task cannot start while another started code task is unresolved", a
 		] });
 		assert.doesNotMatch(sequential.content[0].text, /cannot start/, "completing the open task in the same batch frees the next start");
 		assert.equal(currentGoal(cwd)!.taskList!.tasks[1]!.reviewBaseline !== undefined, true);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("goal creation offers project setup first, and an active goal isolates worker launches", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-project-setup-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const h = createHarness(cwd);
+	const prompts: string[] = [];
+	(h.ctx.ui as any).select = async (title: string) => { prompts.push(title); return undefined; };
+	try {
+		await h.sessionStart();
+		const launch = () => ({ toolName: "subagent", toolCallId: "sub-1", input: { workflowScript: "return runs.run('impl', {agent:'worker', task:'build'})" } as Record<string, unknown> });
+		const beforeGoal = launch();
+		await h.handlers.get("tool_call")!(beforeGoal, h.ctx);
+		assert.equal(beforeGoal.input.worktree, undefined, "without an active goal, subagent launches are untouched");
+
+		await h.commands.get("goal-direct")!.handler("Ship the feature", h.ctx);
+		assert.equal(prompts.length, 1, "the unignored .pi-subagents/ path is proposed before the goal starts");
+		assert.match(prompts[0]!, /\.pi-subagents\//);
+		assert.equal(currentGoal(cwd)!.status, "active", "skipping the proposal still creates the goal");
+		assert.doesNotMatch(readFileSync(path.join(cwd, ".gitignore"), "utf8"), /pi-subagents/, "a skipped proposal writes nothing");
+
+		const duringGoal = launch();
+		await h.handlers.get("tool_call")!(duringGoal, h.ctx);
+		assert.equal(duringGoal.input.worktree, true);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

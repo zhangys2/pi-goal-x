@@ -40,6 +40,7 @@
     "./tests/goal-policy.test.ts",
     "./tests/goal-pool-snapshot.test.ts",
     "./tests/goal-pool.test.ts",
+    "./tests/goal-project-config.test.ts",
     "./tests/goal-prompts.test.ts",
     "./tests/goal-questionnaire.test.ts",
     "./tests/goal-record.test.ts",
