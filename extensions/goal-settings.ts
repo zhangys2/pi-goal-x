@@ -94,6 +94,8 @@ export interface GoalSettingsResolvedShape {
 	disableContracts?: boolean;
 	/** Disable the per-task code review gate without disabling goal auditing. */
 	disableTaskReviews?: boolean;
+	/** Turn off the per-goal Markdown report. */
+	disableGoalReport?: boolean;
 	/** Task categories (review_type) that skip the per-task review gate. */
 	taskReviewExcludedTypes?: string[];
 	subtaskDepth?: number;
@@ -330,6 +332,7 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 	"disableTasks",
 	"disableContracts",
 	"disableTaskReviews",
+	"disableGoalReport",
 	"taskReviewExcludedTypes",
 	"subtaskDepth",
 	"provider",
@@ -395,6 +398,7 @@ export function parseSettingsLayer(
 			case "disableTasks":
 			case "disableContracts":
 			case "disableTaskReviews":
+			case "disableGoalReport":
 			case "disabled":
 			case "autoSelectSingleGoal":
 			case "auditorProjectResources":
@@ -754,6 +758,11 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		globalValue: global.layer.disableTaskReviews,
 		defaultValue: false,
 	}));
+	const disableGoalReport = track("disableGoalReport", resolveLeaf<boolean>({
+		projectValue: project.layer.disableGoalReport,
+		globalValue: global.layer.disableGoalReport,
+		defaultValue: false,
+	}));
 	const taskReviewExcludedTypes = track("taskReviewExcludedTypes", resolveLeaf<string[]>({
 		projectValue: project.layer.taskReviewExcludedTypes,
 		globalValue: global.layer.taskReviewExcludedTypes,
@@ -903,6 +912,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		disableTasks,
 		disableContracts,
 		disableTaskReviews,
+		disableGoalReport,
 		...(taskReviewExcludedTypes ? { taskReviewExcludedTypes } : {}),
 		subtaskDepth,
 		...(provider ? { provider } : {}),
@@ -1245,6 +1255,7 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 	if (settings.disableTasks !== undefined) persisted.disableTasks = settings.disableTasks;
 	if (settings.disableContracts !== undefined) persisted.disableContracts = settings.disableContracts;
 	if (settings.disableTaskReviews !== undefined) persisted.disableTaskReviews = settings.disableTaskReviews;
+	if (settings.disableGoalReport !== undefined) persisted.disableGoalReport = settings.disableGoalReport;
 	if (settings.taskReviewExcludedTypes) persisted.taskReviewExcludedTypes = [...settings.taskReviewExcludedTypes];
 	if (settings.subtaskDepth !== undefined) persisted.subtaskDepth = settings.subtaskDepth;
 	if (settings.autoSelectSingleGoal !== undefined) persisted.autoSelectSingleGoal = settings.autoSelectSingleGoal;

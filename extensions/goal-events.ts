@@ -36,6 +36,7 @@ import type { GoalMutationOutcome } from "./goal-service.ts";
 import { defaultWorkerWorktree } from "./goal-project-config.ts";
 import { clearCommitGuardAsk, commitGuardBlockReason } from "./goal-commit-guard.ts";
 import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
+import { regenerateGoalReportIfChanged } from "./goal-report-runtime.ts";
 
 /**
  * Issue #30: provider-context checkpoint compaction (pure helper).
@@ -210,6 +211,8 @@ export function registerGoalEvents(core: GoalCore): void {
 			return;
 		}
 		core.refreshGoalDisplayFromDisk(ctx);
+		// One report write per turn that changed goal state, before any archival.
+		regenerateGoalReportIfChanged(core, ctx);
 
 		// Archive a goal that was marked complete but whose archival was deferred
 		// so the agent could see/recognize the audit result first.
