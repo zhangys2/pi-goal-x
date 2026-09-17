@@ -328,6 +328,67 @@ test("a task that is not reviewed records why", async () => {
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("a turn that changes goal state writes one report; an unchanged turn writes none", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-report-e2e-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	initGitRepo(cwd);
+	const h = createHarness(cwd, { runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
+	const reportPath = () => {
+		try { return readdirSync(path.join(cwd, ".pi", "goals", "reports")).filter((n) => n.endsWith(".md")); } catch { return []; }
+	};
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Ship the report", autoContinue: false, sisyphus: false, taskList: { tasks: [
+			{ id: "w1", title: "Implement it", status: "pending", codeChange: true, verificationContract: "Run the tests. Do not modify README.md." },
+		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		assert.deepEqual(reportPath(), [], "no report before a turn ends");
+
+		await callTool(h, "update_goal_task", "report-start", { task_id: "w1", status: "start" });
+		await h.turnEnd();
+		const files = reportPath();
+		assert.equal(files.length, 1, "one report per goal");
+		const first = readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8");
+		assert.match(first, /# Goal report: Ship the report/);
+		assert.match(first, /class t_w1 in_progress/);
+
+		const before = readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8");
+		await h.turnEnd();
+		assert.equal(readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8"), before, "a turn that changed nothing rewrites nothing");
+
+		await callTool(h, "update_goal_task", "report-complete", { task_id: "w1", status: "complete", evidence: "npm test passes" });
+		await h.turnEnd();
+		const after = readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8");
+		assert.match(after, /class t_w1 complete/);
+		assert.match(after, /Evidence \(quoted, not re-run\): npm test passes/);
+		assert.equal(reportPath().length, 1, "the same goal keeps one report file");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("goal reports can be turned off, and /goal-report writes on demand", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-report-off-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ disableGoalReport: true }), "utf8");
+	const h = createHarness(cwd);
+	const reports = () => { try { return readdirSync(path.join(cwd, ".pi", "goals", "reports")); } catch { return []; } };
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Quiet goal", autoContinue: false, sisyphus: false }, h.ctx);
+		await h.turnEnd();
+		assert.deepEqual(reports(), [], "disabled reports write nothing");
+		await h.commands.get("goal-report")!.handler("", h.ctx);
+		assert.deepEqual(reports(), [], "and the command respects the setting");
+		assert.match(h.notifications.at(-1)!, /disabled/);
+
+		rmSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"));
+		const live = createHarness(cwd);
+		await live.sessionStart();
+		live.core.replaceGoal({ objective: "Loud goal", autoContinue: false, sisyphus: false }, live.ctx);
+		await live.commands.get("goal-report")!.handler("", live.ctx);
+		assert.equal(reports().length, 1);
+		assert.match(live.notifications.at(-1)!, /Goal report written: \.pi\/goals\/reports\/report_/);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("blocking notifies the user with the fix, and a restart restates it", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-block-notify-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
