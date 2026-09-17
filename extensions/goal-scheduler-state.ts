@@ -24,7 +24,7 @@ export interface GoalSchedulerState {
 }
 export type GoalContinuation =
 	| { kind: "ready"; next_action: string }
-	| { kind: "wait"; reason: string; deadline: string; wait_id?: string; polling?: { interval_seconds: number; max_checks: number } };
+	| { kind: "wait"; reason: string; deadline: string; depends_on?: "producer" | "user"; wait_id?: string; polling?: { interval_seconds: number; max_checks: number } };
 
 export function newGoalScheduler(owner: string): GoalSchedulerState {
 	return { version: 1, owner, generation: randomUUID(), used: 0, phase: "idle", repairUsed: false };

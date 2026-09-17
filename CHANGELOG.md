@@ -17,6 +17,9 @@ All notable changes to pi-goal-x are documented here.
 
 ### Added
 
+- **Waits cannot hide a blocker** — a new `wait` continuation declares `depends_on`. `"producer"` is an external condition that resolves itself; `"user"` is rejected with a pointer to `update_goal({status: "blocked"})`, so a goal asks instead of parking itself until a deadline. Re-declaring an existing `wait_id` is unchanged.
+- **Pre-existing work guard** — while a goal is active, the first `git add -A` / `git commit -a` style command that would sweep in paths already modified when the goal started is blocked, naming those paths, so the agent asks the user first. The next user-initiated run clears the gate, and commits that name their own paths are never affected.
+
 - **Project setup check** — when a goal is created in a git repository, goal-x reports existing `.pi/settings.json` subagent settings and `.pi/agents/*.md`, and checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. If rules are missing, it explains why and asks whether to add them to `.git/info/exclude`, `.gitignore`, or nowhere. It asks once per repository per session, and never writes without a choice or without a UI. It never creates agent or settings files.
 - **Isolated implementation workers** — while a goal is active, a `subagent` launch that runs `worker` (or its aliases) without a `worktree` value gets `worktree: true` when the working tree is clean. An explicit `worktree` is kept, and nothing is written to the project.
 

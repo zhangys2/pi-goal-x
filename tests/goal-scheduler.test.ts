@@ -44,7 +44,7 @@ async function fixture(t: TestContext, limit?: number, owner = "owner", existing
 	const begin = () => core.scheduler.begin(ctx);
 	const admit = () => { begin(); core.scheduler.message(ctx, { ...sent.at(-1), role: "custom" }); };
 	const ready = () => core.scheduler.declare(ctx, { kind: "ready", next_action: "Inspect the next result" });
-	const wait = () => core.scheduler.declare(ctx, { kind: "wait", reason: "Await fixture job", deadline: new Date(Date.now() + 10000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
+	const wait = () => core.scheduler.declare(ctx, { kind: "wait", depends_on: "producer", reason: "Await fixture job", deadline: new Date(Date.now() + 10000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
 	return { cwd, ctx, core, handlers, tools, sent, notifications, begin, admit, ready, wait, pi, aborts: () => aborts };
 }
 
@@ -187,7 +187,7 @@ test("waiting restores with no catch-up; claimed dispatch never replays", async 
 test("deadline expiration and another session cannot wake a sleeping goal", async t => {
 	const h = await fixture(t, 5);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-	h.begin(); h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "External event", deadline: new Date(Date.now() + 2000).toISOString() });
+	h.begin(); h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "External event", deadline: new Date(Date.now() + 2000).toISOString() });
 	h.core.scheduler.settled(h.ctx);
 	const other = await fixture(t, undefined, "other-owner", h.cwd);
 	other.core.scheduler.restore(other.ctx);
@@ -260,7 +260,7 @@ for (const kind of ["recovery", "repair"] as const) {
 			const h = await fixture(t, 10);
 			t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 			h.begin();
-			assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } }).terminate, true);
+			assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } }).terminate, true);
 			h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
 			let busy = true;
 			const ctx = { ...h.ctx, isIdle: () => !busy };
@@ -285,7 +285,7 @@ test("network backoff crossing a wait deadline cannot dispatch recovery", async 
 	const h = await fixture(t);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 	h.begin();
-	h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
+	h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
 	h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
 	h.core.scheduler.settled(h.ctx, false);
 	const plan = h.core.runtime.scheduleNetworkErrorRetry(h.ctx, h.core.state.goal!);
@@ -365,4 +365,26 @@ test("explicit resume during an execution waits for settlement and dispatches ki
 	t.mock.timers.tick(1);
 	assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "kickoff");
 	assert.equal(h.core.state.goal?.scheduler?.used, 1);
+});
+
+const resultText = (result: { content: readonly unknown[] }) => (result.content[0] as { text: string }).text;
+
+test("a new wait must depend on a producer; a user dependency must be blocked instead", async t => {
+	const h = await fixture(t, 5);
+	const deadline = () => new Date(Date.now() + 10000).toISOString();
+	h.begin();
+	const missing = h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await MSVC", deadline: deadline() } as never);
+	assert.equal(missing.terminate, false);
+	assert.match(resultText(missing), /requires depends_on/);
+	const onUser = h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "user", reason: "The user must install MSVC", deadline: deadline() });
+	assert.equal(onUser.terminate, false);
+	assert.match(resultText(onUser), /blocked/);
+	assert.equal(h.core.state.goal?.scheduler?.wait, undefined, "a rejected wait changes no state");
+	assert.equal(h.core.state.goal?.status, "active");
+	const onProducer = h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await the remote build", deadline: deadline() });
+	assert.equal(onProducer.terminate, true);
+	const waitId = h.core.state.goal!.scheduler!.wait!.id;
+	h.core.scheduler.settled(h.ctx); h.begin();
+	const redeclared = h.core.scheduler.declare(h.ctx, { kind: "wait", wait_id: waitId, reason: "Await the remote build", deadline: new Date(h.core.state.goal!.scheduler!.wait!.deadline).toISOString() });
+	assert.equal(redeclared.terminate, true, "re-declaring an existing wait needs no depends_on");
 });

@@ -33,7 +33,7 @@ const server = http.createServer(async (req, res) => {
 	if (n === 1) call = ['write', { path: 'sample.txt', content: 'fixture' }];
 	if (n === 2 || n === 6) call = ['update_goal', { continuation: { kind: 'ready', next_action: 'Inspect the fixture result' } }];
 	if (n === 3 || n === 5) call = ['read', { path: 'sample.txt' }];
-	if (n === 4) call = ['update_goal', { continuation: { kind: 'wait', reason: 'Await producer', deadline: new Date(Date.now() + 15000).toISOString(), polling: { interval_seconds: 10, max_checks: 1 } } }];
+	if (n === 4) call = ['update_goal', { continuation: { kind: 'wait', depends_on: 'producer', reason: 'Await producer', deadline: new Date(Date.now() + 15000).toISOString(), polling: { interval_seconds: 10, max_checks: 1 } } }];
 	res.writeHead(200, { 'content-type': 'text/event-stream' });
 	const emit = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
 	if (call) {

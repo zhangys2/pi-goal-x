@@ -39,6 +39,8 @@ If you already have a complete objective, use `/goal-direct <objective>` to crea
 
 goal-x never adds Pi configuration to a repository on its own. When a goal is created in a git repository, it reports any existing `.pi/settings.json` subagent settings and `.pi/agents/*.md` files. It also checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. Untracked runtime state blocks subagent worktree isolation, which needs a clean working tree. It also clutters `git status`, and cleanup commands such as `git clean` can delete the active goal. If rules are missing, goal-x explains this and asks where to add them: `.git/info/exclude` (this machine only), `.gitignore` (shared), or nowhere. It asks once per repository per session. Without a UI, it only reports.
 
+While a goal is active, the first command that would commit everything (`git add -A`, `git commit -a`) is blocked when it would include paths that were already modified or untracked when the goal started. The block names those paths so the agent asks you what to do with your own work. After you answer, the next run may proceed; commits that name their own paths are never blocked.
+
 While a goal is active, `subagent` launches that run an implementation `worker` (or its aliases) default to `worktree: true` when the working tree is clean, so parallel workers do not share the parent's worktree. This needs no project files. An explicit `worktree` value is always kept.
 
 ## Goal types
@@ -183,6 +185,8 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 
 Goals no longer restart merely because they remain unfinished or a tool was used. Before yielding, the agent declares runnable work or an external wait using `update_goal`, or reports complete, paused, or blocked. A missing decision permits one repair prompt within the remaining allowance, then pauses.
 
+A new wait must say what it depends on. `depends_on: "producer"` is an external condition that resolves on its own, such as a remote build. `depends_on: "user"` is rejected: anything only you can do, such as installing a tool, supplying credentials, or making a decision, is a blocker, so the goal is blocked and asks you instead of parking itself until a deadline.
+
 Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.json`:
 
 ```json
@@ -194,7 +198,7 @@ Agents may edit this setting. Changing it does not replenish consumed runs; expl
 ```js
 update_goal({ continuation: { kind: "ready", next_action: "Verify the build artifacts" } })
 update_goal({ continuation: {
-  kind: "wait", reason: "Await the remote build",
+  kind: "wait", depends_on: "producer", reason: "Await the remote build",
   deadline: "2026-09-15T12:00:00Z",
   polling: { interval_seconds: 60, max_checks: 3 }
 } })

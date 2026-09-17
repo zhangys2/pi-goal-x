@@ -19,7 +19,7 @@ const MAX_TASK_REVIEW_REJECTIONS = 3;
 
 // Goal and subagent runtime state changes during every task. Reviewers that saw it
 // rejected tasks as out of scope, and agents then deleted it with `git clean`.
-const RUNTIME_STATE_PATHSPECS = [".", ":(exclude).pi/goals", ":(exclude).pi/.goals-pool-snapshot.json", ":(exclude).pi-subagents"];
+export const RUNTIME_STATE_PATHSPECS = [".", ":(exclude).pi/goals", ":(exclude).pi/.goals-pool-snapshot.json", ":(exclude).pi-subagents"];
 
 function git(cwd: string, args: string[], input?: string): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8", input, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "ignore"] });

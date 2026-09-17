@@ -34,6 +34,7 @@ import type { GoalCore } from "./goal-state.ts";
 import { filterGoalSessionContext } from "./goal-session-safety.ts";
 import type { GoalMutationOutcome } from "./goal-service.ts";
 import { defaultWorkerWorktree } from "./goal-project-config.ts";
+import { clearCommitGuardAsk, commitGuardBlockReason } from "./goal-commit-guard.ts";
 
 /**
  * Issue #30: provider-context checkpoint compaction (pure helper).
@@ -143,6 +144,13 @@ export function registerGoalEvents(core: GoalCore): void {
 					`Goal ${checkpointGoalId} has been paused, cleared, or replaced. ` +
 					`End the turn with a brief summary and yield to the user.`,
 			};
+		}
+		if (event.toolName === "bash") {
+			const command = (event.input as { command?: unknown } | undefined)?.command;
+			if (typeof command === "string") {
+				const reason = commitGuardBlockReason(core, ctx, command);
+				if (reason) return { block: true, reason };
+			}
 		}
 		if (event.toolName === "subagent" && core.state.goal?.status === "active") {
 			defaultWorkerWorktree(event.input as Record<string, unknown>, ctx.cwd);
@@ -387,6 +395,8 @@ export function registerGoalEvents(core: GoalCore): void {
 			core.runtime.setCheckpoint(null);
 			core.clearContinuationState();
 			networkErrorRecoveryAfterSettleFor = null;
+			// The user has spoken, so an approved sweeping commit may proceed.
+			clearCommitGuardAsk(core.state.goal?.id ?? null);
 		}
 
 		if (!core.state.goal) {
