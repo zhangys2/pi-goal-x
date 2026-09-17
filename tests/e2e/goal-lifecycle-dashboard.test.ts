@@ -328,6 +328,49 @@ test("a task that is not reviewed records why", async () => {
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("blocking notifies the user with the fix, and a restart restates it", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-block-notify-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	const h = createHarness(cwd);
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Finish the roadmap", autoContinue: false, sisyphus: false }, h.ctx);
+		const before = h.notifications.length;
+
+		const refused = await callTool(h, "update_goal", "block-no-action", { status: "blocked", reason: "cargo cannot link with MinGW CC/AR" });
+		assert.match(refused.content[0].text, /requires a "suggested_action"/);
+		assert.equal(currentGoal(cwd)!.status, "active", "a block without a fix suggestion changes nothing");
+		assert.equal(h.notifications.length, before, "and notifies nothing");
+
+		const blocked = await callTool(h, "update_goal", "block-1", {
+			status: "blocked",
+			reason: "cargo cannot link with MinGW CC/AR",
+			suggested_action: "Unset CC and AR, then /goal-resume",
+			attempted_actions: ["unset CC only", "clang-cl override"],
+		});
+		assert.equal(blocked.terminate, true);
+		const goal = currentGoal(cwd)!;
+		assert.equal(goal.status, "blocked");
+		assert.equal(goal.pauseSuggestedAction, "Unset CC and AR, then /goal-resume");
+		assert.deepEqual(goal.blockedAttempts, ["unset CC only", "clang-cl override"]);
+		const notice = h.notifications.at(-1)!;
+		assert.match(notice, /⛔ Goal blocked: Finish the roadmap/);
+		assert.match(notice, /Why: cargo cannot link/);
+		assert.match(notice, /Already tried: unset CC only; clang-cl override/);
+		assert.match(notice, /To fix: Unset CC and AR/);
+
+		// Blocked details render in the compact dashboard.
+		const dashboard = dashboardText(goal, false, cwd);
+		assert.match(dashboard, /Blocker\s+cargo cannot link/);
+		assert.match(dashboard, /Tried\s+unset CC only; clang-cl override/);
+		assert.match(dashboard, /Action\s+Unset CC and AR/);
+
+		const beforeRestart = h.notifications.length;
+		await h.sessionStart();
+		assert.match(h.notifications.slice(beforeRestart).join("\n"), /⛔ Goal blocked: Finish the roadmap[\s\S]*To fix: Unset CC and AR/, "a session start restates the blocked goal instead of hiding it");
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("a code task cannot start while another started code task is unresolved", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-overlap-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });

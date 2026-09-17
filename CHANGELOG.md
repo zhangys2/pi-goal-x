@@ -17,6 +17,8 @@ All notable changes to pi-goal-x are documented here.
 
 ### Added
 
+- **Blocked goals ask for help** — blocking now notifies the user with the reason, what the agent already tried, and the fix, plus the commands to resume, revise or clear. `update_goal({status: "blocked"})` requires `suggested_action` written for the user (the command, install, credential or decision that unblocks it) and records `attempted_actions`; both appear in the notification and the compact dashboard. A session start restates a blocked goal, which previously vanished across restarts. Blocked was the only stop state that notified nothing at all.
+
 - **Waits cannot hide a blocker** — a new `wait` continuation declares `depends_on`. `"producer"` is an external condition that resolves itself; `"user"` is rejected with a pointer to `update_goal({status: "blocked"})`, so a goal asks instead of parking itself until a deadline. Re-declaring an existing `wait_id` is unchanged.
 - **Pre-existing work guard** — while a goal is active, the first `git add -A` / `git commit -a` style command that would sweep in paths already modified when the goal started is blocked, naming those paths, so the agent asks the user first. The next user-initiated run clears the gate, and commits that name their own paths are never affected.
 

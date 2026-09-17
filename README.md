@@ -185,6 +185,8 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 
 Goals no longer restart merely because they remain unfinished or a tool was used. Before yielding, the agent declares runnable work or an external wait using `update_goal`, or reports complete, paused, or blocked. A missing decision permits one repair prompt within the remaining allowance, then pauses.
 
+When a goal blocks, you are notified immediately with why it stopped, what the agent already tried, and what you can do about it, followed by `/goal-resume`, `/goal-tweak` and `/goal-clear`. The same details appear in the dashboard, and a blocked goal is restated when a session starts, so it cannot go unnoticed. Blocking therefore requires the agent to supply `suggested_action` addressed to you.
+
 A new wait must say what it depends on. `depends_on: "producer"` is an external condition that resolves on its own, such as a remote build. `depends_on: "user"` is rejected: anything only you can do, such as installing a tool, supplying credentials, or making a decision, is a blocker, so the goal is blocked and asks you instead of parking itself until a deadline.
 
 Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.json`:

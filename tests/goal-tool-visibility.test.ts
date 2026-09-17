@@ -260,7 +260,7 @@ describe("Applicable tool profiles", () => {
 			// update_goal(blocked) transitions active -> blocked; only creation/inspection remain.
 			const update = registeredTools.find((t) => t.name === "update_goal");
 			assert.ok(update);
-			const result = await (update.execute as Function)("update-b", { status: "blocked", reason: "test blocker" }, new AbortController().signal, undefined, f.mockCtx);
+			const result = await (update.execute as Function)("update-b", { status: "blocked", reason: "test blocker", suggested_action: "Install the missing SDK, then /goal-resume" }, new AbortController().signal, undefined, f.mockCtx);
 			assert.ok(result.terminate === true, "blocked terminates the turn");
 			expectGoalProfile(BASE);
 			expectHostUntouched(HOST_SEED_A);
@@ -293,7 +293,7 @@ describe("Applicable tool profiles", () => {
 
 			const update = registeredTools.find((t) => t.name === "update_goal");
 			assert.ok(update);
-			const result = await (update.execute as Function)("update-p", { status: "blocked", reason: "test blocker" }, new AbortController().signal, undefined, f.mockCtx);
+			const result = await (update.execute as Function)("update-p", { status: "blocked", reason: "test blocker", suggested_action: "Install the missing SDK, then /goal-resume" }, new AbortController().signal, undefined, f.mockCtx);
 			const text = result.content?.[0]?.text ?? "";
 			assert.ok(text.includes("applies only to an active goal"),
 				`blocked from paused must be a state-aware failure, got: ${text.slice(0, 100)}`);

@@ -11,6 +11,7 @@ import type { GoalCore } from "./goal-state.ts";
 import { truncateText } from "./goal-core.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
 import { runGoalCompletionAuditor } from "./goal-auditor.ts";
+import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
 import { readGoalLedger, type GoalLedgerEvent } from "./goal-ledger.ts";
 import { nowIso, type GoalRecord, type GoalTask, type ReviewBaseline } from "./goal-record.ts";
 
@@ -138,7 +139,14 @@ function blockGoalForRejectedTask(core: GoalCore, ctx: ExtensionContext, task: G
 	const result = core.goalService.apply(ctx, {
 		reconcile: false,
 		refreshFromDisk: true,
-		mutate: (g) => ({ ...g, status: "blocked" as const, stopReason: "agent" as const, pauseReason: reason, updatedAt: nowIso() }),
+		mutate: (g) => ({
+			...g,
+			status: "blocked" as const,
+			stopReason: "agent" as const,
+			pauseReason: reason,
+			pauseSuggestedAction: `Decide how to proceed on task ${task.id}: narrow it, fix the verification environment, revise its contract with /goal-tweak, or accept the findings. Then /goal-resume.`,
+			updatedAt: nowIso(),
+		}),
 		ledger: (written) => [{ type: "goal_blocked", goalId: written.id, reason, source: "system", at: written.updatedAt }],
 	});
 	if (!result.ok) return false;
@@ -146,6 +154,7 @@ function blockGoalForRejectedTask(core: GoalCore, ctx: ExtensionContext, task: G
 	core.clearActiveAccounting();
 	if (result.goal) core.runtime.markTurnStopped(result.goal.id);
 	core.updateUI(ctx);
+	notifyGoalNeedsUser(ctx, result.goal ?? core.state.goal);
 	return true;
 }
 

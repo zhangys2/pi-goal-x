@@ -388,6 +388,7 @@ export function renderCompactDashboard(
 	// Blocked details (§4.5).
 	if (model.status.code === "blocked") {
 		if (model.status.reason) lines.push(boxLine(theme, safeWidth, `${theme.fg("error", "Blocker")}  ${muted(theme, fit(model.status.reason, inner - 10))}`));
+		if (model.status.attempts?.length) lines.push(boxLine(theme, safeWidth, `${muted(theme, "Tried")}    ${fit(model.status.attempts.join("; "), inner - 9)}`));
 		if (spec.showPauseAction && model.status.suggestedAction) lines.push(boxLine(theme, safeWidth, `${muted(theme, "Action")}   ${fit(model.status.suggestedAction, inner - 9)}`));
 	}
 

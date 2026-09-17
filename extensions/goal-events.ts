@@ -35,6 +35,7 @@ import { filterGoalSessionContext } from "./goal-session-safety.ts";
 import type { GoalMutationOutcome } from "./goal-service.ts";
 import { defaultWorkerWorktree } from "./goal-project-config.ts";
 import { clearCommitGuardAsk, commitGuardBlockReason } from "./goal-commit-guard.ts";
+import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
 
 /**
  * Issue #30: provider-context checkpoint compaction (pure helper).
@@ -324,6 +325,8 @@ export function registerGoalEvents(core: GoalCore): void {
 				core.scheduler.resume(ctx);
 			}
 		}
+		// A blocked goal is easy to miss across a restart: restate what it needs.
+		if (core.state.goal?.status === "blocked") notifyGoalNeedsUser(ctx, core.state.goal);
 		core.beginAccounting();
 		core.scheduler.restore(ctx);
 	});

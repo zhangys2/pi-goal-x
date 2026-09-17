@@ -59,6 +59,8 @@ export interface GoalRecord {
 	// Set when the model reports the goal blocked. Cleared when the goal becomes active again.
 	pauseReason?: string;
 	pauseSuggestedAction?: string;
+	/** What the model already tried against a blocker, so the user does not re-suggest it. */
+	blockedAttempts?: string[];
 	skipAuditor?: boolean;
 	/**
 	 * Persisted monotonic mutation counter (follow-up Stage 4). Missing
@@ -336,6 +338,13 @@ export function validateTokenBudgetInput(value: unknown): { ok: true; value: num
 	return { ok: true, value };
 }
 
+/** Absent when there are none, so a record without attempts keeps its historical shape. */
+function normalizeBlockedAttempts(value: unknown): { blockedAttempts?: string[] } {
+	if (!Array.isArray(value)) return {};
+	const attempts = value.filter((a): a is string => typeof a === "string" && a.trim().length > 0).slice(0, 8);
+	return attempts.length ? { blockedAttempts: attempts } : {};
+}
+
 export function normalizePositiveSafeInteger(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : undefined;
 }
@@ -402,6 +411,7 @@ export function normalizeGoalRecord(value: unknown): GoalRecord | null {
 		stopReason: raw.stopReason === "agent" || raw.stopReason === "user" ? raw.stopReason : undefined,
 		pauseReason: typeof raw.pauseReason === "string" && raw.pauseReason.trim() ? raw.pauseReason : undefined,
 		pauseSuggestedAction: typeof raw.pauseSuggestedAction === "string" && raw.pauseSuggestedAction.trim() ? raw.pauseSuggestedAction : undefined,
+		...normalizeBlockedAttempts(raw.blockedAttempts),
 		skipAuditor: raw.skipAuditor === true ? true : undefined,
 		revision: Number.isSafeInteger(raw.revision) && (raw.revision as number) >= 0 ? (raw.revision as number) : 0,
 		tokenBudget: normalizePositiveSafeInteger(raw.tokenBudget),
