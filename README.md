@@ -35,6 +35,12 @@ You can specify completion requirements, such as passing the test suite or produ
 
 If you already have a complete objective, use `/goal-direct <objective>` to create the goal and start immediately without drafting.
 
+### Project setup check
+
+goal-x never adds Pi configuration to a repository on its own. When a goal is created in a git repository, it reports any existing `.pi/settings.json` subagent settings and `.pi/agents/*.md` files. It also checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. Untracked runtime state blocks subagent worktree isolation, which needs a clean working tree. It also clutters `git status`, and cleanup commands such as `git clean` can delete the active goal. If rules are missing, goal-x explains this and asks where to add them: `.git/info/exclude` (this machine only), `.gitignore` (shared), or nowhere. It asks once per repository per session. Without a UI, it only reports.
+
+While a goal is active, `subagent` launches that run an implementation `worker` (or its aliases) default to `worktree: true` when the working tree is clean, so parallel workers do not share the parent's worktree. This needs no project files. An explicit `worktree` value is always kept.
+
 ## Goal types
 
 | Type | Behaviour | Example uses |

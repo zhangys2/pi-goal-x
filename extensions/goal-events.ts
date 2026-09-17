@@ -33,6 +33,7 @@ import { syncTerminalInputPause } from "./goal-widget.ts";
 import type { GoalCore } from "./goal-state.ts";
 import { filterGoalSessionContext } from "./goal-session-safety.ts";
 import type { GoalMutationOutcome } from "./goal-service.ts";
+import { defaultWorkerWorktree } from "./goal-project-config.ts";
 
 /**
  * Issue #30: provider-context checkpoint compaction (pure helper).
@@ -142,6 +143,9 @@ export function registerGoalEvents(core: GoalCore): void {
 					`Goal ${checkpointGoalId} has been paused, cleared, or replaced. ` +
 					`End the turn with a brief summary and yield to the user.`,
 			};
+		}
+		if (event.toolName === "subagent" && core.state.goal?.status === "active") {
+			defaultWorkerWorktree(event.input as Record<string, unknown>, ctx.cwd);
 		}
 		// Track Oracle work attempts; this does not authorize scheduling.
 		if (isMeaningfulProgressToolCall(event.toolName, asRecord(event)?.args)) {
