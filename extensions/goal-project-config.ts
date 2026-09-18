@@ -175,3 +175,22 @@ export function defaultWorkerWorktree(input: Record<string, unknown>, cwd: strin
 	input.worktree = true;
 	return true;
 }
+
+function requestsWorktree(input: Record<string, unknown>): boolean {
+	return input.worktree === true || (typeof input.workflowScript === "string" && /\bworktree\s*:\s*true\b/.test(input.workflowScript));
+}
+
+/**
+ * Runs an isolated implementation-worker launch in the foreground when `async`
+ * is unspecified. Async runs lose their worktree: the forked child runs with the
+ * parent repo as its cwd, so its edits and commits land in the main checkout
+ * (nicobailon/pi-subagents#2316). Foreground runs isolate correctly, and also
+ * surface a dirty-tree refusal immediately instead of after a receipt (#2311).
+ * Remove once #2316 is fixed. An explicit `async` is kept.
+ */
+export function keepIsolatedWorkersForeground(input: Record<string, unknown>): boolean {
+	if (input.async !== undefined || input.action !== undefined) return false;
+	if (!launchesImplementationWorker(input) || !requestsWorktree(input)) return false;
+	input.async = false;
+	return true;
+}
