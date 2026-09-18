@@ -13,3 +13,9 @@ Added `goal-project-config.ts`, wired the offer before goal creation and the wor
 Setback: `npm run test:selfcheck` failed on the new unit test file until the test manifest was refreshed with `--write-manifest`.
 
 Validation: `npm run test:all` passed 1021 tests with 9 skipped. `check`, `lint`, `test:selfcheck`, `test:real-api`, and `bench:gate:naf` all pass.
+
+## 2026-09-18 — Isolated workers forced to the foreground
+
+In a live barter-rs session, two async `worker` runs with `worktree: true` got managed worktrees that stayed untouched: each child session's header recorded the parent repo as its `cwd`, so relative-path edits and one `git commit` landed in the main checkout. Six earlier foreground runs with the same scripts isolated correctly. Filed as nicobailon/pi-subagents#2316.
+
+`keepIsolatedWorkersForeground` now sets `async: false` on implementation-worker launches that request a worktree (top-level or inside the script) and leave `async` unspecified. Explicit `async` is kept, read-only agents stay async, and management actions are untouched. The active-goal prompt says why. This trades concurrency for correctness and should be removed once #2316 is fixed.

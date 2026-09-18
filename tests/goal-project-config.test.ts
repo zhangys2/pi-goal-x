@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { defaultWorkerWorktree, detectProjectOrchestration, offerProjectOrchestrationSetup, writeIgnoreRules } from "../extensions/goal-project-config.ts";
+import { defaultWorkerWorktree, detectProjectOrchestration, keepIsolatedWorkersForeground, offerProjectOrchestrationSetup, writeIgnoreRules } from "../extensions/goal-project-config.ts";
 
 function repo(): string {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-project-config-"));
@@ -111,4 +111,29 @@ test("implementation worker launches default to managed worktrees on a clean tre
 		assert.equal(defaultWorkerWorktree(dirty, cwd), false, "pi-subagents would refuse isolation on a dirty tree");
 		assert.equal("worktree" in dirty, false);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("isolated implementation workers run in the foreground unless async is explicit", () => {
+	const script = (extra: string) => ({ workflowScript: `return runs.run('impl', {agent:'worker', ${extra} task:'build'})` });
+	const inScript = script("worktree:true,");
+	assert.equal(keepIsolatedWorkersForeground(inScript), true, "worktree:true inside the script");
+	assert.equal((inScript as Record<string, unknown>).async, false);
+
+	const topLevel = { ...script(""), worktree: true };
+	assert.equal(keepIsolatedWorkersForeground(topLevel), true, "worktree:true at the top level, as defaultWorkerWorktree sets it");
+	assert.equal((topLevel as Record<string, unknown>).async, false);
+
+	const explicitAsync = { ...script("worktree:true,"), async: true };
+	assert.equal(keepIsolatedWorkersForeground(explicitAsync), false);
+	assert.equal(explicitAsync.async, true, "an explicit choice is kept");
+
+	const shared = script("worktree:false,");
+	assert.equal(keepIsolatedWorkersForeground(shared), false, "no isolation requested, nothing to protect");
+	assert.equal("async" in shared, false);
+
+	const scout = { workflowScript: "return runs.run('map', {agent:'scout', worktree:true, task:'map'})" };
+	assert.equal(keepIsolatedWorkersForeground(scout), false, "read-only agents stay async");
+
+	const management = { action: "list", worktree: true };
+	assert.equal(keepIsolatedWorkersForeground(management), false);
 });

@@ -511,6 +511,8 @@ test("goal creation offers project setup first, and an active goal isolates work
 		const duringGoal = launch();
 		await h.handlers.get("tool_call")!(duringGoal, h.ctx);
 		assert.equal(duringGoal.input.worktree, true);
+		assert.equal(duringGoal.input.async, false, "isolated workers run in the foreground (pi-subagents#2316)");
+		assert.equal(beforeGoal.input.async, undefined, "and nothing is changed without an active goal");
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
