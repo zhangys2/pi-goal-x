@@ -201,7 +201,13 @@ export class GoalService {
 		this.flushError = null;
 		const goal = this.turn.goal;
 		if (!goal) {
+			// A turn can record events without mutating the goal — a rejected task
+			// review is the common case. Those events are still history, so they
+			// are appended rather than dropped with the transaction.
+			const events = this.turn.ledger;
 			this.turn.active = false;
+			this.turn.ledger = [];
+			if (events.length) this.appendLedgerEventsBestEffort(ctx, events);
 			return null;
 		}
 		let lock: GoalLock;

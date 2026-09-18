@@ -6,6 +6,9 @@ All notable changes to pi-goal-x are documented here.
 
 ### Fixed
 
+- **In-turn ledger events are no longer dropped** — a turn that recorded events without mutating the goal (a rejected task review is the common case) discarded its whole buffered transaction at flush, so the rejection never reached the ledger. Those events are now appended.
+- **The three-strike cap counts the rejection it just recorded** — it counted from the ledger after appending, but an in-turn append is buffered, so the count was always one short and a real goal was never blocked by it. Observed in a live session where a task was rejected three times and the agent had to block the goal itself.
+
 - **Task reviews no longer see goal runtime state** — `.pi/goals/`, `.pi/.goals-pool-snapshot.json`, and `.pi-subagents/` are excluded from task review diffs. Reviewers had rejected tasks for these untracked files, and an agent then deleted them, including the active goal, with `git clean`.
 - **Task reviews converge** — a retry review receives the previous rejection and checks it against the task's verification contract. Environment failures (toolchain, linker, credentials) are reported as environment blockers, not code defects.
 

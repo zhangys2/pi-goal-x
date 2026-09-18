@@ -22,7 +22,7 @@ import { writeActiveGoalFile } from "../extensions/storage/goal-files.ts";
 import { createGoal, goalFocusDetails } from "../extensions/goal-record.ts";
 import goalExtension from "../extensions/goal.ts";
 
-function makeHarness(cwd: string, runCompletionAuditor?: (...args: any[]) => Promise<any>, sessionEntries: unknown[] = []) {
+function makeHarness(cwd: string, runCompletionAuditor?: (...args: any[]) => Promise<any>, sessionEntries: unknown[] = [], runTaskReview?: (...args: any[]) => Promise<any>) {
 	const handlers = new Map();
 	const tools = new Map();
 	const notifies: Array<{ msg: string; level: string }> = [];
@@ -44,7 +44,7 @@ function makeHarness(cwd: string, runCompletionAuditor?: (...args: any[]) => Pro
 		ui: { notify: (msg: string, level: string) => notifies.push({ msg, level }), setStatus: () => {}, setWidget: () => {}, onTerminalInput: () => () => {}, select: async () => undefined, input: async () => undefined, confirm: async () => true, custom: async () => undefined },
 		getSystemPrompt: () => "", isIdle: () => true, hasPendingMessages: () => false, abort: () => {},
 	};
-	goalExtension(pi as any, { runCompletionAuditor, runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
+	goalExtension(pi as any, { runCompletionAuditor, runTaskReview: runTaskReview ?? (async () => ({ approved: true, disapproved: false, output: "<approved/>" })) });
 	return { handlers, tools, ctx, notifies };
 }
 
@@ -152,6 +152,34 @@ describe("P1-3 per-turn transaction buffer", () => {
 			await h.handlers.get("message_end")?.({ message: { role: "assistant", stopReason: "aborted", usage: { input: 0, output: 0 } } }, escCtx);
 			const disk = goalFileText(f.cwd, f.goal);
 			assert.match(disk, /Status: paused/, "pause persists immediately, not at turn end");
+		} finally {
+			f.cleanup();
+		}
+	});
+
+	it("keeps ledger events from a turn that changed no goal state", async () => {
+		// A rejected task review records history without mutating the goal. The
+		// flush used to drop that whole transaction, so the rejection never
+		// reached the ledger and the three-strike cap could never count it.
+		const f = fixture();
+		try {
+			const h = makeHarness(f.cwd, undefined, f.sessionEntries, async () => ({ approved: false, disapproved: true, output: "not yet <disapproved/>" }));
+			await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
+			await h.handlers.get("before_agent_start")?.({ systemPrompt: "p", prompt: "p", systemPromptOptions: {} }, h.ctx);
+			const setTasks = h.tools.get("set_goal_tasks");
+			await setTasks.execute("st", { tasks: [{ id: "t1", title: "T1", code_change: true }], block_completion: false }, new AbortController().signal, undefined, h.ctx);
+			await h.handlers.get("turn_end")?.({ message: { role: "assistant", stopReason: "stop", usage: { input: 0, output: 0 } } }, h.ctx);
+			await h.handlers.get("turn_start")?.({}, h.ctx);
+
+			const update = h.tools.get("update_goal_task");
+			const result = await update.execute("u", { task_id: "t1", status: "complete", evidence: "done" }, new AbortController().signal, undefined, h.ctx);
+			assert.match(result.content[0].text, /remains pending/, "the review rejected the completion");
+			assert.equal((ledgerText(f.cwd).match(/task_review/g) ?? []).length, 0, "buffered mid-turn");
+
+			await h.handlers.get("turn_end")?.({ message: { role: "assistant", stopReason: "stop", usage: { input: 0, output: 0 } } }, h.ctx);
+			const ledger = ledgerText(f.cwd);
+			assert.equal((ledger.match(/"verdict":"disapproved"/g) ?? []).length, 1, "the rejection survives a no-mutation turn");
+			assert.match(goalFileText(f.cwd, f.goal), /\[ \] t1: T1/, "and the task is still pending");
 		} finally {
 			f.cleanup();
 		}
