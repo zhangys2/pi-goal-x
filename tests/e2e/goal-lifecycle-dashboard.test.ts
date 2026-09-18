@@ -364,6 +364,34 @@ test("a turn that changes goal state writes one report; an unchanged turn writes
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("the rejection cap counts the rejection it just recorded, even inside a turn transaction", async () => {
+	// Regression: appendEvents buffers inside a turn, so counting after the
+	// append saw one rejection too few and a real goal never blocked.
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-cap-buffered-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	const h = createHarness(cwd, { runTaskReview: async () => ({ approved: false, disapproved: true, output: "still wrong\n<disapproved/>" }) });
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Buffered cap", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "w1", title: "Implement", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
+		const complete = (n: number) => callTool(h, "update_goal_task", `buffered-${n}`, { task_id: "w1", status: "complete", evidence: "tests pass" });
+		for (const attempt of [1, 2, 3]) {
+			// Each attempt runs inside its own turn transaction, as a real turn does.
+			h.core.goalService.beginTurn(h.ctx, h.core.state.goal!.id);
+			const result = await complete(attempt);
+			h.core.goalService.flushTurn(h.ctx);
+			if (attempt < 3) {
+				assert.match(result.content[0].text, /remains pending/, `attempt ${attempt} keeps the goal active`);
+				assert.equal(currentGoal(cwd)!.status, "active");
+			} else {
+				assert.match(result.content[0].text, /3 consecutive code reviews/, "the third rejection blocks");
+				assert.equal(result.terminate, true);
+			}
+		}
+		assert.equal(currentGoal(cwd)!.status, "blocked");
+		assert.ok(ledgerEvents(cwd).some((event) => event.type === "goal_blocked" && event.source === "system"));
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("goal reports can be turned off, and /goal-report writes on demand", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-report-off-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });

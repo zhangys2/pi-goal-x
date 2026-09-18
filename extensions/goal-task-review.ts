@@ -201,9 +201,13 @@ export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionC
 	};
 	// Callers write an approval together with the completion, so a completion that never commits leaves no approval behind.
 	if (result.approved) return { approval: event };
+	// Counted before the append: inside a turn, appendEvents buffers into the
+	// transaction, so a read-back would not see this rejection and the cap would
+	// always be one short.
+	const rejections = event.verdict === "disapproved" ? taskRejectionsSinceResume(ctx, goal.id, task.id).length + 1 : 0;
 	core.goalService.appendEvents(ctx, [event]);
 	const detail = result.error ? `Task review failed: ${result.error}` : result.output.trim() || "The independent code review did not approve this task.";
-	if (event.verdict === "disapproved" && taskRejectionsSinceResume(ctx, goal.id, task.id).length >= MAX_TASK_REVIEW_REJECTIONS && blockGoalForRejectedTask(core, ctx, task, detail)) {
+	if (rejections >= MAX_TASK_REVIEW_REJECTIONS && blockGoalForRejectedTask(core, ctx, task, detail)) {
 		return { blocked: true, failure: `Task ${task.id} was rejected by ${MAX_TASK_REVIEW_REJECTIONS} consecutive code reviews, so the goal is now blocked until the user resumes it (for example after narrowing the task, fixing the environment, or revising the contract). Stop now; do not edit files or start another tool call.\n\n${detail}` };
 	}
 	return { failure: `Task ${task.id} remains pending because its code review did not approve completion. Resolve the findings and retry; ${MAX_TASK_REVIEW_REJECTIONS} consecutive rejections block the goal.\n\n${detail}` };
