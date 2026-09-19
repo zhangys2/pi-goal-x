@@ -43,7 +43,7 @@ While a goal is active, the first command that would commit everything (`git add
 
 While a goal is active, `subagent` launches that run an implementation `worker` (or its aliases) default to `worktree: true` when the working tree is clean, so parallel workers do not share the parent's worktree. This needs no project files. An explicit `worktree` value is always kept.
 
-Isolated worker launches also default to `async: false`. Async runs currently lose their worktree — the child runs in the parent repo and its edits and commits land in your main checkout ([pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)) — while foreground runs isolate correctly. An explicit `async` value is kept. This workaround goes once that issue is fixed.
+Background (async) worker runs keep their worktree only with pi-subagents 0.69.0 or later. On older versions the child runs in the parent repo, so its edits and commits land in your main checkout ([pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)).
 
 ## Goal types
 

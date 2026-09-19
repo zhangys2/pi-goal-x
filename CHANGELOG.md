@@ -6,7 +6,7 @@ All notable changes to pi-goal-x are documented here.
 
 ### Fixed
 
-- **Isolated workers actually isolate** — while a goal is active, an implementation-worker launch that requests `worktree: true` and leaves `async` unspecified now runs with `async: false`. Async runs lose their worktree: the forked child runs with the parent repo as its cwd, so its edits and commits land in the main checkout ([nicobailon/pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)). Foreground runs isolate correctly and also surface a dirty-tree refusal immediately (#2311). An explicit `async` is kept. Temporary until #2316 is fixed.
+- **Worker worktree isolation needs pi-subagents 0.69.0 or later** — on older versions, background (async) runs with `worktree: true` ran the child in the parent repo, so its edits and commits landed in the main checkout ([nicobailon/pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)). goal-x briefly forced those launches into the foreground; that workaround is removed now that the upstream fix has shipped.
 - **In-turn ledger events are no longer dropped** — a turn that recorded events without mutating the goal (a rejected task review is the common case) discarded its whole buffered transaction at flush, so the rejection never reached the ledger. Those events are now appended.
 - **The three-strike cap counts the rejection it just recorded** — it counted from the ledger after appending, but an in-turn append is buffered, so the count was always one short and a real goal was never blocked by it. Observed in a live session where a task was rejected three times and the agent had to block the goal itself.
 

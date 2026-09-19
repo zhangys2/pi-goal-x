@@ -33,7 +33,7 @@ import { syncTerminalInputPause } from "./goal-widget.ts";
 import type { GoalCore } from "./goal-state.ts";
 import { filterGoalSessionContext } from "./goal-session-safety.ts";
 import type { GoalMutationOutcome } from "./goal-service.ts";
-import { defaultWorkerWorktree, keepIsolatedWorkersForeground } from "./goal-project-config.ts";
+import { defaultWorkerWorktree } from "./goal-project-config.ts";
 import { clearCommitGuardAsk, commitGuardBlockReason } from "./goal-commit-guard.ts";
 import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
 import { regenerateGoalReportIfChanged } from "./goal-report-runtime.ts";
@@ -155,9 +155,7 @@ export function registerGoalEvents(core: GoalCore): void {
 			}
 		}
 		if (event.toolName === "subagent" && core.state.goal?.status === "active") {
-			const input = event.input as Record<string, unknown>;
-			defaultWorkerWorktree(input, ctx.cwd);
-			keepIsolatedWorkersForeground(input);
+			defaultWorkerWorktree(event.input as Record<string, unknown>, ctx.cwd);
 		}
 		// Track Oracle work attempts; this does not authorize scheduling.
 		if (isMeaningfulProgressToolCall(event.toolName, asRecord(event)?.args)) {
