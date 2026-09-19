@@ -16,6 +16,7 @@
 
 import { truncateText } from "./goal-core.ts";
 import type { GoalLedgerEvent } from "./goal-ledger.ts";
+import { formatCheckResults } from "./goal-task-checks.ts";
 
 export type GoalActivityKind = "goal" | "task" | "verification" | "audit" | "archive";
 
@@ -112,6 +113,19 @@ function mapEvent(event: GoalLedgerEvent, taskTitles: ReadonlyMap<string, string
 				: `Code review rejected ${title}${report}.`;
 			return { at: event.at, kind: "verification", text };
 		}
+		case "task_checks": {
+			const title = quote(titleFor(taskTitles, event.taskId));
+			const failed = event.results.at(-1);
+			const detail = !event.passed && failed ? ` — ${truncateText(formatCheckResults({ passed: false, at: event.at, results: [failed] }), ACTIVITY_REASON_MAX)}` : "";
+			const when = event.trigger === "integration" ? " on integration" : "";
+			return { at: event.at, kind: "verification", text: event.passed ? `Checks passed for ${title}${when}.` : `Checks failed for ${title}${when}${detail}.` };
+		}
+		case "task_integration": {
+			const title = quote(titleFor(taskTitles, event.taskId));
+			if (event.outcome === "integrated") return { at: event.at, kind: "task", text: `Integrated a worker patch into ${title}${event.commit ? ` as ${event.commit.slice(0, 12)}` : ""}.` };
+			const reason = event.message ? ` — ${truncateText(oneLine(event.message), ACTIVITY_REASON_MAX)}` : "";
+			return { at: event.at, kind: "verification", text: `Worker patch for ${title} not integrated (${event.outcome.replace(/_/g, " ")})${reason}.` };
+		}
 		case "completion_requested":
 			return { at: event.at, kind: "verification", text: "Requested completion review." };
 		case "audit_started":
@@ -160,7 +174,7 @@ export function activityEventKey(event: GoalLedgerEvent): string | undefined {
 const activityTypes = new Set([
  "goal_created", "goal_tweaked", "auditor_toggled", "goal_paused", "goal_resumed", "goal_blocked",
  "goal_budget_limited", "goal_completed", "goal_aborted", "task_started", "task_complete", "task_skipped",
- "task_reopened", "task_review", "completion_requested", "audit_started", "audit_result", "audit_skipped", "goal_archived",
+ "task_reopened", "task_review", "task_checks", "task_integration", "completion_requested", "audit_started", "audit_result", "audit_skipped", "goal_archived",
 ]);
 export function isActivityEvent(event: GoalLedgerEvent): boolean { return activityTypes.has(event.type); }
 

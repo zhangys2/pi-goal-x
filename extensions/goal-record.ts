@@ -1,3 +1,4 @@
+import { normalizeTaskCheckRun, normalizeTaskChecks, type TaskCheck, type TaskCheckRun } from "./goal-task-checks.ts";
 import { normalizeGoalScheduler, type GoalSchedulerState } from "./goal-scheduler-state.ts";
 export type GoalStatus = "active" | "paused" | "blocked" | "budget_limited" | "complete";
 export type StopReason = "user" | "agent";
@@ -21,6 +22,13 @@ export interface GoalTask {
   reviewType?: string;
   /** Git state at the task's first start; kept across restarts so a retry review still covers rejected work. */
   reviewBaseline?: ReviewBaseline;
+  /** Commands goal-x runs itself on completion; the task stays pending until they pass. */
+  checks?: TaskCheck[];
+  /** The passing run recorded with the completion. */
+  checkRun?: TaskCheckRun;
+  /** Changes arrive only as integrated worker patches; reviewed as those commits. */
+  isolated?: boolean;
+  integrations?: TaskIntegration[];
   lightweightSubtasks?: boolean;
   subtasks?: GoalTask[];
 }
@@ -31,6 +39,12 @@ export interface GoalTaskList {
   proposedAt: string;
   /** Git state when the list was set; reviews tasks completed without a start. */
   reviewBaseline?: ReviewBaseline;
+}
+
+export interface TaskIntegration {
+  commit: string;
+  patchPath: string;
+  at: string;
 }
 
 export interface ReviewBaseline {
@@ -266,6 +280,13 @@ function normalizeReviewBaseline(value: unknown): ReviewBaseline | undefined {
 	};
 }
 
+function normalizeIntegrations(value: unknown): TaskIntegration[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const items = value.filter((item): item is TaskIntegration => !!item && typeof item.commit === "string" && typeof item.patchPath === "string" && typeof item.at === "string")
+		.map(({ commit, patchPath, at }) => ({ commit, patchPath, at }));
+	return items.length ? items : undefined;
+}
+
 export function normalizeTaskItem(raw: Record<string, unknown>): GoalTask | undefined {
 	const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : "";
 	const title = typeof raw.title === "string" ? raw.title.trim() : "";
@@ -291,6 +312,10 @@ export function normalizeTaskItem(raw: Record<string, unknown>): GoalTask | unde
 		...(typeof raw.codeChange === "boolean" ? { codeChange: raw.codeChange } : {}),
 		...(typeof raw.reviewType === "string" && raw.reviewType.trim() ? { reviewType: raw.reviewType.trim() } : {}),
 		...(normalizeReviewBaseline(raw.reviewBaseline) ? { reviewBaseline: normalizeReviewBaseline(raw.reviewBaseline) } : {}),
+		...(normalizeTaskChecks(raw.checks) ? { checks: normalizeTaskChecks(raw.checks) } : {}),
+		...(normalizeTaskCheckRun(raw.checkRun) ? { checkRun: normalizeTaskCheckRun(raw.checkRun) } : {}),
+		...(raw.isolated === true ? { isolated: true } : {}),
+		...(normalizeIntegrations(raw.integrations) ? { integrations: normalizeIntegrations(raw.integrations) } : {}),
 		lightweightSubtasks: raw.lightweightSubtasks === true ? true : undefined,
 		subtasks,
 	};

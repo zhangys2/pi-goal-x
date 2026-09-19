@@ -11,7 +11,7 @@ import { loadGoalSettings } from "./goal-settings.ts";
 import { DIALOG_UNAVAILABLE_HINT, proposalDialogFailureMessage, formatQuestionnaireAnswers, runGoalQuestionnaire, shouldAutoConfirmProposal, showProposalDialog, type GoalQuestionnaireQuestion, type ProposalDecision } from "./goal-questionnaire.ts";
 import { currentTaskIdIsPending, nowIso, type GoalRecord, type GoalTaskList } from "./goal-record.ts";
 import type { GoalCore } from "./goal-state.ts";
-import { convertFlatTasks, countTasks, mergeTasksWithExisting, type FlatTaskInput } from "./goal-task-tools.ts";
+import { convertFlatTasks, countTasks, mergeTasksWithExisting, taskChecksSchema, ISOLATED_TASK_DESCRIPTION, type FlatTaskInput } from "./goal-task-tools.ts";
 import { gitBaseline } from "./goal-task-review.ts";
 import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 import { PROPOSE_DRAFT_TOOL_NAME, QUESTIONNAIRE_TOOL_NAME, QUESTION_TOOL_NAME } from "./goal-tool-names.ts";
@@ -233,6 +233,8 @@ function flatTaskSchema() {
 		verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
 		code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires review." })),
 		review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
+		checks: taskChecksSchema(),
+		isolated: Type.Optional(Type.Boolean({ description: ISOLATED_TASK_DESCRIPTION })),
 		lightweight_subtasks: Type.Optional(Type.Boolean({ description: "True only for a task with lightweight children." })),
 	}), { description: "Flat parent-linked task tree to confirm with the goal." });
 }

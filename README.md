@@ -41,7 +41,7 @@ goal-x never adds Pi configuration to a repository on its own. When a goal is cr
 
 While a goal is active, the first command that would commit everything (`git add -A`, `git commit -a`) is blocked when it would include paths that were already modified or untracked when the goal started. The block names those paths so the agent asks you what to do with your own work. After you answer, the next run may proceed; commits that name their own paths are never blocked.
 
-While a goal is active, `subagent` launches that run an implementation `worker` (or its aliases) default to `worktree: true` when the working tree is clean, so parallel workers do not share the parent's worktree. This needs no project files. An explicit `worktree` value is always kept.
+While a goal is active, `subagent` launches that run an implementation `worker` (or its aliases) default to `worktree: true` when the working tree is clean, so parallel workers do not share the parent's worktree. This needs no project files. An explicit `worktree` value is always kept. Their patches land through [worker patch integration](#integrating-worker-patches).
 
 Background (async) worker runs keep their worktree only with pi-subagents 0.69.0 or later. On older versions the child runs in the parent repo, so its edits and commits land in your main checkout ([pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)).
 
@@ -110,6 +110,7 @@ the review, so an invalid completion never starts one.
 
 Code tasks run one at a time: a code task cannot start while another started code task is still
 open, because both would share one worktree and each review would include the other's changes.
+Tasks done by isolated workers are the exception (see below).
 A retry review checks the previous review's findings against the task's verification contract. If
 the same task is rejected three times in a row, the goal is blocked until you resume it with
 `/goal-resume`, for example after narrowing the task, fixing the build environment, or revising the
@@ -121,6 +122,31 @@ provider/model. Set `disableTaskReviews: true` in settings to skip this gate, or
 `taskReviewExcludedTypes` to a list of `review_type` values to skip selectively. These controls are
 independent of the goal-level completion auditor unless the auditor itself is disabled, in which
 case task reviews are skipped too.
+
+### Checks goal-x runs itself
+
+A task can name the commands that prove it is done. goal-x runs them when the task is completed, and the task stays pending until they pass:
+
+```json
+{ "id": "export", "title": "Implement CSV export", "code_change": true,
+  "checks": [{ "command": "npm", "args": ["test", "--", "export"] }, { "command": "npm", "args": ["run", "lint"] }] }
+```
+
+Checks run in the project directory, in order, and stop at the first failure. There is no shell, so pipes, globs, `&&` and `$VARS` do not work; use `{ "command": "bash", "args": ["-lc", "…"] }` when you need one. Each check times out after 600 seconds unless `timeout_seconds` says otherwise (at most 3600). On Windows, `npm`, `npx` and other `.cmd` tools work.
+
+A failure keeps the task pending and shows the failing command, its exit code, and the end of its output. No code review starts. A pass is stored with the task and given to the code reviewer and the completion auditor as facts, so they do not have to trust the executor's evidence. Both outcomes appear in the activity feed and the goal report.
+
+### Integrating worker patches
+
+An implementation worker in its own worktree hands back a patch (the `patch.path` in its pi-subagents handoff manifest). Land it with:
+
+```text
+update_goal_task({ task_id: "api", status: "integrate", patch_path: "<patch>", commit_message: "Add export API" })
+```
+
+goal-x applies the patch on top of the current branch with a three-way merge, so a patch made on an older base lands the way a rebase would. It then runs the task's checks and commits. If the patch conflicts, a check fails, or a commit hook rejects the commit, goal-x restores exactly the files the patch touched and explains what went wrong. The branch is left as it was. Integration needs a started task, an attached branch, and a clean working tree (goal and subagent runtime state excepted).
+
+Mark tasks done by isolated workers `isolated: true`. Their changes arrive only through integration, so two isolated tasks may run at once, and each task's code review sees only its own integration commits. An isolated task cannot be completed before something is integrated; skip it with a reason if no change is needed. Completing it runs its checks again, because other tasks may have landed since.
 
 Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
 

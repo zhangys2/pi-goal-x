@@ -2,6 +2,7 @@ import { indexedActivityEvents } from "./goal-activity.ts";
 import { buildLedgerIndex, indexLedgerEvent, type GoalLedgerIndex } from "./goal-ledger-index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { TaskCheckResult } from "./goal-task-checks.ts";
 import { normalizeRelPath, nowIso, safeIdPart, type GoalRecord } from "./goal-record.ts";
 
 export const GOAL_LEDGER_FILE = ".pi/goals/goal_events.jsonl";
@@ -28,6 +29,8 @@ export type GoalLedgerEvent =
   | { type: "task_reopened"; goalId: string; taskId: string; at: string }
   | { type: "task_started"; goalId: string; taskId: string; at: string }
   | { type: "task_review"; goalId: string; taskId: string; verdict: "approved" | "disapproved" | "error" | "skipped"; report?: string; baseline?: string; at: string }
+  | { type: "task_checks"; goalId: string; taskId: string; passed: boolean; trigger: "completion" | "integration"; results: TaskCheckResult[]; at: string }
+  | { type: "task_integration"; goalId: string; taskId: string; outcome: "integrated" | "conflict" | "checks_failed" | "commit_failed" | "rejected"; patchPath: string; commit?: string; files?: string[]; message?: string; at: string }
   | { type: "goal_budget_limited"; goalId: string; budget: number; tokensUsed: number; at: string }
   | { type: "goal_budget_warning"; goalId: string; budget: number; tokensUsed: number; pct: number; at: string }
   | { type: "goal_stalled"; goalId: string; reason: string; at: string }
@@ -727,6 +730,13 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
         (obj.verdict === "approved" || obj.verdict === "disapproved" || obj.verdict === "error" || obj.verdict === "skipped") &&
         (obj.report === undefined || typeof obj.report === "string") &&
         (obj.baseline === undefined || typeof obj.baseline === "string");
+    case "task_checks":
+      return typeof obj.goalId === "string" && typeof obj.taskId === "string" && typeof obj.passed === "boolean" &&
+        (obj.trigger === "completion" || obj.trigger === "integration") && Array.isArray(obj.results);
+    case "task_integration":
+      return typeof obj.goalId === "string" && typeof obj.taskId === "string" && typeof obj.patchPath === "string" &&
+        ["integrated", "conflict", "checks_failed", "commit_failed", "rejected"].includes(obj.outcome as string) &&
+        (obj.commit === undefined || typeof obj.commit === "string") && (obj.message === undefined || typeof obj.message === "string");
     case "goal_budget_limited":
       return typeof obj.goalId === "string" && typeof obj.budget === "number" && typeof obj.tokensUsed === "number";
     case "goal_budget_warning":
