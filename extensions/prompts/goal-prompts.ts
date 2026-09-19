@@ -193,7 +193,7 @@ function lifecyclePolicyBlock(autonomous: boolean): string {
   '- update_goal({status: "paused", reason: "…"}) pauses immediately. User controls: /goal-pause, /goal-resume, /goal-clear.',
   '- The objective is immutable: never edit it yourself; ask the user to run /goal-tweak.',
   '- Use work tools directly. Do not call get_goal repeatedly when the needed state is already visible.',
-  '- Implementation subagents default to worktree:true on a clean tree, and isolated runs default to async:false because async runs currently lose their worktree; commit finished task work before launching one, and do not pass worktree:false or async:true.',
+  '- Implementation subagents default to worktree:true on a clean tree; commit finished task work before launching one, and do not pass worktree:false to share the parent worktree.',
   '- Retrieve omitted requirements before acting on them. Re-read changed requirements and details lost after compaction. Full objective/contracts: get_goal(section="objective"); tasks: get_goal(section="tasks").',
  ].join("\n");
 }
