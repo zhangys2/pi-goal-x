@@ -130,14 +130,16 @@ export function renderGoalReport(model: GoalReportModel, options: { now: number;
 	const reviews = [
 		...model.tasks.flatMap((task) => {
 			const entries = model.reviews.filter((review) => review.taskId === task.id);
+			const checks = model.checks.filter((check) => check.taskId === task.id);
 			// A task with evidence but no review still belongs here: the quoted
 			// claim is the only verification record it has.
-			if (!entries.length && !task.evidence) return [];
+			if (!entries.length && !checks.length && !task.evidence) return [];
 			return [
 				`### ${task.id}: ${truncateText(task.title, 80)}`,
 				"",
 				...(task.contract ? [`- Contract: ${task.contract}`] : []),
 				...(task.evidence ? [`- Evidence (quoted, not re-run): ${task.evidence}`] : []),
+				...checks.map((check) => `- ${shortTime(check.at)} — checks **${check.passed ? "passed" : "failed"}** (run by goal-x on ${check.trigger}): ${truncateText(check.summary, MAX_FINDINGS)}`),
 				...entries.map((review) => `- ${shortTime(review.at)} — **${review.verdict}**${review.report ? `: ${truncateText(review.report.replace(/\s+/g, " "), MAX_FINDINGS)}` : ""}`),
 				"",
 			];

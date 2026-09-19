@@ -14,6 +14,7 @@ import { runGoalCompletionAuditor } from "./goal-auditor.ts";
 import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
 import { readGoalLedger, type GoalLedgerEvent } from "./goal-ledger.ts";
 import { nowIso, type GoalRecord, type GoalTask, type ReviewBaseline } from "./goal-record.ts";
+import { formatCheckFailure, formatCheckResults, runTaskChecks, type TaskCheckRun } from "./goal-task-checks.ts";
 
 const MAX_TASK_DIFF_CHARS = 120000;
 const MAX_TASK_REVIEW_REJECTIONS = 3;
@@ -66,6 +67,11 @@ export function gitTaskChangedFiles(cwd: string, baseline: ReviewBaseline | unde
 	}
 }
 
+function boundedDiff(full: string, files: readonly string[], empty: string): string {
+	if (full.length <= MAX_TASK_DIFF_CHARS) return full || empty;
+	return `${full.slice(0, MAX_TASK_DIFF_CHARS)}\n\n[Diff truncated: showing ${MAX_TASK_DIFF_CHARS} of ${full.length} characters. Inspect these changed files in the workspace before approving:\n${files.join("\n")}]`;
+}
+
 export function gitTaskDiff(cwd: string, baseline: ReviewBaseline | undefined): string {
 	if (!baseline) return "(no git baseline available)";
 	try {
@@ -74,11 +80,29 @@ export function gitTaskDiff(cwd: string, baseline: ReviewBaseline | undefined): 
 		const untrackedContent = untracked.map((file) => {
 			try { return `\n--- untracked: ${file} ---\n${readFileSync(`${cwd}/${file}`, "utf8")}`; } catch { return `\n--- untracked: ${file} (unreadable) ---`; }
 		}).join("\n");
-		const full = trackedDiff + untrackedContent;
-		if (full.length <= MAX_TASK_DIFF_CHARS) return full || "(no changes since baseline)";
-		return `${full.slice(0, MAX_TASK_DIFF_CHARS)}\n\n[Diff truncated: showing ${MAX_TASK_DIFF_CHARS} of ${full.length} characters. Inspect these changed files in the workspace before approving:\n${[...tracked, ...untracked].join("\n")}]`;
+		return boundedDiff(trackedDiff + untrackedContent, [...tracked, ...untracked], "(no changes since baseline)");
 	} catch {
 		return "(could not read git diff for baseline)";
+	}
+}
+
+/** Files changed by an isolated task's integration commits. */
+export function gitIntegrationChangedFiles(cwd: string, commits: readonly string[]): string[] | undefined {
+	try {
+		return [...new Set(commits.flatMap((commit) => outputLines(git(cwd, ["show", "--name-only", "--format=", "--no-renames", commit]))))];
+	} catch {
+		return undefined;
+	}
+}
+
+/** An isolated task's review scope: its integration commits, not the shared worktree. */
+export function gitIntegrationDiff(cwd: string, commits: readonly string[]): string {
+	if (!commits.length) return "(no integrated worker patches)";
+	try {
+		const full = commits.map((commit) => git(cwd, ["show", "--binary", "--no-color", "--format=--- integration commit %H ---%n%B", commit])).join("\n");
+		return boundedDiff(full, gitIntegrationChangedFiles(cwd, commits) ?? [], "(integration commits changed nothing)");
+	} catch {
+		return "(could not read the integration commits)";
 	}
 }
 
@@ -114,6 +138,8 @@ export function openCodeTaskConflict(tasks: readonly GoalTask[], taskId: string)
 	const related = (a: GoalTask, id: string) => flattenTasks(a.subtasks ?? []).some((task) => task.id === id);
 	return all.find((task) => task.id !== taskId
 		&& task.status === "pending" && task.reviewBaseline && task.codeChange !== false
+		// Isolated tasks are reviewed as their own commits, so they cannot see each other's changes.
+		&& !(target.isolated && task.isolated)
 		&& !related(task, taskId) && !related(target, task.id));
 }
 
@@ -158,7 +184,21 @@ function blockGoalForRejectedTask(core: GoalCore, ctx: ExtensionContext, task: G
 	return true;
 }
 
-export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string): Promise<{ failure?: string; approval?: GoalLedgerEvent; blocked?: boolean }> {
+/**
+ * Runs the task's declared checks. A failure is recorded now; a pass is
+ * returned so the caller writes it together with the completion.
+ */
+export async function checkTaskBeforeCompletion(core: GoalCore, ctx: ExtensionContext, task: GoalTask, signal?: AbortSignal): Promise<{ failure?: string; run?: TaskCheckRun; event?: GoalLedgerEvent }> {
+	const goal = core.state.goal;
+	if (!goal || !task.checks?.length) return {};
+	const run = await runTaskChecks(ctx.cwd, task.checks, { signal });
+	const event: GoalLedgerEvent = { type: "task_checks", goalId: goal.id, taskId: task.id, passed: run.passed, trigger: "completion", results: run.results, at: nowIso() };
+	if (run.passed) return { run, event };
+	core.goalService.appendEvents(ctx, [event]);
+	return { failure: `Task ${task.id} remains pending because one of its checks failed.\n\n${formatCheckFailure(run)}\n\nFix the cause and complete the task again. If the failure comes from the environment (missing toolchain, credentials, network) rather than the code, block the goal and tell the user what to fix.` };
+}
+
+export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string, checkRun?: TaskCheckRun): Promise<{ failure?: string; approval?: GoalLedgerEvent; blocked?: boolean }> {
 	const goal = core.state.goal;
 	if (!goal) return { failure: "Task review could not start because no goal is focused." };
 	const reviewBaseline = task.reviewBaseline ?? goal.taskList?.reviewBaseline;
@@ -169,9 +209,13 @@ export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionC
 	};
 	const reason = taskReviewSkipReason(task, { disableTaskReviews: settings.disableTaskReviews, auditorDisabled: settings.disabled || goal.skipAuditor, excludedTypes: settings.taskReviewExcludedTypes });
 	if (reason) return skip(reason);
-	const changedFiles = task.codeChange === undefined ? gitTaskChangedFiles(ctx.cwd, reviewBaseline)?.join("\n") : undefined;
+	const integrationCommits = task.isolated ? (task.integrations ?? []).map((integration) => integration.commit) : undefined;
+	const changedFiles = task.codeChange === undefined
+		? (integrationCommits ? gitIntegrationChangedFiles(ctx.cwd, integrationCommits) : gitTaskChangedFiles(ctx.cwd, reviewBaseline))?.join("\n")
+		: undefined;
 	if (!taskNeedsCodeReview({ ...task, evidence, changedFiles })) return skip("Task does not change code.");
-	const taskDiff = gitTaskDiff(ctx.cwd, reviewBaseline);
+	const taskDiff = integrationCommits ? gitIntegrationDiff(ctx.cwd, integrationCommits) : gitTaskDiff(ctx.cwd, reviewBaseline);
+	const checkFacts = checkRun ? `\n\nChecks goal-x ran on this workspace just now, all passing (facts, not claims; no need to re-run them):\n${formatCheckResults(checkRun)}` : "";
 	// A retry re-checks the previous findings, so reviews converge instead of each deriving new gaps.
 	const previousReview = taskRejectionsSinceResume(ctx, goal.id, task.id).at(-1)?.report;
 	const reviewGoal: GoalRecord = {
@@ -185,8 +229,8 @@ export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionC
 	const result = await reviewer({
 		ctx,
 		goal: reviewGoal,
-		detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${reviewBaseline?.revision ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}`,
-		completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion. The task's verification contract is the checklist: report gaps outside it as non-blocking notes unless they make the contracted work incorrect. When a verification command fails because of the environment (toolchain, linker, credentials, network) rather than the code, name it as an environment blocker, not a code defect.\n\nTASK DIFF:\n${taskDiff}`,
+		detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${reviewBaseline?.revision ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}${checkFacts}`,
+		completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion. The task's verification contract is the checklist: report gaps outside it as non-blocking notes unless they make the contracted work incorrect. When a verification command fails because of the environment (toolchain, linker, credentials, network) rather than the code, name it as an environment blocker, not a code defect.${checkFacts}\n\nTASK DIFF:\n${taskDiff}`,
 		previousAuditReport: previousReview,
 		settings,
 	});

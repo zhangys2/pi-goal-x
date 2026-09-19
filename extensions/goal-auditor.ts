@@ -1,3 +1,4 @@
+import { formatCheckResults } from "./goal-task-checks.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Static } from "@earendil-works/pi-ai";
@@ -85,6 +86,7 @@ function renderAuditorTaskTree(tasks: GoalTask[], indent: number): string[] {
 		const details: [string, string | undefined][] = [
 			["requirement", task.verificationContract],
 			["evidence", task.evidence],
+			["checks run by goal-x, all passed", task.checkRun?.passed ? formatCheckResults(task.checkRun).split("\n").join("; ") : undefined],
 			["skipped", task.skipReason],
 		];
 		for (const [label, value] of details) {

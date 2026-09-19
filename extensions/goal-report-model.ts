@@ -6,6 +6,7 @@
 
 import type { GoalLedgerEvent } from "./goal-ledger.ts";
 import type { GoalRecord, GoalTask } from "./goal-record.ts";
+import { formatCheckResults } from "./goal-task-checks.ts";
 
 /** Only three rejections is a tuned number; every other rule is a plain condition. */
 export const REPORT_REJECTION_THRESHOLD = 3;
@@ -31,6 +32,8 @@ export interface ReportTaskRow {
 	finishedAt?: string;
 	durationSeconds?: number;
 	evidence?: string;
+	/** Checks goal-x ran and passed at completion. */
+	checksPassed?: boolean;
 	skipReason?: string;
 	codeChange?: boolean;
 	contract?: string;
@@ -41,6 +44,14 @@ export interface ReportReviewEntry {
 	verdict: "approved" | "disapproved" | "error" | "skipped";
 	at: string;
 	report?: string;
+}
+
+export interface ReportCheckEntry {
+	taskId: string;
+	passed: boolean;
+	trigger: "completion" | "integration";
+	at: string;
+	summary: string;
 }
 
 export interface ReportAuditEntry {
@@ -86,6 +97,7 @@ export interface GoalReportModel {
 	current: ReportTaskNode[];
 	tasks: ReportTaskRow[];
 	reviews: ReportReviewEntry[];
+	checks: ReportCheckEntry[];
 	audits: ReportAuditEntry[];
 	attention: ReportAttentionSpan[];
 	timeline: Array<{ at: string; text: string }>;
@@ -194,6 +206,7 @@ export function buildGoalReportModel(args: {
 
 	const rejectionsByTask = new Map<string, number>();
 	const reviews: ReportReviewEntry[] = [];
+	const checks: ReportCheckEntry[] = [];
 	const audits: ReportAuditEntry[] = [];
 	const startedAt = new Map<string, string>();
 	const finishedAt = new Map<string, string>();
@@ -202,6 +215,8 @@ export function buildGoalReportModel(args: {
 			reviews.push({ taskId: event.taskId, verdict: event.verdict, at: event.at, report: event.report });
 			if (event.verdict === "disapproved") rejectionsByTask.set(event.taskId, (rejectionsByTask.get(event.taskId) ?? 0) + 1);
 			if (event.verdict === "approved") rejectionsByTask.delete(event.taskId);
+		} else if (event.type === "task_checks") {
+			checks.push({ taskId: event.taskId, passed: event.passed, trigger: event.trigger, at: event.at, summary: formatCheckResults({ passed: event.passed, at: event.at, results: event.results }).split("\n").join("; ") });
 		} else if (event.type === "audit_result") {
 			audits.push({ verdict: event.verdict, at: event.at, report: event.report });
 		} else if (event.type === "audit_skipped") {
@@ -239,6 +254,7 @@ export function buildGoalReportModel(args: {
 			...(finished ? { finishedAt: finished } : {}),
 			...(started && finished ? { durationSeconds: seconds(started, finished) } : {}),
 			...(task.evidence ? { evidence: task.evidence } : {}),
+			...(task.checkRun?.passed ? { checksPassed: true } : {}),
 			...(task.skipReason ? { skipReason: task.skipReason } : {}),
 			...(task.codeChange !== undefined ? { codeChange: task.codeChange } : {}),
 			...(task.verificationContract ? { contract: task.verificationContract } : {}),
@@ -262,6 +278,7 @@ export function buildGoalReportModel(args: {
 		current,
 		tasks,
 		reviews,
+		checks,
 		audits,
 		attention: deriveAttention(events, goal, nowIso),
 		timeline: events.map((event) => ({ at: event.at, text: timelineText(event) })),
@@ -276,6 +293,8 @@ function timelineText(event: GoalLedgerEvent): string {
 		case "task_skipped": return `task ${event.taskId} skipped — ${event.reason}`;
 		case "task_reopened": return `task ${event.taskId} reopened`;
 		case "task_review": return `task ${event.taskId} review ${event.verdict}`;
+		case "task_integration": return `task ${event.taskId} integration ${event.outcome.replace(/_/g, " ")}${event.commit ? ` (${event.commit.slice(0, 12)})` : ""}`;
+		case "task_checks": return `task ${event.taskId} checks ${event.passed ? "passed" : "failed"} (${event.trigger})`;
 		case "task_list_set": return `task list set (${event.taskCount} tasks)`;
 		case "audit_result": return `audit ${event.verdict}`;
 		case "audit_skipped": return `audit skipped (${event.reason})`;
@@ -306,7 +325,7 @@ function deriveRecommendations(args: {
 				evidence: `${task.attempts} disapproved task_review events`,
 			});
 		}
-		if (task.state === "complete" && task.codeChange !== false && !/\b(test|cargo|npm|pytest|go test|make|verify)\b/i.test(task.evidence ?? "")) {
+		if (task.state === "complete" && task.codeChange !== false && !task.checksPassed && !/\b(test|cargo|npm|pytest|go test|make|verify)\b/i.test(task.evidence ?? "")) {
 			out.push({
 				rule: "unverified_completion",
 				taskId: task.id,

@@ -21,6 +21,12 @@ All notable changes to pi-goal-x are documented here.
 
 ### Added
 
+- **Checks goal-x runs itself** — a task can declare `checks` (`{ command, args?, timeout_seconds? }`, up to 8). Completing the task runs them in the project directory without a shell, stops at the first failure, and keeps the task pending with the failing command's exit code and output tail. A pass is stored on the task, recorded as a `task_checks` event, and given to the code reviewer and the completion auditor as facts instead of the executor's claim. On Windows, `.cmd` and `.bat` commands such as `npm` run through `cmd.exe` with escaped arguments.
+
+- **Worker patch integration** — `update_goal_task({ task_id, status: "integrate", patch_path, commit_message })` applies an isolated worker's patch on top of the current branch with a three-way merge, runs the task's checks on the result, and commits. On a conflict, failing check, or rejected commit it restores exactly the paths the patch touched and says why. Tasks marked `isolated: true` receive their changes only this way: they may run in parallel, and each is reviewed as its own integration commits.
+
+- **Removed stray Windows cache files** — four `%SystemDrive%/ProgramData/...` cache databases committed by accident are gone, and the path is ignored.
+
 - **Goal report (#14)** — every goal keeps one Markdown report at `.pi/goals/reports/`: plan DAG and current-state flowchart (Mermaid), task table with timings, quoted reviews and evidence, blocks/pauses/waits with elapsed time, observed subagent artifacts, timeline, and recommendations derived from the report's own data (repeat rejections, overlapping code tasks, scope drift, expired waits, completions naming no verification command). Written once per turn that changed goal state, never injected into the prompt. `/goal-report` writes it on demand; `disableGoalReport: true` turns it off.
 
 - **Waits are visible** — declaring a wait announces its reason and deadline, and a wait longer than 30 minutes reminds the user every 30 minutes that it is still waiting, with the time left. Reminders notify only: they dispatch no model turn and spend no autonomous allowance. A wait that expires now pauses with its reason and what to do next.

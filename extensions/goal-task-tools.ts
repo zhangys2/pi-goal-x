@@ -16,7 +16,7 @@ import { goalDetails, renderGoalResult } from "./goal-format.ts";
 import { statusLabel, truncateText } from "./goal-core.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
 import { buildTaskSummary, checkSubtasksComplete, findSubtaskDepthViolation, findTaskInTree, skipAllSubtasks } from "./goal-policy.ts";
-import { gitBaseline, openCodeTaskConflict, openCodeTaskConflictMessage, reviewTaskBeforeCompletion } from "./goal-task-review.ts";
+import { checkTaskBeforeCompletion, gitBaseline, openCodeTaskConflict, openCodeTaskConflictMessage, reviewTaskBeforeCompletion } from "./goal-task-review.ts";
 import { showTaskConfirmation, type TaskConfirmationResult } from "./goal-task-confirmation.ts";
 import {
 	SET_GOAL_TASKS_TOOL_NAME,
@@ -24,6 +24,8 @@ import {
 } from "./goal-tool-names.ts";
 import { nowIso, currentTaskIdIsPending, type GoalTask, type GoalTaskList, type ReviewBaseline } from "./goal-record.ts";
 import type { GoalLedgerEvent } from "./goal-ledger.ts";
+import { integratePatch } from "./goal-worker-integration.ts";
+import { DEFAULT_CHECK_TIMEOUT_SECONDS, MAX_CHECK_TIMEOUT_SECONDS, MAX_TASK_CHECKS, parseTaskChecks, type TaskCheckInput, type TaskCheckRun } from "./goal-task-checks.ts";
 
 export const MAX_TASKS = 50;
 
@@ -34,7 +36,19 @@ export interface FlatTaskInput {
 	verification_contract?: string;
 	code_change?: boolean;
 	review_type?: string;
+	checks?: TaskCheckInput[];
+	isolated?: boolean;
 	lightweight_subtasks?: boolean;
+}
+
+export const ISOLATED_TASK_DESCRIPTION = "Changes arrive only via status=integrate; isolated tasks may run in parallel.";
+
+export function taskChecksSchema() {
+	return Type.Optional(Type.Array(Type.Object({
+		command: Type.String(),
+		args: Type.Optional(Type.Array(Type.String())),
+		timeout_seconds: Type.Optional(Type.Number({ description: `Default ${DEFAULT_CHECK_TIMEOUT_SECONDS}, max ${MAX_CHECK_TIMEOUT_SECONDS}.` })),
+	}, { additionalProperties: false }), { maxItems: MAX_TASK_CHECKS, description: "Commands run on completion without a shell; all must pass." }));
 }
 
 export interface FlatTaskListInput {
@@ -69,6 +83,8 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 		ids.add(id);
 		const title = typeof item.title === "string" ? item.title.trim() : "";
 		if (!title) return { ok: false, message: `Task "${id}" must have a non-empty title.` };
+		const checks = parseTaskChecks(id, item.checks);
+		if (!checks.ok) return checks;
 	}
 
 	// Parent must exist and relationships must be acyclic.
@@ -107,6 +123,7 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 		}
 	}
 
+	const checksOf = (item: FlatTaskInput) => { const parsed = parseTaskChecks(item.id, item.checks); return parsed.ok ? parsed.checks : undefined; };
 	function buildNode(item: FlatTaskInput): GoalTask {
 		const node: GoalTask = {
 			id: item.id.trim(),
@@ -117,6 +134,8 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 				: undefined,
 			codeChange: typeof item.code_change === "boolean" ? item.code_change : undefined,
 			reviewType: typeof item.review_type === "string" && item.review_type.trim() ? item.review_type.trim() : undefined,
+			...(checksOf(item) ? { checks: checksOf(item) } : {}),
+			...(item.isolated === true ? { isolated: true } : {}),
 			lightweightSubtasks: item.lightweight_subtasks === true ? true : undefined,
 		};
 		const children = childrenOf.get(node.id) ?? [];
@@ -163,10 +182,12 @@ export function mergeTasksWithExisting(existing: GoalTask[] | undefined, incomin
 
 	function mergeTask(input: GoalTask): GoalTask {
 		const prior = existingById.get(input.id);
-		const progress: Pick<GoalTask, "status" | "evidence" | "completedAt" | "skippedAt" | "skipReason"> = prior
+		const progress: Pick<GoalTask, "status" | "evidence" | "completedAt" | "skippedAt" | "skipReason" | "checkRun" | "integrations"> = prior
 			? {
 				status: prior.status,
 				evidence: prior.evidence,
+				...(prior.checkRun ? { checkRun: prior.checkRun } : {}),
+				...(prior.integrations ? { integrations: prior.integrations } : {}),
 				completedAt: prior.completedAt,
 				skippedAt: prior.skippedAt,
 				skipReason: prior.skipReason,
@@ -179,6 +200,8 @@ export function mergeTasksWithExisting(existing: GoalTask[] | undefined, incomin
 			...(input.verificationContract ? { verificationContract: input.verificationContract } : {}),
 			...(input.codeChange !== undefined ? { codeChange: input.codeChange } : {}),
 			...(input.reviewType ? { reviewType: input.reviewType } : {}),
+			...(input.checks ? { checks: input.checks } : {}),
+			...(input.isolated ? { isolated: true } : {}),
 			...(prior?.reviewBaseline ? { reviewBaseline: prior.reviewBaseline } : {}),
 			...(input.lightweightSubtasks ? { lightweightSubtasks: input.lightweightSubtasks } : {}),
 			...progress,
@@ -206,6 +229,11 @@ export function countTasks(tasks: readonly GoalTask[] | undefined): number {
 	}
 	walk(tasks);
 	return total;
+}
+
+function isolatedCompletionGate(task: GoalTask): string | undefined {
+	if (!task.isolated || task.codeChange === false || task.integrations?.length) return undefined;
+	return `Task "${task.id}" is isolated but has no integrated worker patch. Integrate one with status=integrate, or skip the task with a reason.`;
 }
 
 export interface TaskProgressInput {
@@ -246,6 +274,8 @@ function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").
    if (input.status === "complete") {
     if (task.status === "skipped") return {ok: false, message: `Task "${task.id}" was already skipped.`};
     if (!settings.disableContracts && task.verificationContract && !evidence) return {ok: false, message: `Task "${task.id}" has a verification contract; provide evidence to complete it.`};
+    const isolation = isolatedCompletionGate(task);
+    if (isolation) return {ok: false, message: isolation};
     const gate = checkSubtasksComplete(task);
     if (gate) return {ok: false, message: gate};
    }
@@ -273,6 +303,47 @@ function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").
  };
 }
 
+async function integrateWorkerPatch(core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, input: {taskId: string; patchPath?: string; commitMessage?: string}, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
+	const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: goalDetails(core.state.goal) });
+	const goal = core.state.goal!;
+	const task = findTaskInTree(goal.taskList?.tasks ?? [], input.taskId);
+	if (!task) return reply(`Task "${input.taskId}" not found.`);
+	if (task.status !== "pending") return reply(`Task "${task.id}" is ${task.status}; only pending tasks take integrations.`);
+	if (!task.reviewBaseline) return reply(`Start task "${task.id}" before integrating its work.`);
+	const patchPath = input.patchPath?.trim();
+	const commitMessage = input.commitMessage?.trim();
+	if (!patchPath || !commitMessage) return reply("status=integrate requires patch_path and commit_message.");
+	const focus = core.focusedOperationToken(goal.id);
+	const result = await integratePatch({ cwd: ctx.cwd, patchPath, commitMessage, checks: task.checks, signal });
+	const at = nowIso();
+	const events: GoalLedgerEvent[] = [
+		...(result.checkRun ? [{ type: "task_checks" as const, goalId: goal.id, taskId: task.id, passed: result.checkRun.passed, trigger: "integration" as const, results: result.checkRun.results, at }] : []),
+		{
+			type: "task_integration", goalId: goal.id, taskId: task.id, outcome: result.outcome, patchPath, at,
+			...(result.commit ? { commit: result.commit } : {}),
+			...(result.files ? { files: result.files.slice(0, 50) } : {}),
+			...(result.outcome !== "integrated" ? { message: truncateText(result.message, 1000) } : {}),
+		},
+	];
+	if (result.outcome !== "integrated") {
+		core.goalService.appendEvents(ctx, events);
+		return reply(`The worker patch for task ${task.id} was not integrated (${result.outcome.replace(/_/g, " ")}).\n\n${result.message}`);
+	}
+	const written = core.goalService.updateTask(ctx, {
+		focusToken: focus,
+		taskId: task.id,
+		validate: (current) => current.status === "pending" ? { ok: true } : { ok: false, message: `Task "${current.id}" is ${current.status}.` },
+		update: (current) => ({ ...current, integrations: [...(current.integrations ?? []), { commit: result.commit!, patchPath, at }] }),
+		ledger: () => events,
+	});
+	if (!written.ok) {
+		core.goalService.appendEvents(ctx, events);
+		return reply(`${result.message} The commit landed, but task ${task.id} could not record it: ${written.message}`);
+	}
+	core.updateUI(ctx);
+	return reply(`${result.message} Task ${task.id} stays pending; complete it when all of its work is integrated.`);
+}
+
 // ── Tool registration (moved from goal-tools.ts in the Stage 5 module split) ─
 
 export function registerTaskTools(core: import("./goal-state.ts").GoalCore): void {
@@ -293,6 +364,8 @@ pi.registerTool(defineTool({
 			verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
 			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires a per-task review." })),
 			review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
+			checks: taskChecksSchema(),
+			isolated: Type.Optional(Type.Boolean({ description: ISOLATED_TASK_DESCRIPTION })),
 			lightweight_subtasks: Type.Optional(Type.Boolean({ description: "Children do not gate parent completion." })),
 		}), { description: "Flat parent-linked task list" }),
 		block_completion: Type.Optional(Type.Boolean({ description: "Require all tasks resolved; default false." })),
@@ -423,21 +496,23 @@ pi.registerTool(defineTool({
 pi.registerTool(defineTool({
 	name: UPDATE_GOAL_TASK_TOOL_NAME,
 	label: "Update Goal Task",
-	description: "Update task progress without stopping the turn. Use ordered updates for an atomic batch, or task_id/status for one task. An invalid update rejects the whole batch.",
+	description: "Update task progress without stopping the turn. Use ordered updates for an atomic batch, or task_id/status for one task. An invalid update rejects the whole batch. integrate lands an isolated worker's patch: apply on top, run checks, commit or restore.",
 	promptSnippet: "Start, complete, skip, or reopen tasks; batch related progress.",
-	promptGuidelines: ["start requires pending and sets current task; a code task cannot start while another started code task is unresolved. complete requires evidence naming the exact verification commands run, including environment overrides, for contracted tasks and completed/skipped non-lightweight children. skipped requires a reason and explicit user direction or a hard contradiction; never skip to avoid work. pending reopens skipped tasks only; completed tasks are immutable. Completing/skipping the current task clears focus."],
+	promptGuidelines: ["start requires pending and sets current task; a code task cannot start while another started code task is unresolved. complete runs declared checks first and requires evidence naming the exact verification commands run, including environment overrides, for contracted tasks and completed/skipped non-lightweight children. skipped requires a reason and explicit user direction or a hard contradiction; never skip to avoid work. pending reopens skipped tasks only; completed tasks are immutable. Completing/skipping the current task clears focus. integrate (single-task only) needs a started task, clean tree, patch_path and commit_message; never apply worker patches by hand."],
 	parameters: Type.Object({
 		task_id: Type.Optional(Type.String({ description: "Single-task form; omit with updates." })),
-		status: Type.Optional(StringEnum(["start", "complete", "skipped", "pending"] as const)),
+		status: Type.Optional(StringEnum(["start", "complete", "skipped", "pending", "integrate"] as const)),
  updates: Type.Optional(Type.Array(Type.Object({task_id: Type.String(), status: StringEnum(["start", "complete", "skipped", "pending"] as const), evidence: Type.Optional(Type.String()), reason: Type.Optional(Type.String())}, {additionalProperties: false}), {minItems: 1, maxItems: 100, description: "Ordered atomic batch; omit all single-task fields."})),
 		evidence: Type.Optional(Type.String({ description: "Completion evidence; max 200 chars." })),
 		reason: Type.Optional(Type.String({ description: "Required for skipped." })),
+		patch_path: Type.Optional(Type.String({ description: "Worker patch file (integrate)." })),
+		commit_message: Type.Optional(Type.String({ description: "Integration commit message." })),
 	}, { additionalProperties: false }),
 	executionMode: "sequential",
-	async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+	async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
   if (rawParams.updates !== undefined) {
    const fail = (text: string) => ({content: [{type: "text" as const, text}], details: goalDetails(core.state.goal)});
-   if ([rawParams.task_id, rawParams.status, rawParams.evidence, rawParams.reason].some(v => v !== undefined)) return fail("Use either updates or single-task fields, never both.");
+   if ([rawParams.task_id, rawParams.status, rawParams.evidence, rawParams.reason, rawParams.patch_path, rawParams.commit_message].some(v => v !== undefined)) return fail("Use either updates or single-task fields, never both; integrate is single-task only.");
    const updates = rawParams.updates;
    if (!Array.isArray(updates) || updates.length < 1 || updates.length > 100 || updates.some(u => !u || typeof u.task_id !== "string" || !u.task_id.trim() || !["start", "complete", "skipped", "pending"].includes(u.status) || (u.evidence !== undefined && typeof u.evidence !== "string") || (u.reason !== undefined && typeof u.reason !== "string"))) return fail("updates must contain 1–100 valid task updates.");
    core.reconcileFocusedGoalFromDisk(ctx);
@@ -450,24 +525,40 @@ pi.registerTool(defineTool({
    const specs = updates.map(u => progressSpec(u, core, ctx, startBaseline));
    const invalid = batchValidationFailure(core.state.goal.taskList?.tasks ?? [], specs);
    if (invalid) return fail(invalid);
-   const approvals = new Map<string, GoalLedgerEvent>();
+   const verified = new Map<string, {events: GoalLedgerEvent[]; checkRun?: TaskCheckRun}>();
    for (const update of updates) {
     if (update.status !== "complete") continue;
     const task = findTaskInTree(core.state.goal.taskList?.tasks ?? [], update.task_id);
     if (!task) continue; // Let GoalService return its typed stale-task failure.
-    const review = await reviewTaskBeforeCompletion(core, ctx, task, update.evidence);
+    const checks = await checkTaskBeforeCompletion(core, ctx, task, signal);
+    if (checks.failure) return fail(checks.failure);
+    const review = await reviewTaskBeforeCompletion(core, ctx, task, update.evidence, checks.run);
     if (review.failure) return {...fail(review.failure), ...(review.blocked ? {terminate: true} : {})};
-    if (review.approval) approvals.set(update.task_id, review.approval);
+    verified.set(update.task_id, {events: [...(checks.event ? [checks.event] : []), ...(review.approval ? [review.approval] : [])], checkRun: checks.run});
    }
    const result = core.goalService.updateTasks(ctx, specs.map((spec): GoalTaskUpdateSpec => {
-    const approval = approvals.get(spec.taskId);
-    return approval ? {...spec, ledger: (...args) => [approval, ...(spec.ledger?.(...args) ?? [])]} : spec;
+    const outcome = verified.get(spec.taskId);
+    if (!outcome) return spec;
+    return {
+     ...spec,
+     update: task => { const next = spec.update(task); return outcome.checkRun && !("ok" in next) ? {...next, checkRun: outcome.checkRun} : next; },
+     ledger: (...args) => [...outcome.events, ...(spec.ledger?.(...args) ?? [])],
+    };
    }));
    if (!result.ok) return fail(result.message);
    core.updateUI(ctx);
    return fail(`${updates.map(u => `${u.task_id} ${u.status}`).join("; ")}. ${buildTaskSummary(result.goal.taskList!)}.`);
   }
   if (!rawParams.task_id || !rawParams.status) return {content: [{type: "text", text: "Provide task_id and status, or an updates batch."}], details: goalDetails(core.state.goal)};
+  if ((rawParams.patch_path !== undefined || rawParams.commit_message !== undefined) && rawParams.status !== "integrate") return {content: [{type: "text", text: "patch_path and commit_message apply only to status=integrate."}], details: goalDetails(core.state.goal)};
+  if (rawParams.status === "integrate") {
+   core.reconcileFocusedGoalFromDisk(ctx);
+   const reply = (text: string) => ({content: [{type: "text" as const, text}], details: goalDetails(core.state.goal)});
+   if (loadGoalSettings(ctx.cwd).disableTasks) return reply("update_goal_task is disabled by settings (disableTasks: true).");
+   if (!core.state.goal) return reply("No goal is focused.");
+   if (core.state.goal.status !== "active") return reply(`update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).`);
+   return integrateWorkerPatch(core, ctx, {taskId: rawParams.task_id, patchPath: rawParams.patch_path, commitMessage: rawParams.commit_message}, signal);
+  }
   const params = rawParams as TaskProgressInput;
 		core.reconcileFocusedGoalFromDisk(ctx);
 		if (loadGoalSettings(ctx.cwd).disableTasks) {
@@ -542,25 +633,32 @@ pi.registerTool(defineTool({
 				if (!settings.disableContracts && task.verificationContract && !evidence) {
 					return { ok: false, message: `Task "${params.task_id}" has a verification contract; provide evidence to complete it.` };
 				}
+				const isolation = isolatedCompletionGate(task);
+				if (isolation) return { ok: false, message: isolation };
 				const subtaskGate = checkSubtasksComplete(task);
 				if (subtaskGate) return { ok: false, message: subtaskGate };
 				return { ok: true };
 			};
 			const task = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
-			let approval: GoalLedgerEvent | undefined;
+			const verification: GoalLedgerEvent[] = [];
+			let checkRun: TaskCheckRun | undefined;
 			if (task) {
 				const valid = validate(task);
 				if (!valid.ok) return { content: [{ type: "text", text: valid.message }], details: goalDetails(core.state.goal) };
-				const review = await reviewTaskBeforeCompletion(core, ctx, task, evidence);
+				const checks = await checkTaskBeforeCompletion(core, ctx, task, signal);
+				if (checks.failure) return { content: [{ type: "text", text: checks.failure }], details: goalDetails(core.state.goal) };
+				if (checks.event) verification.push(checks.event);
+				checkRun = checks.run;
+				const review = await reviewTaskBeforeCompletion(core, ctx, task, evidence, checkRun);
 				if (review.failure) return { content: [{ type: "text", text: review.failure }], details: goalDetails(core.state.goal), ...(review.blocked ? { terminate: true } : {}) };
-				approval = review.approval;
+				if (review.approval) verification.push(review.approval);
 			}
 			const result = core.goalService.updateTask(ctx, {
 				focusToken: taskFocus,
 				taskId: params.task_id,
 				validate,
-				update: (task) => ({ ...task, status: "complete" as const, completedAt: now, evidence }),
-				ledger: (written) => [...(approval ? [approval] : []), {
+				update: (task) => ({ ...task, status: "complete" as const, completedAt: now, evidence, ...(checkRun ? { checkRun } : {}) }),
+				ledger: (written) => [...verification, {
 					type: "task_complete",
 					goalId: written.id,
 					taskId: params.task_id,
