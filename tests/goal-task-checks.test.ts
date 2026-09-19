@@ -73,7 +73,8 @@ test("check input is validated", () => {
 test("Windows .cmd files run through cmd.exe with escaped arguments", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "goal-check-cmd-"));
 	try {
-		writeFileSync(path.join(dir, "tool.cmd"), "@echo off\r\n");
+		// Matches PATHEXT's case exactly: CI runs this on case-sensitive filesystems.
+		writeFileSync(path.join(dir, "tool.CMD"), "@echo off\r\n");
 		const plan = spawnPlan({ command: "tool", args: ["a b", "x&y"] }, dir, { PATH: dir, PATHEXT: ".EXE;.CMD", ComSpec: "cmd.exe" }, "win32");
 		assert.equal(plan.file, "cmd.exe");
 		assert.equal(plan.verbatim, true);
