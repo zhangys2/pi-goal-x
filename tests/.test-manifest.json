@@ -31,6 +31,7 @@
     "./tests/goal-layered-settings.test.ts",
     "./tests/goal-ledger-checkpoint.test.ts",
     "./tests/goal-ledger.test.ts",
+    "./tests/goal-loop.test.ts",
     "./tests/goal-modal-escape.test.ts",
     "./tests/goal-mutation-boundary.test.ts",
     "./tests/goal-network-recovery.test.ts",

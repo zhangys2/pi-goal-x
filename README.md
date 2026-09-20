@@ -197,6 +197,9 @@ A project can have several open goals, with one focused goal per session. Switch
 | `/goal-clear` | Archive the focused goal after confirmation. |
 | `/goal-cancel` | Cancel an unconfirmed draft. |
 | `/goal-settings` | Configure goal behaviour and the auditor. |
+| `/loop <interval> [deadline] [prompt]` | Repeat a prompt on an interval until `/loop stop`. |
+
+`/loop` needs no goal. `/loop 5m check the deploy` asks that every five minutes, `/loop 30s --until 10m` adds a deadline, and `/loop 5m` on its own repeats your last message. The next run is timed from the moment the agent finishes the previous one, so runs never overlap.
 
 For troubleshooting, use `/goal-status verbose` for more detail, `/goal-status health` or `/goal-recovery` to check for problems, and `/goal-refresh` to reload saved goals and settings after external changes. `/goal-recovery repair` offers repairs after confirmation.
 
