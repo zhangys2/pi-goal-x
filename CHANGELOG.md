@@ -6,6 +6,7 @@ All notable changes to pi-goal-x are documented here.
 
 ### Fixed
 
+- **The default goal prompt no longer describes a wait it rejects** — with `strictExecutionContract` off, new waits are refused, but the blocker rule still told the agent that new waits declare `depends_on`. That clause now appears only in strict mode (or while a saved wait exists).
 - **Worker worktree isolation needs pi-subagents 0.69.0 or later** — on older versions, background (async) runs with `worktree: true` ran the child in the parent repo, so its edits and commits landed in the main checkout ([nicobailon/pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)). goal-x briefly forced those launches into the foreground; that workaround is removed now that the upstream fix has shipped.
 - **In-turn ledger events are no longer dropped** — a turn that recorded events without mutating the goal (a rejected task review is the common case) discarded its whole buffered transaction at flush, so the rejection never reached the ledger. Those events are now appended.
 - **The three-strike cap counts the rejection it just recorded** — it counted from the ledger after appending, but an in-turn append is buffered, so the count was always one short and a real goal was never blocked by it. Observed in a live session where a task was rejected three times and the agent had to block the goal itself.
