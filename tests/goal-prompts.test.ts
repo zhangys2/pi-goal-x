@@ -421,6 +421,14 @@ test("legacy-v1 restores pre-PR-E wording but never full checkpoint persistence"
 });
 
 
+test("the depends_on wait rule appears only when new waits are allowed", () => {
+	const current = goal();
+	const defaults = goalPrompt(current);
+	assert.match(defaults, /is blocked immediately, never a wait\./);
+	assert.doesNotMatch(defaults, /depends_on/, "default mode rejects every new wait");
+	assert.match(goalPrompt(current, { strictExecutionContract: true }), /never a wait: new waits declare depends_on and only an external producer qualifies\./);
+});
+
 test("allowance configuration refreshes cached guidance without bloating disabled prompts", () => {
 	const current = goal();
 	const off = goalPrompt(current, { maxAutonomousRuns: 0 });
