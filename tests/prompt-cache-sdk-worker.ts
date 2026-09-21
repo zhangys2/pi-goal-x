@@ -14,7 +14,9 @@ for (const flavor of ["anthropic-messages", "openai-completions", "openai-respon
  test(`real ${flavor} serialization preserves history and honors cache retention`, async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "goal-cache-wire-"));
   try {
-   const runtime = await ModelRuntime.create({authPath: path.join(cwd, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false});
+   // A variable, not a literal: refreshOnCreate is 0.84+, and CI also type-checks against 0.83.
+   const options = {authPath: path.join(cwd, "auth.json"), modelsPath: null, allowModelNetwork: false, refreshOnCreate: false};
+   const runtime = await ModelRuntime.create(options);
    runtime.registerProvider("cache-fixture", {baseUrl: "http://127.0.0.1:1", api, apiKey: "fixture-only", models: [{id: "fixture", name: "fixture", reasoning: false, input: ["text"], cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}, contextWindow: 200000, maxTokens: 128}]});
    const model = runtime.getModel("cache-fixture", "fixture")!;
    if (flavor === "anthropic-compatible-completions") model.compat = {cacheControlFormat: "anthropic", supportsLongCacheRetention: true};
