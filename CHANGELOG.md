@@ -21,6 +21,8 @@ All notable changes to pi-goal-x are documented here.
 
 ### Added
 
+- **`/loop`** — repeat a prompt on an interval without creating a goal: `/loop 5m check the deploy`, with an optional deadline (`/loop 30s --until 10m …`) and `/loop stop` to end it. With no prompt it repeats the last user message. The next send is timed from the moment the agent settles, so runs never overlap, and a loop started while the agent is busy waits for it. The status line shows the cadence while it runs.
+
 - **Checks goal-x runs itself** — a task can declare `checks` (`{ command, args?, timeout_seconds? }`, up to 8). Completing the task runs them in the project directory without a shell, stops at the first failure, and keeps the task pending with the failing command's exit code and output tail. A pass is stored on the task, recorded as a `task_checks` event, and given to the code reviewer and the completion auditor as facts instead of the executor's claim. On Windows, `.cmd` and `.bat` commands such as `npm` run through `cmd.exe` with escaped arguments.
 
 - **Worker patch integration** — `update_goal_task({ task_id, status: "integrate", patch_path, commit_message })` applies an isolated worker's patch on top of the current branch with a three-way merge, runs the task's checks on the result, and commits. On a conflict, failing check, or rejected commit it restores exactly the paths the patch touched and says why. Tasks marked `isolated: true` receive their changes only this way: they may run in parallel, and each is reviewed as its own integration commits.
