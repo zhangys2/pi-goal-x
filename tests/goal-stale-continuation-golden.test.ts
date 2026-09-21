@@ -153,14 +153,15 @@ test("golden: stale checkpoint for a non-focused goal aborts the turn and inject
 		assert.ok(bas);
 
 		// A checkpoint claims a goal that is not focused/active in this session.
-		const result = await bas({
+		await bas({
 			systemPrompt: "base",
 			prompt: '<pi_goal_continuation goal_id="ghost-goal" kind="checkpoint">continue',
 			systemPromptOptions: {},
 		}, h.ctx);
 
 		assert.equal(h.aborts, 1, "stale checkpoint must abort the turn");
-		const systemPrompt = (result as { systemPrompt?: string } | undefined)?.systemPrompt ?? "";
+		const result = await h.handlers["context"]!({ messages: [] }, h.ctx);
+		const systemPrompt = (result as { messages?: {content: string}[] } | undefined)?.messages?.at(-1)?.content ?? "";
 		assert.match(systemPrompt, /\[GOAL STALE goalId=ghost-goal\]/);
 		assert.match(systemPrompt, /Do not perform task work for this stale checkpoint/);
 	} finally {
@@ -177,14 +178,15 @@ test("golden: matching checkpoint proceeds without stale handling", async () => 
 		const bas = h.handlers["before_agent_start"];
 		assert.ok(bas);
 
-		const result = await bas({
+		await bas({
 			systemPrompt: "base",
 			prompt: `<pi_goal_continuation goal_id="${goal.id}" kind="checkpoint">continue`,
 			systemPromptOptions: {},
 		}, h.ctx);
 
 		assert.equal(h.aborts, 0, "matching checkpoint must not abort");
-		const systemPrompt = (result as { systemPrompt?: string } | undefined)?.systemPrompt ?? "";
+		const result = await h.handlers["context"]!({ messages: [] }, h.ctx);
+		const systemPrompt = (result as { messages?: {content: string}[] } | undefined)?.messages?.at(-1)?.content ?? "";
 		assert.doesNotMatch(systemPrompt, /GOAL STALE/);
 	} finally {
 		// temp dir cleanup is best-effort.
@@ -387,7 +389,7 @@ test("successful agent_end waits for agent_settled before queuing a continuation
 	}
 });
 
-test("empty no-tool run gets one default repair, then pauses after agent_settled", async () => {
+test("empty no-tool runs continue implicitly after agent_settled", async () => {
 	const { cwd, goal } = fixtureCwd();
 	const h = createHarness(cwd);
 	try {
@@ -402,14 +404,14 @@ test("empty no-tool run gets one default repair, then pauses after agent_settled
 		await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn", content: [{ type: "text", text: "Paused. No action." }] }] }, idleCtx(h.ctx));
 		await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
 
-		assert.equal(await countCheckpoints(h), 1, "a missing disposition gets exactly one repair");
-		assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "repair");
+		assert.equal(await countCheckpoints(h), 1, "a successful no-tool execution continues");
+		assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "ready");
 		await h.handlers["agent_start"]!({}, idleCtx(h.ctx));
 		await h.handlers["message_start"]!({ message: { ...h.sentMessages.at(-1), role: "custom" } }, idleCtx(h.ctx));
 		await h.handlers["agent_end"]!({ messages: [{ role: "assistant", stopReason: "end_turn", content: [{ type: "text", text: "Still no action." }] }] }, idleCtx(h.ctx));
 		await h.handlers["agent_settled"]!({}, idleCtx(h.ctx));
-		assert.equal(await countCheckpoints(h), 1, "the unsuccessful repair must not loop");
-		assert.equal(h.core.state.goal?.status, "paused");
+		assert.equal(await countCheckpoints(h), 2, "missing declarations never require repair in default mode");
+		assert.equal(h.core.state.goal?.status, "active");
 	} finally {
 		h.core.scheduler.shutdown();
 		h.core.runtime.clearContinuationState();

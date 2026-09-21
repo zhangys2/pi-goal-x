@@ -9,15 +9,15 @@ import type { GoalCore } from "../extensions/goal-state.ts";
 import { createGoal, goalFocusDetails, cloneGoal, normalizeGoalRecord } from "../extensions/goal-record.ts";
 import { writeActiveGoalFile, parseGoalFile } from "../extensions/storage/goal-files.ts";
 import { invalidateGoalSettingsCache, parseGoalSettings, saveGoalSettingsFileConfig, loadGoalSettings } from "../extensions/goal-settings.ts";
-import { buildWaitNotice, formatWaitRemaining, normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
+import { buildWaitNotice, formatWaitRemaining, newGoalScheduler, normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
 
-async function fixture(t: TestContext, limit?: number, owner = "owner", existing?: string) {
+async function fixture(t: TestContext, limit?: number, owner = "owner", existing?: string, strict = true) {
 	const cwd = existing ?? mkdtempSync(path.join(tmpdir(), "goal-scheduler-"));
 	const prior = process.env.PI_GOAL_GLOBAL_SETTINGS_FILE;
 	process.env.PI_GOAL_GLOBAL_SETTINGS_FILE = path.join(cwd, "absent-global.json");
 	if (!existing) {
 		mkdirSync(path.join(cwd, ".pi"), { recursive: true });
-		writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify(limit !== undefined ? { maxAutonomousRuns: limit } : {}));
+		writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ strictExecutionContract: strict, ...(limit !== undefined ? { maxAutonomousRuns: limit } : {}) }));
 	}
 	invalidateGoalSettingsCache();
 	const goal = createGoal({ objective: "Test explicit scheduling", autoContinue: true, sisyphus: false });
@@ -61,7 +61,7 @@ test("explicit zero means no automatic model runs, even for missing disposition"
 });
 
 for (const start of ["creation", "resume"] as const) {
-	test(`default ${start} starts automatically and still allows only one repair`, async t => {
+	test(`strict ${start} starts automatically and still allows only one repair`, async t => {
 		const h = await fixture(t);
 		t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 		if (start === "creation") h.core.replaceGoal({ objective: "Work automatically", autoContinue: true, sisyphus: false }, h.ctx);
@@ -450,4 +450,144 @@ test("wait notices round the remaining time and include polling state", () => {
 	assert.match(plain, /^⏳ Goal still waiting: Await CI$/m);
 	assert.doesNotMatch(plain, /Next check/);
 	assert.match(plain, /\/goal-resume to continue now, \/goal-pause to stop waiting\./);
+});
+
+// Default policy deliberately does not infer productivity from tool activity.
+test("implicit executions continue without tools through task completion and wrap-up", async t => {
+ const h = await fixture(t, undefined, "owner", undefined, false);
+ t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+ h.core.goalService.apply(h.ctx, {mutate: g => ({...g, taskList: {proposedAt: new Date().toISOString(), tasks: [{id: "one", title: "One", status: "pending", codeChange: false}, {id: "two", title: "Two", status: "pending", codeChange: false}], blockCompletion: false}})});
+ h.begin();
+ for (const id of [undefined, "one", "two", undefined]) {
+  if (id) await h.tools.get("update_goal_task").execute("test", {task_id: id, status: "complete"}, undefined, undefined, h.ctx);
+  h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1);
+  assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "ready");
+  assert.equal(h.core.state.goal?.status, "active");
+  h.admit();
+ }
+ assert.equal(h.sent.length, 4);
+ assert.equal(h.core.state.goal?.scheduler?.used, 4);
+ assert.ok(h.core.state.goal?.taskList?.tasks.every(task => task.status === "complete"));
+});
+
+test("default rejects new waits without terminating or mutating; optional ready succeeds", async t => {
+ const h = await fixture(t, 4, "owner", undefined, false);
+ h.begin();
+ const before = structuredClone(h.core.state.goal);
+ const result = h.wait();
+ assert.equal(result.terminate, false);
+ assert.match(JSON.stringify(result.content), /strictExecutionContract=true/);
+ assert.deepEqual(h.core.state.goal, before);
+ assert.equal(h.ready().terminate, true);
+});
+
+for (const stage of ["schedule", "claim"] as const) {
+ test(`disabling strict mode converts queued repair at ${stage} without renewing allowance`, async t => {
+  const h = await fixture(t, 5);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  h.begin(); h.core.scheduler.settled(h.ctx);
+  assert.equal(h.core.state.goal?.scheduler?.decision?.kind, "ready");
+  saveGoalSettingsFileConfig(h.cwd, {maxAutonomousRuns: 5, strictExecutionContract: false});
+  if (stage === "schedule") h.core.scheduler.schedule(h.ctx);
+  t.mock.timers.tick(1);
+  assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "ready");
+  assert.equal(h.core.state.goal?.scheduler?.used, 1);
+  assert.doesNotMatch(JSON.stringify(h.core.state.goal?.scheduler?.decision), /repair prompt/);
+  h.admit(); h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1);
+  assert.equal(h.core.state.goal?.scheduler?.used, 2);
+ });
+}
+
+test("existing waits keep identity, deadline and repair bounds after opt-out", async t => {
+ const h = await fixture(t, 8);
+ t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+ h.begin(); h.wait();
+ const wait = structuredClone(h.core.state.goal!.scheduler!.wait!);
+ saveGoalSettingsFileConfig(h.cwd, {strictExecutionContract: false, maxAutonomousRuns: 8});
+ h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
+ assert.equal(h.core.scheduler.declare(h.ctx, {kind: "wait", wait_id: wait.id, reason: wait.reason, deadline: new Date(wait.deadline).toISOString()}).terminate, true);
+ assert.equal(h.core.state.goal?.scheduler?.wait?.remainingChecks, 1);
+ assert.equal(h.core.state.goal?.scheduler?.wait?.deadline, wait.deadline);
+ h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
+ h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1);
+ assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "repair");
+ h.admit(); h.core.scheduler.settled(h.ctx);
+ assert.equal(h.core.state.goal?.status, "paused");
+ assert.match(h.core.state.goal?.pauseReason ?? "", /No execution disposition/);
+});
+
+test("enabling strict mode at settlement requires a disposition without resetting usage", async t => {
+ const h = await fixture(t, 5, "owner", undefined, false);
+ t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+ h.begin(); h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1); h.admit();
+ saveGoalSettingsFileConfig(h.cwd, {strictExecutionContract: true, maxAutonomousRuns: 5});
+ h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1);
+ assert.equal(h.core.state.goal?.scheduler?.dispatch?.kind, "repair");
+ assert.equal(h.core.state.goal?.scheduler?.used, 2);
+ h.admit(); h.core.scheduler.settled(h.ctx);
+ assert.equal(h.core.state.goal?.status, "paused");
+ saveGoalSettingsFileConfig(h.cwd, {strictExecutionContract: false});
+ h.core.scheduler.restore(h.ctx); t.mock.timers.tick(1000);
+ assert.equal(h.core.state.goal?.status, "paused");
+ assert.equal(h.sent.length, 2);
+});
+
+test("default settings inherit strict mode with explicit false overriding global true", async t => {
+ const h = await fixture(t, undefined, "owner", undefined, false);
+ saveGoalSettingsFileConfig(h.cwd, {});
+ assert.equal(loadGoalSettings(h.cwd).strictExecutionContract, false);
+ writeFileSync(process.env.PI_GOAL_GLOBAL_SETTINGS_FILE!, JSON.stringify({strictExecutionContract: true}));
+ invalidateGoalSettingsCache();
+ assert.equal(loadGoalSettings(h.cwd).strictExecutionContract, true);
+ saveGoalSettingsFileConfig(h.cwd, {strictExecutionContract: false});
+ assert.equal(loadGoalSettings(h.cwd).strictExecutionContract, false);
+ saveGoalSettingsFileConfig(h.cwd, {});
+ assert.equal(loadGoalSettings(h.cwd).strictExecutionContract, true);
+ assert.deepEqual(parseGoalSettings({strictExecutionContract: false}), {strictExecutionContract: false});
+ assert.equal(parseGoalSettings({strictExecutionContract: "invalid"}).strictExecutionContract, undefined);
+});
+
+test("prompt cache: normal and custom runs preserve history while refreshing all live goal state", async t => {
+ const h = await fixture(t);
+ const history: any[] = [{role: "user", content: "Work on the goal", timestamp: 1}];
+ const original = structuredClone(history);
+ const request = async () => (await h.handlers.context!({messages: history}, h.ctx)).messages;
+ const preflight = await h.handlers.before_agent_start!({prompt: "continue", systemPrompt: "host policy"}, h.ctx);
+ assert.equal(preflight, undefined, "goal state never rewrites the system prefix");
+ const first = await request();
+ assert.deepEqual(first.slice(0, -1), original);
+ assert.match(first.at(-1).content, /PI GOAL ACTIVE/);
+ const wire: any = {messages: [{role: "user", content: "Work on the goal"}, {role: "user", content: [{type: "text", text: first.at(-1).content, cache_control: {type: "ephemeral"}}]}]};
+ await h.handlers.before_provider_request!({payload: wire}, h.ctx);
+ assert.equal(wire.messages[0].content[0].cache_control.type, "ephemeral", "registered provider hook places the breakpoint on history");
+ assert.equal(wire.messages[1].content[0].cache_control, undefined);
+ h.core.state.goal!.usage.tokensUsed = 12345;
+ h.core.state.goal!.objective = "Changed objective";
+ h.core.state.goal!.scheduler = { ...newGoalScheduler("owner"), used: 7 };
+ const toolCall = {role: "assistant", content: [{type: "toolCall", id: "call-1", name: "read", arguments: {path: "README.md"}}], timestamp: 2};
+ const toolResult = {role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{type: "text", text: "file contents"}], isError: false, timestamp: 3};
+ history.push(toolCall, toolResult);
+ const second = await request();
+ assert.deepEqual(second.slice(0, -1), history, "tool call and result stay adjacent");
+ assert.deepEqual(second.slice(0, original.length), first.slice(0, -1));
+ assert.match(second.at(-1).content, /12345 tokens/);
+ assert.match(second.at(-1).content, /Changed objective/);
+ assert.match(second.at(-1).content, /7\/unlimited/);
+ h.core.scheduler.begin(h.ctx); // Custom-message run bypassing preflight.
+ for (let i = 0; i < 4; i++) {
+  history.push({role: "custom", customType: "pi-goal-event", content: "legacy full prompt", details: {goalId: h.core.state.goal!.id, kind: "checkpoint"}, timestamp: i + 4});
+  const current = await request();
+  assert.deepEqual(current.slice(0, second.length - 1), second.slice(0, -1));
+  assert.equal(current.filter((m: any) => m.customType === "pi-goal-live-context").length, 1);
+  const before = current.slice(0, -1);
+  const again = await request();
+  assert.deepEqual(again.slice(0, -1), before);
+ }
+ assert.deepEqual(history[0], original[0], "request transforms never mutate stored history");
+ for (const status of ["paused", "blocked", "budget_limited"] as const) {
+  h.core.state.goal!.status = status;
+  const stopped = await request();
+  assert.match(stopped.at(-1).content, new RegExp(status.replace("_", " ").toUpperCase()));
+  assert.doesNotMatch(stopped.at(-1).content, /PI GOAL ACTIVE/);
+ }
 });

@@ -40,6 +40,17 @@ All notable changes to pi-goal-x are documented here.
 
 - **Project setup check** — when a goal is created in a git repository, goal-x reports existing `.pi/settings.json` subagent settings and `.pi/agents/*.md`, and checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. If rules are missing, it explains why and asks whether to add them to `.git/info/exclude`, `.gitignore`, or nowhere. It asks once per repository per session, and never writes without a choice or without a UI. It never creates agent or settings files.
 - **Isolated implementation workers** — while a goal is active, a `subagent` launch that runs `worker` (or its aliases) without a `worktree` value gets `worktree: true` when the working tree is clean. An explicit `worktree` is kept, and nothing is written to the project.
+## [0.31.6] — 2026-09-17
+
+### Fixed
+
+- Preserve prompt-cache prefixes across normal turns, checkpoints, and tool loops (#67): move live goal state out of the system/history prefix, keep bounded checkpoint markers in place, and place existing Anthropic/Bedrock cache breakpoints before transient state. Provider cache settings remain unchanged.
+
+## [0.31.5] — 2026-09-16
+
+### Changed
+
+- Restore implicit continuation by default (#63), including reasoning-only executions and final-task wrap-up, with no tool/progress gate or cooldown. Execution contracts are now opt-in through `strictExecutionContract: true`; default mode accepts optional ready decisions but rejects new waits. Existing waits retain their bounds and repair behavior. Run/token limits and durable dispatch safeguards remain unchanged.
 
 ## [0.31.4] — 2026-09-14
 
