@@ -417,6 +417,24 @@ test("goal reports can be turned off, and /goal-report writes on demand", async 
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("a resolved blocker's tried steps do not reappear on a later block", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-block-attempts-"));
+	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
+	const h = createHarness(cwd);
+	try {
+		await h.sessionStart();
+		h.core.replaceGoal({ objective: "Finish the roadmap", autoContinue: false, sisyphus: false }, h.ctx);
+		await callTool(h, "update_goal", "block-1", { status: "blocked", reason: "linker missing", suggested_action: "Install it, then /goal-resume", attempted_actions: ["unset CC only"] });
+		assert.deepEqual(currentGoal(cwd)!.blockedAttempts, ["unset CC only"]);
+		await h.commands.get("goal-resume")!.handler("", h.ctx);
+		assert.equal(currentGoal(cwd)!.status, "active");
+		assert.equal(currentGoal(cwd)!.blockedAttempts, undefined, "resuming resolves the blocker");
+		await callTool(h, "update_goal", "block-2", { status: "blocked", reason: "API key missing", suggested_action: "Set the key, then /goal-resume" });
+		assert.equal(currentGoal(cwd)!.blockedAttempts, undefined);
+		assert.doesNotMatch(h.notifications.at(-1)!, /Already tried/);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("blocking notifies the user with the fix, and a restart restates it", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-block-notify-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });

@@ -126,7 +126,7 @@ export class GoalScheduler {
 			this.core.runtime.clearContinuationState();
 			this.write(ctx, g => {
 				if (g.status === "complete" || budgetReached(g)) throw new Error("A completed or token-budget-limited goal cannot resume.");
-				return { ...g, status: "active", autoContinue: true, stopReason: undefined, pauseReason: undefined, pauseSuggestedAction: undefined,
+				return { ...g, status: "active", autoContinue: true, stopReason: undefined, pauseReason: undefined, pauseSuggestedAction: undefined, blockedAttempts: undefined,
 					scheduler: { ...newGoalScheduler(this.owner(ctx)), phase: "ready", decision: { kind: "ready", nextAction: "Continue the goal at the user's request.", purpose: "kickoff" } } };
 			});
 			// A resume during host work waits for settlement; another model turn

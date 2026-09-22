@@ -60,6 +60,18 @@ test("ignore rules are anchored to the project directory inside the repository",
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("exclude rules from a project subdirectory land in the repository's own exclude file", () => {
+	const root = repo();
+	try {
+		const cwd = path.join(root, "packages", "app");
+		mkdirSync(cwd, { recursive: true });
+		const found = detectProjectOrchestration(cwd)!;
+		const file = writeIgnoreRules(cwd, found, "exclude");
+		assert.equal(path.resolve(file), path.resolve(root, ".git", "info", "exclude"));
+		assert.deepEqual(detectProjectOrchestration(cwd)!.unignored, []);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("the setup offer explains why and writes only the destination the user picks", async () => {
 	for (const [answer, expectExclude, expectGitignore] of [["Skip", false, false], ["Add to .git/info/exclude", true, false], ["Add to .gitignore", false, true], [undefined, false, false]] as const) {
 		const cwd = repo();
@@ -99,6 +111,9 @@ test("implementation worker launches default to managed worktrees on a clean tre
 		assert.equal(defaultWorkerWorktree(alias, cwd), true);
 		const explicit = { workflowScript: "runs.run('a', {agent:\"worker\", task:'x'})", worktree: false };
 		assert.equal(defaultWorkerWorktree(explicit, cwd), false);
+		const explicitIsolation = { tasks: [{ agent: "worker", task: "x" }], isolation: "none" };
+		assert.equal(defaultWorkerWorktree(explicitIsolation, cwd), false, "isolation is another way to choose");
+		assert.equal("worktree" in explicitIsolation, false);
 		assert.equal(explicit.worktree, false, "an explicit choice is kept");
 		const readOnly = { workflowScript: "runs.all([{key:'m', agent:'scout', task:'map'}])" };
 		assert.equal(defaultWorkerWorktree(readOnly, cwd), false);

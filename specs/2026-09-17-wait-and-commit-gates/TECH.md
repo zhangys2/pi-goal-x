@@ -11,9 +11,9 @@ The field is optional in the type so existing persisted states and re-declaratio
 `extensions/goal-commit-guard.ts`:
 
 - `commandCommitsEverything(command)` looks for a `git commit` in the command plus either an all-flag on the commit or a sweeping `git add` in the same command. It is deliberately textual: the guard only needs to catch the sweep-everything shape.
-- `preexistingDirtyPaths(cwd, baseline)` unions `git diff --name-only HEAD <baseline.revision>` (the stash-create baseline commit carries the dirty state, so this diff is what was dirty then) with the baseline's untracked inventory, and intersects that with the current `git status --porcelain`. Both git calls reuse `RUNTIME_STATE_PATHSPECS`, now exported from `goal-task-review.ts`.
-- `commitGuardBlockReason(core, ctx, command)` returns the block text and records the goal id in a module-level asked set, so a goal is blocked once until the user speaks.
-- `clearCommitGuardAsk(goalId)` is called from the user-driven branch of `before_agent_start`, the same branch that clears continuation state.
+- `preexistingDirtyPaths(cwd, baseline)` unions `git diff --name-only <baseline.revision>^1 <baseline.revision>` when the revision is a stash-create commit (two parents, subject ending in the baseline stash message; its first parent is the HEAD of the time, so this diff is what was dirty then, independent of later goal commits), or nothing when the baseline was a plain HEAD, with the baseline's untracked inventory, and intersects that with the current `git status --porcelain`. Both git calls reuse `RUNTIME_STATE_PATHSPECS`, now exported from `goal-task-review.ts`.
+- `commitGuardBlockReason(core, ctx, command)` returns the block text and records the goal id in a module-level asked set. A goal in the answered set is not guarded.
+- `clearCommitGuardAsk(goalId)` is called from the user-driven branch of `before_agent_start`, the same branch that clears continuation state. It moves an asked goal to the answered set; a goal that was never blocked stays guarded.
 
 The `tool_call` handler in `goal-events.ts` blocks `bash` calls with `{ block: true, reason }`. It reads `event.input?.command` defensively because test harnesses call the hook without an input.
 

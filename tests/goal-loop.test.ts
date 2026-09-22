@@ -99,6 +99,11 @@ test("parseLoopArguments reads interval, deadline, and prompt", () => {
 		durationMs: 600_000,
 		prompt: "poll CI",
 	});
+	assert.deepEqual(parseLoopArguments("5m 1H check CI"), {
+		intervalMs: 300_000,
+		durationMs: 3_600_000,
+		prompt: "check CI",
+	});
 	assert.equal(parseLoopArguments("stop"), "stop");
 	assert.equal(parseLoopArguments(" Cancel "), "stop");
 	assert.throws(() => parseLoopArguments(""), /Usage: \/loop/);

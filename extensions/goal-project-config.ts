@@ -91,7 +91,8 @@ export type IgnoreDestination = "exclude" | "gitignore";
 export function ignoreFilePath(cwd: string, destination: IgnoreDestination): string {
 	const topLevel = git(cwd, ["rev-parse", "--show-toplevel"]).trim();
 	if (destination === "gitignore") return path.join(topLevel, ".gitignore");
-	return path.resolve(topLevel, git(cwd, ["rev-parse", "--git-path", "info/exclude"]).trim());
+	// --git-path prints a path relative to cwd, not to the top level.
+	return path.resolve(cwd, git(cwd, ["rev-parse", "--git-path", "info/exclude"]).trim());
 }
 
 export function writeIgnoreRules(cwd: string, found: ProjectOrchestration, destination: IgnoreDestination): string {
@@ -166,11 +167,11 @@ function workingTreeClean(cwd: string): boolean {
 
 /**
  * Sets `worktree: true` on a subagent launch that runs an implementation worker
- * and leaves isolation unspecified. An explicit `worktree` is kept. A dirty tree
+ * and leaves isolation unspecified. An explicit `worktree` or `isolation` is kept. A dirty tree
  * is left alone because pi-subagents would refuse the isolated launch.
  */
 export function defaultWorkerWorktree(input: Record<string, unknown>, cwd: string): boolean {
-	if (input.worktree !== undefined || input.action !== undefined) return false;
+	if (input.worktree !== undefined || input.isolation !== undefined || input.action !== undefined) return false;
 	if (!launchesImplementationWorker(input) || !workingTreeClean(cwd)) return false;
 	input.worktree = true;
 	return true;
