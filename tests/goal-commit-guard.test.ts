@@ -47,11 +47,25 @@ test("pre-existing dirty paths exclude the goal's own later changes", () => {
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("files the goal committed itself are not the user's pre-existing work", () => {
+	for (const dirtyStart of [false, true]) {
+		const cwd = repo();
+		try {
+			if (dirtyStart) writeFileSync(path.join(cwd, "user-work.rs"), "user edit\n");
+			const baseline = gitBaseline(cwd)!;
+			writeFileSync(path.join(cwd, "goal-work.rs"), "goal edit\n");
+			execFileSync("git", ["commit", "-qm", "goal work", "goal-work.rs"], { cwd });
+			writeFileSync(path.join(cwd, "goal-work.rs"), "goal edit again\n");
+			assert.deepEqual(preexistingDirtyPaths(cwd, baseline), dirtyStart ? ["user-work.rs"] : [], `dirty start: ${dirtyStart}`);
+		} finally { rmSync(cwd, { recursive: true, force: true }); }
+	}
+});
+
 function core(cwd: string, goal: unknown) {
 	return { state: { goal } } as never;
 }
 
-test("the first sweeping commit is blocked, and a user turn clears the gate", () => {
+test("a sweeping commit is blocked until the user answers, then proceeds", () => {
 	const cwd = repo();
 	try {
 		writeFileSync(path.join(cwd, "user-work.rs"), "user edit\n");
@@ -64,10 +78,11 @@ test("the first sweeping commit is blocked, and a user turn clears the gate", ()
 		assert.match(blocked!, /already changed before this goal started/);
 		assert.match(blocked!, /- user-work\.rs/);
 		assert.doesNotMatch(blocked!, /goal-work\.rs/);
-		assert.equal(commitGuardBlockReason(core(cwd, goal), ctx, "git commit -am 'checkpoint'"), undefined, "the goal asks once, then the user decides");
+		assert.ok(commitGuardBlockReason(core(cwd, goal), ctx, "git commit -am 'checkpoint'"), "retrying before the user answers is still blocked");
 		clearCommitGuardAsk("g1");
-		assert.ok(commitGuardBlockReason(core(cwd, goal), ctx, "git add -A && git commit -m 'checkpoint'"), "a fresh goal turn guards again");
+		assert.equal(commitGuardBlockReason(core(cwd, goal), ctx, "git add -A && git commit -m 'checkpoint'"), undefined, "after the user answers, the approved commit proceeds");
 		clearCommitGuardAsk("g1");
+		assert.equal(commitGuardBlockReason(core(cwd, goal), ctx, "git add -A && git commit -m 'checkpoint'"), undefined, "the goal is asked once");
 		assert.equal(commitGuardBlockReason(core(cwd, goal), ctx, "git commit -m 'scoped' goal-work.rs"), undefined, "naming the goal's own paths is allowed");
 		assert.equal(commitGuardBlockReason(core(cwd, { ...goal, status: "paused" }), ctx, "git add -A && git commit -m x"), undefined);
 		assert.equal(commitGuardBlockReason(core(cwd, null), ctx, "git add -A && git commit -m x"), undefined);

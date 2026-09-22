@@ -26,6 +26,7 @@ Session `01a0b0d2` (2026-09-17, barter-rs, 22 minutes):
 - Applies while the focused goal is active and the goal has a review baseline.
 - A command is guarded when it stages or commits everything (`git commit -a`/`--all`, or `git add -A`/`--all`/`.`/`:/` combined with a commit). Commits that name paths are not guarded.
 - Pre-existing paths are those modified or untracked when the baseline was taken that are still dirty now. Goal runtime state is excluded, as it is for task reviews.
-- When such paths exist, the command is blocked once per goal with the count, up to twelve names, and the instruction to ask the user and stop the turn.
-- The next user-initiated run clears the gate, so an approved commit proceeds on retry.
+- When such paths exist, the command is blocked with the count, up to twelve names, and the instruction to ask the user and stop the turn. Retries before the user answers stay blocked.
+- The next user-initiated run after a block opens the gate for the rest of the goal, so an approved commit proceeds on retry and the user is asked once per goal.
+- Paths the goal committed itself are never counted as pre-existing.
 - A goal that started from a clean tree is never affected.

@@ -833,7 +833,7 @@ export function createGoalCore(
 		if (!state.goal || state.goal.status !== "active") return;
 		const pausedGoalId = state.goal.id;
 		// User-initiated pause (Esc / aborted turn). Clear any stale agent pause reason.
-		state.goal = { ...state.goal, autoContinue: false, pauseReason: undefined, pauseSuggestedAction: undefined };
+		state.goal = { ...state.goal, autoContinue: false, pauseReason: undefined, pauseSuggestedAction: undefined, blockedAttempts: undefined };
 		stopActiveGoal("paused", "user", ctx);
 		ctx.ui.notify("Goal paused.", "info");
 	}

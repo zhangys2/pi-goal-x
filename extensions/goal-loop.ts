@@ -22,7 +22,7 @@ export interface LoopControllerOptions {
 	onStop?: (reason: LoopStopReason) => void;
 }
 
-const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/u;
+const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/iu;
 const DURATION_MULTIPLIERS: Record<string, number | undefined> = {
 	ms: 1,
 	s: 1_000,

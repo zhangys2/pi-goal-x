@@ -285,7 +285,7 @@ pi.registerTool(defineTool({
 				stopReason: "agent" as const,
 				pauseReason: reason,
 				pauseSuggestedAction: suggestedAction,
-				...(attempts.length ? { blockedAttempts: attempts } : {}),
+				blockedAttempts: attempts.length ? attempts : undefined,
 				updatedAt: nowIso(),
 			}),
 			ledger: (written) => [{

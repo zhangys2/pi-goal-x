@@ -39,9 +39,11 @@ function untrackedFileHashes(cwd: string): Record<string, string> {
 	return Object.fromEntries(files.map((file, index) => [file, hashes[index]!]));
 }
 
+export const BASELINE_STASH_MESSAGE = "per-task-review";
+
 export function gitBaseline(cwd: string): ReviewBaseline | undefined {
 	try {
-		const revision = git(cwd, ["stash", "create", "per-task-review"]).trim() || git(cwd, ["rev-parse", "HEAD"]).trim();
+		const revision = git(cwd, ["stash", "create", BASELINE_STASH_MESSAGE]).trim() || git(cwd, ["rev-parse", "HEAD"]).trim();
 		return { revision, untracked: untrackedFileHashes(cwd) };
 	} catch {
 		return undefined;
@@ -171,6 +173,7 @@ function blockGoalForRejectedTask(core: GoalCore, ctx: ExtensionContext, task: G
 			stopReason: "agent" as const,
 			pauseReason: reason,
 			pauseSuggestedAction: `Decide how to proceed on task ${task.id}: narrow it, fix the verification environment, revise its contract with /goal-tweak, or accept the findings. Then /goal-resume.`,
+			blockedAttempts: undefined,
 			updatedAt: nowIso(),
 		}),
 		ledger: (written) => [{ type: "goal_blocked", goalId: written.id, reason, source: "system", at: written.updatedAt }],
