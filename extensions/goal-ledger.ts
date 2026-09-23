@@ -18,6 +18,7 @@ export type GoalLedgerEvent =
   | { type: "completion_requested"; goalId: string; summary?: string; at: string }
   | { type: "audit_started"; goalId: string; provider?: string; model?: string; thinkingLevel?: string; at: string }
   | { type: "audit_result"; goalId: string; verdict: "approved" | "disapproved" | "error"; report: string; at: string }
+  | { type: "precheck_result"; goalId: string; verdict: "passed" | "rejected" | "skipped" | "error"; enforced: boolean; model?: string; reason?: string; items: { taskId: string; pYes: number }[]; ms: number; at: string }
   | { type: "audit_skipped"; goalId: string; reason: "disabled" | "user_aborted"; provider?: string; model?: string; thinkingLevel?: string; at: string }
   | { type: "goal_completed"; goalId: string; archivePath?: string; at: string }
   | { type: "goal_archived"; goalId: string; archivePath: string; at: string }
@@ -705,6 +706,10 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
       return typeof obj.goalId === "string" && (obj.provider === undefined || typeof obj.provider === "string") && (obj.model === undefined || typeof obj.model === "string") && (obj.thinkingLevel === undefined || typeof obj.thinkingLevel === "string");
     case "audit_result":
       return typeof obj.goalId === "string" && (obj.verdict === "approved" || obj.verdict === "disapproved" || obj.verdict === "error") && typeof obj.report === "string";
+    case "precheck_result":
+      return typeof obj.goalId === "string" && ["passed", "rejected", "skipped", "error"].includes(obj.verdict as string) &&
+        typeof obj.enforced === "boolean" && Array.isArray(obj.items) && typeof obj.ms === "number" &&
+        (obj.model === undefined || typeof obj.model === "string") && (obj.reason === undefined || typeof obj.reason === "string");
     case "audit_skipped":
       return typeof obj.goalId === "string" && (obj.reason === "disabled" || obj.reason === "user_aborted") && (obj.provider === undefined || typeof obj.provider === "string") && (obj.model === undefined || typeof obj.model === "string") && (obj.thinkingLevel === undefined || typeof obj.thinkingLevel === "string");
     case "goal_completed":

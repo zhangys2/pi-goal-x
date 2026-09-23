@@ -42,6 +42,7 @@
     "./tests/goal-policy.test.ts",
     "./tests/goal-pool-snapshot.test.ts",
     "./tests/goal-pool.test.ts",
+    "./tests/goal-precheck.test.ts",
     "./tests/goal-project-config.test.ts",
     "./tests/goal-prompt-cache.test.ts",
     "./tests/goal-prompts.test.ts",

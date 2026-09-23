@@ -45,6 +45,7 @@ import { buildGoalRunningNotification } from "./widgets/goal-notifications.ts";
 import { GOAL_WIDGET_KEY, GoalWidgetComponent, liveDisplayGoal, makeGoalWidgetFactory, type AuditorWidgetProgress } from "./widgets/goal-widget.ts";
 import type { AuditVerdict } from "./widgets/auditor-dashboard-model.ts";
 import { runGoalCompletionAuditor } from "./goal-auditor.ts";
+import type { runEvidencePrecheck } from "./goal-precheck.ts";
 import { observeGoal } from "./goal-observability.ts";
 
 
@@ -57,7 +58,7 @@ import { observeGoal } from "./goal-observability.ts";
  */
 export interface GoalCore {
 	pi: ExtensionAPI;
-	dependencies: { runCompletionAuditor?: typeof runGoalCompletionAuditor; runTaskReview?: typeof runGoalCompletionAuditor };
+	dependencies: { runCompletionAuditor?: typeof runGoalCompletionAuditor; runTaskReview?: typeof runGoalCompletionAuditor; runEvidencePrecheck?: typeof runEvidencePrecheck };
 	state: { goal: GoalRecord | null };
 	readonly goalsById: Map<string, GoalRecord>;
 	readonly focusedGoalId: string | null;
@@ -139,7 +140,7 @@ export interface GoalCore {
 
 export function createGoalCore(
 	pi: ExtensionAPI,
-	dependencies: { runCompletionAuditor?: typeof runGoalCompletionAuditor; runTaskReview?: typeof runGoalCompletionAuditor } = {},
+	dependencies: { runCompletionAuditor?: typeof runGoalCompletionAuditor; runTaskReview?: typeof runGoalCompletionAuditor; runEvidencePrecheck?: typeof runEvidencePrecheck } = {},
 ): GoalCore {
 	let goalsById = new Map<string, GoalRecord>();
 	let focusedGoalId: string | null = null;

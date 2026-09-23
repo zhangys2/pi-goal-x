@@ -363,7 +363,7 @@ export function registerGoalCommands(core: GoalCore): void {
 	type SettingRow = {
 		key: keyof GoalSettings | string;
 		label: string;
-		section: "Goal behavior" | "Task tracking" | "Completion auditor" | "Blocker Oracle";
+		section: "Goal behavior" | "Task tracking" | "Completion auditor" | "Blocker Oracle" | "Evidence pre-check";
 		kind: "boolean" | "modelSelector" | "thinking" | "positiveInteger";
 		/** Settings path for the mutation (defaults to [key]). */
 		path?: string[];
@@ -391,6 +391,8 @@ export function registerGoalCommands(core: GoalCore): void {
 		{ key: "oracleThinkingLevel", label: "oracle thinking_level", section: "Blocker Oracle", kind: "thinking", path: ["oracle", "thinkingLevel"] },
 		{ key: "oracleProjectResources", label: "oracle project resources", section: "Blocker Oracle", kind: "boolean", path: ["oracle", "projectResources"] },
 		{ key: "oracleMaxFailedAttemptsPerBlocker", label: "max failed attempts per blocker", section: "Blocker Oracle", kind: "positiveInteger", path: ["oracle", "maxFailedAttemptsPerBlocker"] },
+		// Log-only; needs TYPESAFE_API_KEY. Model and threshold live in the settings file.
+		{ key: "precheckEnabled", label: "precheck enabled (log-only, sends goal text to TypeSafe)", section: "Evidence pre-check", kind: "boolean", path: ["precheck", "enabled"] },
 	];
 	const BOOLEAN_SETTING_KEYS = new Set<string>(SETTING_ROWS.filter((row) => row.kind === "boolean" && !row.path).map((row) => row.key));
 

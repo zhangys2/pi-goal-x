@@ -173,6 +173,12 @@ If the work spans more than the project directory, such as a second repository, 
 
 The auditor treats both as guidance for where to look, never as evidence.
 
+### Evidence pre-check (experimental, log-only)
+
+When the auditor starts, goal-x can also ask [TypeSafe](https://docs.typesafe.ai)'s Jev model, for each complete task with a completion requirement, whether the task's recorded evidence says the requirement was met. The answer is written to the goal ledger (`.pi/goals/goal_events.jsonl`) as a `precheck_result` event next to the auditor's verdict. It never changes the outcome and is not shown in the conversation. The aim is to learn whether it would reliably catch completion claims made before any evidence was recorded, so a later release can reject those without starting an audit.
+
+It is off by default. Turn it on with `precheck enabled` in `/goal-settings`, and set `TYPESAFE_API_KEY` in the environment; the key is never read from a settings file. Enabling it sends the objective, task titles, requirements, evidence, and completion summary to `api.typesafe.ai`. `precheck.model` (default `jev-1.13.0`) and `precheck.rejectBelow` (default `0.15`) can be changed in the settings file.
+
 ## Progress and goal controls
 
 The dashboard above the editor shows the goal's status, task progress, current task, elapsed time, and token usage. Press `Ctrl+Shift+T` to expand it for the full task tree, completion requirements, evidence, and recent activity. Audit progress and results appear there too.
@@ -217,6 +223,7 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 | Auditor disabled | Turn off independent completion review. |
 | Auditor provider, model, and thinking level | Choose which model reviews completed work and its reasoning effort. |
 | Auditor workspaces and environment (`auditorWorkspaces`, `auditorEnvironment`) | Point the auditor at extra directories and explain how to run verification. Set in the settings file. |
+| Evidence pre-check (`precheck`) | Experimental, log-only [evidence pre-check](#evidence-pre-check-experimental-log-only). Off by default; needs `TYPESAFE_API_KEY`. |
 
 
 ### Automatic continuation and optional execution contracts
