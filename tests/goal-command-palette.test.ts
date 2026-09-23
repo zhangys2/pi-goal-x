@@ -192,8 +192,10 @@ test("goal-settings renders sectioned rows with clearer auditor wording", async 
 		assert.ok(opts.includes("─── Completion auditor ───"), "Completion auditor section header");
 		assert.ok(opts.some((l) => l.includes("auditor disabled:")), "clearer auditor wording row");
 		assert.ok(opts.some((l) => l.includes("provider:")) && opts.some((l) => l.includes("model:")), "provider/model rows");
-		assert.equal(opts.filter((l) => l.startsWith("───")).length, 5, "editing header + exactly four sections (incl. Blocker Oracle)");
+		assert.equal(opts.filter((l) => l.startsWith("───")).length, 6, "editing header + exactly five sections (incl. Blocker Oracle, Evidence pre-check)");
 		assert.ok(opts.includes("─── Blocker Oracle ───"), "Blocker Oracle section header");
+		assert.ok(opts.includes("─── Evidence pre-check ───"), "Evidence pre-check section header");
+		assert.ok(opts.some((l) => l.includes("precheck enabled (log-only, sends goal text to TypeSafe): false")), "pre-check toggle defaults off and names the data flow");
 		assert.ok(opts.includes("Done"));
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
