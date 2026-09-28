@@ -35,6 +35,10 @@ import { syncTerminalInputPause } from "./goal-widget.ts";
 import type { GoalCore } from "./goal-state.ts";
 import { filterGoalSessionContext } from "./goal-session-safety.ts";
 import type { GoalMutationOutcome } from "./goal-service.ts";
+import { defaultWorkerWorktree } from "./goal-project-config.ts";
+import { clearCommitGuardAsk, commitGuardBlockReason } from "./goal-commit-guard.ts";
+import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
+import { regenerateGoalReportIfChanged } from "./goal-report-runtime.ts";
 
 /** Normalize checkpoints independently: deleting old markers shifts the cached prefix. */
 export function compactGoalCheckpointContext(
@@ -128,6 +132,16 @@ export function registerGoalEvents(core: GoalCore): void {
 					`End the turn with a brief summary and yield to the user.`,
 			};
 		}
+		if (event.toolName === "bash") {
+			const command = (event.input as { command?: unknown } | undefined)?.command;
+			if (typeof command === "string") {
+				const reason = commitGuardBlockReason(core, ctx, command);
+				if (reason) return { block: true, reason };
+			}
+		}
+		if (event.toolName === "subagent" && core.state.goal?.status === "active") {
+			defaultWorkerWorktree(event.input as Record<string, unknown>, ctx.cwd);
+		}
 		// Track Oracle work attempts; this does not authorize scheduling.
 		if (isMeaningfulProgressToolCall(event.toolName, asRecord(event)?.args)) {
 			core.goalWorkToolCalledThisTurn = true;
@@ -182,6 +196,8 @@ export function registerGoalEvents(core: GoalCore): void {
 			return;
 		}
 		core.refreshGoalDisplayFromDisk(ctx);
+		// One report write per turn that changed goal state, before any archival.
+		regenerateGoalReportIfChanged(core, ctx);
 
 		// Archive a goal that was marked complete but whose archival was deferred
 		// so the agent could see/recognize the audit result first.
@@ -297,6 +313,8 @@ export function registerGoalEvents(core: GoalCore): void {
 				core.scheduler.resume(ctx);
 			}
 		}
+		// A blocked goal is easy to miss across a restart: restate what it needs.
+		if (core.state.goal?.status === "blocked") notifyGoalNeedsUser(ctx, core.state.goal);
 		core.beginAccounting();
 		core.scheduler.restore(ctx);
 	});
@@ -359,6 +377,8 @@ export function registerGoalEvents(core: GoalCore): void {
 			core.runtime.setCheckpoint(null);
 			core.clearContinuationState();
 			networkErrorRecoveryAfterSettleFor = null;
+			// The user has spoken, so an approved sweeping commit may proceed.
+			clearCommitGuardAsk(core.state.goal?.id ?? null);
 		}
 
 		core.reconcileFocusedGoalFromDisk(ctx);

@@ -1,3 +1,4 @@
+import { normalizeTaskCheckRun, normalizeTaskChecks, type TaskCheck, type TaskCheckRun } from "./goal-task-checks.ts";
 import { normalizeGoalScheduler, type GoalSchedulerState } from "./goal-scheduler-state.ts";
 export type GoalStatus = "active" | "paused" | "blocked" | "budget_limited" | "complete";
 export type StopReason = "user" | "agent";
@@ -17,6 +18,16 @@ export interface GoalTask {
   evidence?: string;
   skipReason?: string;
   verificationContract?: string;
+  codeChange?: boolean;
+  /** Repository state at the task's first start, used to delimit its work and integrate worker patches. */
+  workBaseline?: GoalWorkBaseline;
+  /** Commands goal-x runs itself on completion; the task stays pending until they pass. */
+  checks?: TaskCheck[];
+  /** The passing run recorded with the completion. */
+  checkRun?: TaskCheckRun;
+  /** Changes arrive only as integrated worker patches; reviewed as those commits. */
+  isolated?: boolean;
+  integrations?: TaskIntegration[];
   lightweightSubtasks?: boolean;
   subtasks?: GoalTask[];
 }
@@ -25,6 +36,20 @@ export interface GoalTaskList {
   tasks: GoalTask[];
   blockCompletion: boolean;
   proposedAt: string;
+  /** Repository state when the list was set, for reporting work completed without an explicit start. */
+  workBaseline?: GoalWorkBaseline;
+}
+
+export interface TaskIntegration {
+  commit: string;
+  patchPath: string;
+  at: string;
+}
+
+export interface GoalWorkBaseline {
+  revision: string;
+  /** Blob hash per path untracked at capture, so later edits to those files still count as task changes. */
+  untracked: Record<string, string>;
 }
 
 export interface GoalUsage {
@@ -47,6 +72,8 @@ export interface GoalRecord {
 	// Set when the model reports the goal blocked. Cleared when the goal becomes active again.
 	pauseReason?: string;
 	pauseSuggestedAction?: string;
+	/** What the model already tried against a blocker, so the user does not re-suggest it. */
+	blockedAttempts?: string[];
 	skipAuditor?: boolean;
 	/**
 	 * Persisted monotonic mutation counter (follow-up Stage 4). Missing
@@ -79,6 +106,7 @@ export interface GoalStateEntry {
 
 export interface GoalFocusEntry {
 	version: 1;
+	/** Pool identity pinned when this focus entry was written. */
 	storageRoot?: string;
 	focusedGoalId: string | null;
 	reason: GoalFocusReason;
@@ -243,6 +271,23 @@ export function normalizeUsage(value: unknown): GoalUsage {
 	return { tokensUsed, activeSeconds };
 }
 
+function normalizeWorkBaseline(value: unknown): GoalWorkBaseline | undefined {
+	const raw = asRecord(value);
+	const untracked = asRecord(raw?.untracked);
+	if (!raw || typeof raw.revision !== "string" || !raw.revision || !untracked) return undefined;
+	return {
+		revision: raw.revision,
+		untracked: Object.fromEntries(Object.entries(untracked).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+	};
+}
+
+function normalizeIntegrations(value: unknown): TaskIntegration[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const items = value.filter((item): item is TaskIntegration => !!item && typeof item.commit === "string" && typeof item.patchPath === "string" && typeof item.at === "string")
+		.map(({ commit, patchPath, at }) => ({ commit, patchPath, at }));
+	return items.length ? items : undefined;
+}
+
 export function normalizeTaskItem(raw: Record<string, unknown>): GoalTask | undefined {
 	const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : "";
 	const title = typeof raw.title === "string" ? raw.title.trim() : "";
@@ -265,6 +310,12 @@ export function normalizeTaskItem(raw: Record<string, unknown>): GoalTask | unde
 		evidence: typeof raw.evidence === "string" ? raw.evidence : undefined,
 		skipReason: typeof raw.skipReason === "string" ? raw.skipReason : undefined,
 		verificationContract: typeof raw.verificationContract === "string" ? raw.verificationContract : undefined,
+		...(typeof raw.codeChange === "boolean" ? { codeChange: raw.codeChange } : {}),
+		...(normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) ? { workBaseline: normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) } : {}),
+		...(normalizeTaskChecks(raw.checks) ? { checks: normalizeTaskChecks(raw.checks) } : {}),
+		...(normalizeTaskCheckRun(raw.checkRun) ? { checkRun: normalizeTaskCheckRun(raw.checkRun) } : {}),
+		...(raw.isolated === true ? { isolated: true } : {}),
+		...(normalizeIntegrations(raw.integrations) ? { integrations: normalizeIntegrations(raw.integrations) } : {}),
 		lightweightSubtasks: raw.lightweightSubtasks === true ? true : undefined,
 		subtasks,
 	};
@@ -283,6 +334,7 @@ export function normalizeTaskList(value: unknown): GoalTaskList | undefined {
 		tasks,
 		blockCompletion: raw.blockCompletion === true,
 		proposedAt: typeof raw.proposedAt === "string" ? raw.proposedAt : nowIso(),
+		...(normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) ? { workBaseline: normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) } : {}),
 	};
 }
 
@@ -309,6 +361,13 @@ export function validateTokenBudgetInput(value: unknown): { ok: true; value: num
 		return { ok: false, message: "token_budget must be at least 1." };
 	}
 	return { ok: true, value };
+}
+
+/** Absent when there are none, so a record without attempts keeps its historical shape. */
+function normalizeBlockedAttempts(value: unknown): { blockedAttempts?: string[] } {
+	if (!Array.isArray(value)) return {};
+	const attempts = value.filter((a): a is string => typeof a === "string" && a.trim().length > 0).slice(0, 8);
+	return attempts.length ? { blockedAttempts: attempts } : {};
 }
 
 export function normalizePositiveSafeInteger(value: unknown): number | undefined {
@@ -377,6 +436,7 @@ export function normalizeGoalRecord(value: unknown): GoalRecord | null {
 		stopReason: raw.stopReason === "agent" || raw.stopReason === "user" ? raw.stopReason : undefined,
 		pauseReason: typeof raw.pauseReason === "string" && raw.pauseReason.trim() ? raw.pauseReason : undefined,
 		pauseSuggestedAction: typeof raw.pauseSuggestedAction === "string" && raw.pauseSuggestedAction.trim() ? raw.pauseSuggestedAction : undefined,
+		...normalizeBlockedAttempts(raw.blockedAttempts),
 		skipAuditor: raw.skipAuditor === true ? true : undefined,
 		revision: Number.isSafeInteger(raw.revision) && (raw.revision as number) >= 0 ? (raw.revision as number) : 0,
 		tokenBudget: normalizePositiveSafeInteger(raw.tokenBudget),

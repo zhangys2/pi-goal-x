@@ -9,7 +9,7 @@ import type { GoalCore } from "../extensions/goal-state.ts";
 import { createGoal, goalFocusDetails, cloneGoal, normalizeGoalRecord } from "../extensions/goal-record.ts";
 import { writeActiveGoalFile, parseGoalFile } from "../extensions/storage/goal-files.ts";
 import { invalidateGoalSettingsCache, parseGoalSettings, saveGoalSettingsFileConfig, loadGoalSettings } from "../extensions/goal-settings.ts";
-import { newGoalScheduler, normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
+import { buildWaitNotice, formatWaitRemaining, newGoalScheduler, normalizeGoalScheduler, schedulerSummary } from "../extensions/goal-scheduler-state.ts";
 
 async function fixture(t: TestContext, limit?: number, owner = "owner", existing?: string, strict = true) {
 	const cwd = existing ?? mkdtempSync(path.join(tmpdir(), "goal-scheduler-"));
@@ -44,7 +44,7 @@ async function fixture(t: TestContext, limit?: number, owner = "owner", existing
 	const begin = () => core.scheduler.begin(ctx);
 	const admit = () => { begin(); core.scheduler.message(ctx, { ...sent.at(-1), role: "custom" }); };
 	const ready = () => core.scheduler.declare(ctx, { kind: "ready", next_action: "Inspect the next result" });
-	const wait = () => core.scheduler.declare(ctx, { kind: "wait", reason: "Await fixture job", deadline: new Date(Date.now() + 10000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
+	const wait = () => core.scheduler.declare(ctx, { kind: "wait", depends_on: "producer", reason: "Await fixture job", deadline: new Date(Date.now() + 10000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
 	return { cwd, ctx, core, handlers, tools, sent, notifications, begin, admit, ready, wait, pi, aborts: () => aborts };
 }
 
@@ -187,7 +187,7 @@ test("waiting restores with no catch-up; claimed dispatch never replays", async 
 test("deadline expiration and another session cannot wake a sleeping goal", async t => {
 	const h = await fixture(t, 5);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-	h.begin(); h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "External event", deadline: new Date(Date.now() + 2000).toISOString() });
+	h.begin(); h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "External event", deadline: new Date(Date.now() + 2000).toISOString() });
 	h.core.scheduler.settled(h.ctx);
 	const other = await fixture(t, undefined, "other-owner", h.cwd);
 	other.core.scheduler.restore(other.ctx);
@@ -260,7 +260,7 @@ for (const kind of ["recovery", "repair"] as const) {
 			const h = await fixture(t, 10);
 			t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 			h.begin();
-			assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } }).terminate, true);
+			assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } }).terminate, true);
 			h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
 			let busy = true;
 			const ctx = { ...h.ctx, isIdle: () => !busy };
@@ -285,7 +285,7 @@ test("network backoff crossing a wait deadline cannot dispatch recovery", async 
 	const h = await fixture(t);
 	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
 	h.begin();
-	h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
+	h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await job", deadline: new Date(Date.now() + 3000).toISOString(), polling: { interval_seconds: 1, max_checks: 2 } });
 	h.core.scheduler.settled(h.ctx); t.mock.timers.tick(1001); h.admit();
 	h.core.scheduler.settled(h.ctx, false);
 	const plan = h.core.runtime.scheduleNetworkErrorRetry(h.ctx, h.core.state.goal!);
@@ -367,11 +367,96 @@ test("explicit resume during an execution waits for settlement and dispatches ki
 	assert.equal(h.core.state.goal?.scheduler?.used, 1);
 });
 
+const resultText = (result: { content: readonly unknown[] }) => (result.content[0] as { text: string }).text;
+
+test("a new wait must depend on a producer; a user dependency must be blocked instead", async t => {
+	const h = await fixture(t, 5);
+	const deadline = () => new Date(Date.now() + 10000).toISOString();
+	h.begin();
+	const missing = h.core.scheduler.declare(h.ctx, { kind: "wait", reason: "Await MSVC", deadline: deadline() } as never);
+	assert.equal(missing.terminate, false);
+	assert.match(resultText(missing), /requires depends_on/);
+	const onUser = h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "user", reason: "The user must install MSVC", deadline: deadline() });
+	assert.equal(onUser.terminate, false);
+	assert.match(resultText(onUser), /blocked/);
+	assert.equal(h.core.state.goal?.scheduler?.wait, undefined, "a rejected wait changes no state");
+	assert.equal(h.core.state.goal?.status, "active");
+	const onProducer = h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await the remote build", deadline: deadline() });
+	assert.equal(onProducer.terminate, true);
+	const waitId = h.core.state.goal!.scheduler!.wait!.id;
+	h.core.scheduler.settled(h.ctx); h.begin();
+	const redeclared = h.core.scheduler.declare(h.ctx, { kind: "wait", wait_id: waitId, reason: "Await the remote build", deadline: new Date(h.core.state.goal!.scheduler!.wait!.deadline).toISOString() });
+	assert.equal(redeclared.terminate, true, "re-declaring an existing wait needs no depends_on");
+});
+
+test("a distant wait announces itself, reminds while waiting, and spends nothing on reminders", async t => {
+	const h = await fixture(t, 5);
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin();
+	const deadline = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+	assert.equal(h.core.scheduler.declare(h.ctx, { kind: "wait", depends_on: "producer", reason: "Await the remote build", deadline }).terminate, true);
+	assert.match(h.notifications.at(-1)!, /⏳ Goal waiting: Await the remote build/);
+	assert.match(h.notifications.at(-1)!, /in 3h\)/);
+
+	h.core.scheduler.settled(h.ctx);
+	const announced = h.notifications.length;
+	t.mock.timers.tick(29 * 60_000);
+	assert.equal(h.notifications.length, announced, "no reminder before the heartbeat");
+	t.mock.timers.tick(60_000);
+	assert.match(h.notifications.at(-1)!, /⏳ Goal still waiting: Await the remote build/);
+	assert.match(h.notifications.at(-1)!, /in 2h 30m\)/);
+	assert.equal(h.sent.length, 0, "a reminder dispatches no model turn");
+	assert.equal(h.core.state.goal?.scheduler?.used, 0, "and spends no allowance");
+	assert.equal(h.core.state.goal?.status, "active");
+
+	t.mock.timers.tick(30 * 60_000);
+	assert.match(h.notifications.at(-1)!, /still waiting/, "the wait keeps reminding");
+	t.mock.timers.tick(2 * 60 * 60_000);
+	assert.equal(h.core.state.goal?.status, "paused");
+	assert.match(h.core.state.goal?.pauseReason ?? "", /deadline reached without the expected signal: Await the remote build/);
+	assert.match(h.core.state.goal?.pauseSuggestedAction ?? "", /\/goal-resume to continue or \/goal-tweak/);
+	assert.match(h.notifications.at(-1)!, /To continue: Check whether that condition happened/);
+	assert.equal(h.sent.length, 0);
+});
+
+test("a short wait sleeps to its deadline without a reminder, and re-declaration stays quiet", async t => {
+	const h = await fixture(t, 5);
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+	h.begin();
+	assert.equal(h.wait().terminate, true, "polling wait declared");
+	const declared = h.notifications.length;
+	const first = structuredClone(h.core.state.goal!.scheduler!.wait!);
+	h.core.scheduler.settled(h.ctx);
+	t.mock.timers.tick(1001);
+	assert.equal(h.notifications.length, declared, "a check inside the heartbeat window needs no reminder");
+	assert.equal(h.sent.length, 1, "the due check still dispatches");
+	h.admit();
+	h.core.scheduler.declare(h.ctx, { kind: "wait", wait_id: first.id, reason: first.reason, deadline: new Date(first.deadline).toISOString() });
+	assert.equal(h.notifications.length, declared, "re-declaring the same wait does not re-announce it");
+});
+
+test("wait notices round the remaining time and include polling state", () => {
+	assert.equal(formatWaitRemaining(-5), "now");
+	assert.equal(formatWaitRemaining(20_000), "20s");
+	assert.equal(formatWaitRemaining(45 * 60_000), "45m");
+	assert.equal(formatWaitRemaining(2 * 60 * 60_000), "2h");
+	assert.equal(formatWaitRemaining(125 * 60_000), "2h 5m");
+	const now = Date.parse("2026-09-17T12:00:00.000Z");
+	const polling = buildWaitNotice({ id: "w", token: "t", reason: "Await CI", deadline: now + 90 * 60_000, intervalMs: 600_000, remainingChecks: 2, nextCheckAt: now + 600_000 }, "declared", now);
+	assert.match(polling, /^⏳ Goal waiting: Await CI$/m);
+	assert.match(polling, /^Deadline 2026-09-17T13:30:00\.000Z \(in 1h 30m\)\.$/m);
+	assert.match(polling, /^Next check in 10m; 2 left\.$/m);
+	const plain = buildWaitNotice({ id: "w", token: "t", reason: "Await CI", deadline: now + 60_000 }, "heartbeat", now);
+	assert.match(plain, /^⏳ Goal still waiting: Await CI$/m);
+	assert.doesNotMatch(plain, /Next check/);
+	assert.match(plain, /\/goal-resume to continue now, \/goal-pause to stop waiting\./);
+});
+
 // Default policy deliberately does not infer productivity from tool activity.
 test("implicit executions continue without tools through task completion and wrap-up", async t => {
  const h = await fixture(t, undefined, "owner", undefined, false);
  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
- h.core.goalService.apply(h.ctx, {mutate: g => ({...g, taskList: {proposedAt: new Date().toISOString(), tasks: [{id: "one", title: "One", status: "pending"}, {id: "two", title: "Two", status: "pending"}], blockCompletion: false}})});
+ h.core.goalService.apply(h.ctx, {mutate: g => ({...g, taskList: {proposedAt: new Date().toISOString(), tasks: [{id: "one", title: "One", status: "pending", codeChange: false}, {id: "two", title: "Two", status: "pending", codeChange: false}], blockCompletion: false}})});
  h.begin();
  for (const id of [undefined, "one", "two", undefined]) {
   if (id) await h.tools.get("update_goal_task").execute("test", {task_id: id, status: "complete"}, undefined, undefined, h.ctx);

@@ -24,7 +24,7 @@ export interface GoalSchedulerState {
 }
 export type GoalContinuation =
 	| { kind: "ready"; next_action: string }
-	| { kind: "wait"; reason: string; deadline: string; wait_id?: string; polling?: { interval_seconds: number; max_checks: number } };
+	| { kind: "wait"; reason: string; deadline: string; depends_on?: "producer" | "user"; wait_id?: string; polling?: { interval_seconds: number; max_checks: number } };
 
 export function newGoalScheduler(owner: string): GoalSchedulerState {
 	return { version: 1, owner, generation: randomUUID(), used: 0, phase: "idle", repairUsed: false };
@@ -54,23 +54,39 @@ export function normalizeGoalScheduler(raw: unknown): GoalSchedulerState | undef
 	return structuredClone(s);
 }
 
+/** Rounded "2h 5m" / "45s" for wait notices; the exact deadline is printed beside it. */
+export function formatWaitRemaining(ms: number): string {
+	if (ms <= 0) return "now";
+	const minutes = Math.round(ms / 60_000);
+	if (minutes < 1) return `${Math.max(1, Math.round(ms / 1000))}s`;
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	const rest = minutes % 60;
+	return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 /**
- * Split scheduling text into an append-safe counter line and the standing
- * instructions. Instructions (next action, wait, admission) are cleared by
- * omission, so a retained stale copy would keep issuing a cancelled order:
- * they belong with the reset-on-change state, never with retained counters.
+ * The user-facing wait announcement. A wait used to be invisible until its
+ * deadline, so a goal could sleep for hours with nothing said.
  */
+export function buildWaitNotice(wait: GoalWait, kind: "declared" | "heartbeat", now = Date.now()): string {
+	const head = kind === "declared" ? "⏳ Goal waiting" : "⏳ Goal still waiting";
+	const lines = [`${head}: ${wait.reason}`, `Deadline ${new Date(wait.deadline).toISOString()} (in ${formatWaitRemaining(wait.deadline - now)}).`];
+	if (wait.nextCheckAt !== undefined) lines.push(`Next check in ${formatWaitRemaining(wait.nextCheckAt - now)}; ${wait.remainingChecks} left.`);
+	lines.push("/goal-resume to continue now, /goal-pause to stop waiting.");
+	return lines.join("\n");
+}
+
+/** Separate append-safe usage counters from instructions that must reset when scheduling state changes. */
 export function schedulerSummaryParts(s: GoalSchedulerState | undefined, limit?: number): { runs: string; instructions: string } {
 	const runs = `Autonomous runs: ${s?.used ?? 0}/${limit ?? "unlimited"}${limit === 0 ? " (automatic continuation disabled)" : ""}.`;
 	const lines: string[] = [];
-	if (s) {
-		if (s.decision?.kind === "ready") lines.push(`Next action: ${s.decision.nextAction}`);
-		if (s.wait) {
-			lines.push(`Waiting: ${s.wait.reason}; wait_id=${s.wait.id}; deadline=${new Date(s.wait.deadline).toISOString()}.`);
-			if (s.wait.nextCheckAt !== undefined) lines.push(`Next check: ${new Date(s.wait.nextCheckAt).toISOString()}; ${s.wait.remainingChecks} checks remaining.`);
-		}
-		if (s.phase === "interrupted" || s.phase === "claimed") lines.push("Execution requires dispatch admission or explicit /goal-resume after interruption.");
+	if (s?.decision?.kind === "ready") lines.push(`Next action: ${s.decision.nextAction}`);
+	if (s?.wait) {
+		lines.push(`Waiting: ${s.wait.reason}; wait_id=${s.wait.id}; deadline=${new Date(s.wait.deadline).toISOString()}.`);
+		if (s.wait.nextCheckAt !== undefined) lines.push(`Next check: ${new Date(s.wait.nextCheckAt).toISOString()}; ${s.wait.remainingChecks} checks remaining.`);
 	}
+	if (s?.phase === "interrupted" || s?.phase === "claimed") lines.push("Execution requires dispatch admission or explicit /goal-resume after interruption.");
 	return { runs, instructions: lines.join("\n") };
 }
 

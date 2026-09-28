@@ -475,6 +475,7 @@ describe("five-tool handler integration", () => {
 					"  disableContracts: false (default)", "Set project override to true",
 					"  auditor disabled: false (default)", "Set project override to true",
 					"  autoSelectSingleGoal: false (default)", "Set project override to true",
+					"  hideUnfocusedPrompt: false (default)", "Set project override to true",
 					"Done",
 				];
 				const h = createHarness({
@@ -488,9 +489,10 @@ describe("five-tool handler integration", () => {
 				assert.equal(saved.disableContracts, true);
 				assert.equal(saved.disabled, true);
 				assert.equal(saved.autoSelectSingleGoal, true);
+				assert.equal(saved.hideUnfocusedPrompt, true);
 				// Second pass removes the local overrides via the action menu's
 				// inherit choice; the file then omits both keys.
-				const selects2 = ["  disableTasks: true (project override)", "Use inherited value", "  autoSelectSingleGoal: true (project override)", "Use inherited value", "Done"];
+				const selects2 = ["  disableTasks: true (project override)", "Use inherited value", "  autoSelectSingleGoal: true (project override)", "Use inherited value", "  hideUnfocusedPrompt: true (project override)", "Use inherited value", "Done"];
 				const h2 = createHarness({
 					cwd: f.cwd, sessionEntries: f.sessionEntries, hasUI: true,
 					select: async () => selects2.shift(),
@@ -500,6 +502,7 @@ describe("five-tool handler integration", () => {
 				const saved2 = readSettings(f.cwd);
 				assert.equal(saved2.disableTasks, undefined, "disableTasks toggled back off clears the key");
 				assert.equal(saved2.autoSelectSingleGoal, undefined, "autoSelectSingleGoal toggled back off clears the key");
+				assert.equal(saved2.hideUnfocusedPrompt, undefined, "hideUnfocusedPrompt inherited value clears the key");
 				assert.equal(saved2.disableContracts, true, "untouched boolean preserved");
 				assert.equal(saved2.disabled, true, "untouched boolean preserved");
 			} finally {
@@ -880,7 +883,7 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 });
 
 describe("completion transaction hardening (follow-up Stage 3)", () => {
-	it("completion commit write failure never reports success and never clears focus", async () => {
+	it("completion commit write failure never reports success and never clears focus", { skip: process.platform === "win32" }, async () => {
 		const f = fixture();
 		const goalsDir = path.join(f.cwd, ".pi", "goals");
 		try {

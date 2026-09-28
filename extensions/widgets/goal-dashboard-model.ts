@@ -34,6 +34,7 @@ export interface GoalDashboardModel {
 		footerLabel: string;
 		reason?: string;
 		suggestedAction?: string;
+		attempts?: readonly string[];
 	};
 
 	focused: boolean;
@@ -124,6 +125,8 @@ export interface DashboardGoalStatus {
 	footerLabel: string;
 	reason?: string;
 	suggestedAction?: string;
+	/** What the model already tried against a blocker. */
+	attempts?: readonly string[];
 }
 
 /**
@@ -147,6 +150,7 @@ export function deriveGoalStatus(goal: GoalRecord): DashboardGoalStatus {
 			const status: DashboardGoalStatus = { code: "blocked", label: "Blocked", footerLabel: statusLabel(goal) };
 			if (goal.pauseReason) status.reason = goal.pauseReason;
 			if (goal.pauseSuggestedAction) status.suggestedAction = goal.pauseSuggestedAction;
+			if (goal.blockedAttempts?.length) status.attempts = goal.blockedAttempts;
 			return status;
 		}
 		case "budget_limited":

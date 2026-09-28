@@ -63,6 +63,17 @@ test("normalizeGoalRecord preserves known fields while sanitizing unsafe or miss
 	assert.equal(normalized.updatedAt, "2026-02-03T04:06:06.000Z");
 });
 
+test("legacy review baselines migrate to the neutral work baseline field", () => {
+	const normalized = normalizeGoalRecord({
+		id: "goal-baseline", objective: "Work", status: "active", autoContinue: true,
+		usage: { tokensUsed: 0, activeSeconds: 0 }, sisyphus: false,
+		taskList: { tasks: [{ id: "t1", title: "Task", status: "pending", reviewBaseline: { revision: "abc", untracked: { "new.ts": "hash" } } }], blockCompletion: false, proposedAt: "now", reviewBaseline: { revision: "list", untracked: {} } },
+	});
+	assert.deepEqual(normalized?.taskList?.tasks[0]?.workBaseline, { revision: "abc", untracked: { "new.ts": "hash" } });
+	assert.deepEqual(normalized?.taskList?.workBaseline, { revision: "list", untracked: {} });
+	assert.equal(JSON.stringify(normalized).includes("reviewBaseline"), false, "writes use the review-agnostic persisted field");
+});
+
 test("cloneGoal returns a detached usage object", () => {
 	const goal = createGoal(baseConfig, Date.UTC(2026, 0, 2, 3, 4, 5));
 	const cloned = cloneGoal(goal);

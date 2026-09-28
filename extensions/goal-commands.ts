@@ -1,4 +1,3 @@
-import { goalStoragePath, goalStorageRoot } from "./storage/goal-root.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -73,6 +72,8 @@ import {
 	type AuditorChoice,
 } from "./auditor-selector.ts";
 import type { GoalCore } from "./goal-state.ts";
+import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
+import { regenerateGoalReport } from "./goal-report-runtime.ts";
 
 /**
  * The curated twelve-command palette. /goal and /sisyphus begin guided
@@ -178,7 +179,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		ctx.ui.notify(`Goal unfocused for this session. It remains open in .pi/goals: ${current.id}`, "info");
 	}
 
-	function handleDirectGoalSet(rawObjective: string, ctx: ExtensionContext, mode: GoalMode): void {
+	async function handleDirectGoalSet(rawObjective: string, ctx: ExtensionContext, mode: GoalMode): Promise<void> {
 		const raw = rawObjective.trim();
 		if (!raw) {
 			const command = mode === "sisyphus" ? "/sisyphus <objective>" : "/goal <objective>";
@@ -194,13 +195,14 @@ export function registerGoalCommands(core: GoalCore): void {
 		clearGoalDrafting(core, ctx);
 		core.clearContinuationState();
 		core.clearActiveAccounting();
+		await offerProjectOrchestrationSetup(core, ctx);
 		core.replaceGoal({ objective, autoContinue: true, sisyphus: mode === "sisyphus" }, ctx, true, verificationContract);
 	}
 
 	async function runGoalRecovery(rawArgs: string, ctx: ExtensionContext): Promise<void> {
-		const report = runRecoveryReport(ctx);
+		const report = runRecoveryReport({ cwd: ctx.cwd });
 		if (/^repair$/i.test(rawArgs)) {
-			const result = await runRecoveryRepair(ctx, report, async () => {
+			const result = await runRecoveryRepair({ cwd: ctx.cwd }, report, async () => {
 				const confirmed = await ctx.ui.confirm(`Remove ${report.staleLocks.length} stale lock(s) and refresh the pool snapshot?`, `Files are backed up to .pi/goals/.recovery-backup first.`);
 				return confirmed === true;
 			});
@@ -288,7 +290,7 @@ export function registerGoalCommands(core: GoalCore): void {
 			verbose,
 			health,
 			activeFilePresent: health && view?.activePath
-				? existsSync(goalStoragePath(ctx, view.activePath))
+				? existsSync(path.resolve(ctx.cwd, view.activePath))
 				: undefined,
 			// Issue #30: checkpoint growth report (health view only, read-only).
 			checkpointHealth: health
@@ -299,7 +301,7 @@ export function registerGoalCommands(core: GoalCore): void {
 			checkpointSessionFile: (ctx.sessionManager as { getSessionFile?: () => string | undefined } | undefined)?.getSessionFile?.(),
 			// §13.2: effective settings with provenance appear only in verbose mode;
 			// the standard mode stays free of settings noise (§13.1).
-			settingsReport: verbose ? [...effectiveSettingsReport(ctx.cwd), `effective goal pool: ${goalStorageRoot(ctx)}`] : [],
+			settingsReport: verbose ? effectiveSettingsReport(ctx.cwd) : [],
 		});
 		ctx.ui.notify(text, "info");
 		core.updateUI(ctx);
@@ -390,10 +392,11 @@ export function registerGoalCommands(core: GoalCore): void {
 		{ key: "oracleProjectResources", label: "oracle project resources", section: "Blocker Oracle", kind: "boolean", path: ["oracle", "projectResources"] },
 		{ key: "oracleMaxFailedAttemptsPerBlocker", label: "max failed attempts per blocker", section: "Blocker Oracle", kind: "positiveInteger", path: ["oracle", "maxFailedAttemptsPerBlocker"] },
 	];
+	const BOOLEAN_SETTING_KEYS = new Set<string>(SETTING_ROWS.filter((row) => row.kind === "boolean" && !row.path).map((row) => row.key));
 
 	function settingsValue(config: GoalSettings, key: keyof GoalSettings | string): string {
-		if (key === "strictExecutionContract" || key === "disabled" || key === "disableTasks" || key === "disableContracts" || key === "autoSelectSingleGoal" || key === "auditorProjectResources" || key === "hideUnfocusedBanner" || key === "hideUnfocusedPrompt") {
-			return config[key] === true ? "true" : "false";
+		if (BOOLEAN_SETTING_KEYS.has(key)) {
+			return (config as Record<string, unknown>)[key] === true ? "true" : "false";
 		}
 		if (key === "subtaskDepth") return config.subtaskDepth !== undefined ? String(config.subtaskDepth) : "1";
 		if (key === "maxAutonomousRuns") return config.maxAutonomousRuns === 0 ? "0 (disabled)" : String(config.maxAutonomousRuns ?? "unlimited (default)");
@@ -699,13 +702,13 @@ export function registerGoalCommands(core: GoalCore): void {
 		}
 		const trimmed = replacement.trim();
 		if (!trimmed) {
-			ctx.ui.notify("Describe the requested change: /goal-tweak <change>, for example remove the token budget", "info");
+			ctx.ui.notify("Provide the replacement objective: /goal-tweak <new objective>", "info");
 			return;
 		}
 		const max = loadGoalSettings(ctx.cwd).objectiveMaxChars;
 		if (trimmed.length > (max ?? 0)) {
 			if (max !== undefined && max > 0) {
-				ctx.ui.notify(`Requested change exceeds ${max} characters (${trimmed.length}).`, "warning");
+				ctx.ui.notify(`Replacement objective exceeds ${max} characters (${trimmed.length}).`, "warning");
 				return;
 			}
 		}
@@ -739,11 +742,11 @@ export function registerGoalCommands(core: GoalCore): void {
 	});
 	pi.registerCommand("goal-direct", {
 		description: "Create and start a regular goal immediately, without drafting.",
-		handler: async (rawArgs, ctx) => { handleDirectGoalSet(rawArgs, ctx, "goal"); },
+		handler: async (rawArgs, ctx) => { await handleDirectGoalSet(rawArgs, ctx, "goal"); },
 	});
 	pi.registerCommand("sisyphus-direct", {
 		description: "Create and start a Sisyphus goal immediately, without drafting.",
-		handler: async (rawArgs, ctx) => { handleDirectGoalSet(rawArgs, ctx, "sisyphus"); },
+		handler: async (rawArgs, ctx) => { await handleDirectGoalSet(rawArgs, ctx, "sisyphus"); },
 	});
 	pi.registerCommand("goal-list", {
 		description: "List all open goals and the current focus.",
@@ -790,7 +793,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		},
 	});
 	pi.registerCommand("goal-tweak", {
-		description: "Revise the current goal or its token budget with confirmation.",
+		description: "Refine the current goal's objective with the user.",
 		handler: async (rawArgs, ctx) => {
 			await runGoalTweak(rawArgs, ctx);
 		},
@@ -805,6 +808,20 @@ export function registerGoalCommands(core: GoalCore): void {
 		description: "Pause the currently running goal. Esc also pauses while running.",
 		handler: async (_rawArgs, ctx) => {
 			await handleGoalPause(ctx);
+		},
+	});
+	pi.registerCommand("goal-report", {
+		description: "Write the focused goal's report now and show its path.",
+		handler: async (_rawArgs, ctx) => {
+			core.reconcileFocusedGoalFromDisk(ctx);
+			if (!core.state.goal) { ctx.ui.notify("No goal is focused. Use /goal-focus first.", "warning"); return; }
+			if (loadGoalSettings(ctx.cwd).disableGoalReport) { ctx.ui.notify("Goal reports are disabled (disableGoalReport).", "info"); return; }
+			try {
+				const written = regenerateGoalReport(core, ctx);
+				ctx.ui.notify(written ? `Goal report written: ${written}` : "No goal report was written.", "info");
+			} catch (error) {
+				ctx.ui.notify(`Goal report failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			}
 		},
 	});
 	pi.registerCommand("goal-resume", {

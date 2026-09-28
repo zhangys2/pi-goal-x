@@ -28,6 +28,7 @@ import {
 	runBlockerOracle,
 } from "./goal-oracle.ts";
 import { loadSettingsSnapshot, type ResolvedGoalOracleSettings } from "./goal-settings.ts";
+import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
 
 /** Current + first-pending (excluding current) task pointers for concise get_goal. */
 function conciseTaskPointers(goal: GoalRecord): { findCurrentTask?: GoalTask; firstPendingTask?: GoalTask } {
@@ -241,7 +242,7 @@ pi.registerTool(defineTool({
 // complete → the independent auditor verifies from actual evidence (no
 // paperwork field); blocked → a distinct agent-blocked state that stops
 // continuation. The three-consecutive-turn blocker rule is prompt policy.
-	async function runGoalBlockedFlow(ctx: ExtensionContext, reasonInput?: string, attemptedActions: string[] = []): Promise<AgentToolResult<unknown>> {
+	async function runGoalBlockedFlow(ctx: ExtensionContext, reasonInput?: string, attemptedActions: string[] = [], suggestedActionInput?: string): Promise<AgentToolResult<unknown>> {
 	core.reconcileFocusedGoalFromDisk(ctx);
 	const gate = validateGoalBlock({ goal: core.state.goal, runningGoalId: core.runningGoalId });
 	if (!gate.ok) {
@@ -263,6 +264,17 @@ pi.registerTool(defineTool({
 		};
 	}
 
+	// The block is the user's cue to act, so it must carry what they can do about it.
+	const suggestedAction = suggestedActionInput?.trim() ?? "";
+	if (!suggestedAction) {
+		return {
+			content: [{ type: "text", text: 'update_goal({ status: "blocked" }) requires a "suggested_action" written for the user: the command, install, credential or decision that unblocks this goal. The goal remains active.' }],
+			details: goalDetails(core.state.goal),
+			terminate: false,
+		};
+	}
+	const attempts = attemptedActions.map((a) => a.trim()).filter(Boolean).slice(0, 8);
+
 	const commitBlocked = (): AgentToolResult<unknown> => {
 		const result = core.goalService.apply(ctx, {
 			reconcile: false,
@@ -272,6 +284,8 @@ pi.registerTool(defineTool({
 				status: "blocked" as const,
 				stopReason: "agent" as const,
 				pauseReason: reason,
+				pauseSuggestedAction: suggestedAction,
+				blockedAttempts: attempts.length ? attempts : undefined,
 				updatedAt: nowIso(),
 			}),
 			ledger: (written) => [{
@@ -293,10 +307,11 @@ pi.registerTool(defineTool({
 		core.clearActiveAccounting();
 		if (result.goal) core.runtime.markTurnStopped(result.goal.id);
 		core.updateUI(ctx);
+		notifyGoalNeedsUser(ctx, result.goal ?? core.state.goal);
 		return {
 			content: [{
 				type: "text",
-				text: "Goal blocked. Continuation stopped; the goal is waiting for the user to resume, revise, or clear it. Stop now; do not start another tool call.",
+				text: "Goal blocked. The user was notified with the reason and your suggested fix; the goal waits for them to resume, revise, or clear it. Stop now; do not start another tool call.",
 			}],
 			details: goalDetails(core.state.goal),
 			terminate: true,
@@ -509,18 +524,18 @@ async function runGoalAgentPauseFlow(ctx: ExtensionContext, reason: string | und
 pi.registerTool(defineTool({
 	name: "update_goal",
 	label: "Update Goal",
-	description: "Update lifecycle status or optionally save continuation. New waits require strictExecutionContract opt-in. Wait: future ISO deadline; reuse wait_id/deadline without polling on recheck. Completion is audited.",
+	description: "Update lifecycle status or optionally save continuation. New waits require strictExecutionContract opt-in. Wait: future ISO deadline plus depends_on; reuse wait_id/deadline without polling on recheck. Anything only the user can do is blocked, not waited on. Completion is audited.",
 	promptSnippet: "Complete, block, pause, or optionally save a scheduling decision.",
 	promptGuidelines: [],
 	parameters: Type.Object({
 		status: Type.Optional(StringEnum(["complete", "blocked", "paused"] as const, { description: "Exclusive with continuation." })),
 		continuation: Type.Optional(Type.Union([
 			Type.Object({ kind: Type.Literal("ready"), next_action: Type.String({ minLength: 1, maxLength: 2000 }) }, { additionalProperties: false }),
-			Type.Object({ kind: Type.Literal("wait"), reason: Type.String({ minLength: 1, maxLength: 2000 }), deadline: Type.String(), wait_id: Type.Optional(Type.String()), polling: Type.Optional(Type.Object({ interval_seconds: Type.Integer({ minimum: 1, maximum: 2147483 }), max_checks: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }, { additionalProperties: false })) }, { additionalProperties: false }),
+			Type.Object({ kind: Type.Literal("wait"), reason: Type.String({ minLength: 1, maxLength: 2000 }), deadline: Type.String(), depends_on: Type.Optional(StringEnum(["producer", "user"] as const, { description: "Required for a new wait: 'producer' for an external condition that resolves itself; 'user' is rejected, block instead." })), wait_id: Type.Optional(Type.String()), polling: Type.Optional(Type.Object({ interval_seconds: Type.Integer({ minimum: 1, maximum: 2147483 }), max_checks: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }, { additionalProperties: false })) }, { additionalProperties: false }),
 		])),
 		reason: Type.Optional(Type.String({ description: "Required when status is paused or blocked: describe the concrete blocker." })),
 		attempted_actions: Type.Optional(Type.Array(Type.String({ maxLength: 240 }), { maxItems: 8, description: "Actions attempted against the blocker." })),
-		suggested_action: Type.Optional(Type.String({ description: "Optional suggested next step when status is paused." })),
+		suggested_action: Type.Optional(Type.String({ description: "Required when status is blocked, optional when paused: what the USER should do to unblock it — the exact command, install, credential or decision." })),
 		completion_summary: Type.Optional(Type.String({ description: "Untrusted completion claim; never evidence." })),
 	}, { additionalProperties: false }),
 	executionMode: "sequential",
@@ -536,7 +551,7 @@ pi.registerTool(defineTool({
 			const attempted = Array.isArray((params as { attempted_actions?: unknown }).attempted_actions)
 				? ((params as { attempted_actions: unknown[] }).attempted_actions.filter((a): a is string => typeof a === "string"))
 				: [];
-			return runGoalBlockedFlow(ctx, params.reason, attempted);
+			return runGoalBlockedFlow(ctx, params.reason, attempted, params.suggested_action);
 		}
 		if (params.status === "paused") {
 			return runGoalAgentPauseFlow(ctx, params.reason, params.suggested_action);

@@ -9,6 +9,7 @@ import {
 	renderGoalEvent,
 	type GoalAuditEventDetails,
 } from "./goal-format.ts";
+import { registerLoopCommand } from "./goal-loop.ts";
 import type { GoalEventDetails } from "./goal-record.ts";
 import { createGoalCore } from "./goal-state.ts";
 import { registerGoalTools } from "./goal-tools.ts";
@@ -40,5 +41,6 @@ export default function goalExtension(
 	(pi as unknown as { _goalCore?: typeof core })._goalCore = core;
 	registerGoalCommands(core);
 	registerGoalTools(core);
+	registerLoopCommand(pi);
 	registerGoalEvents(core);
 }

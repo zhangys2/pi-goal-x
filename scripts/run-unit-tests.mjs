@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -17,6 +17,10 @@ function discover(directory) {
 		.filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
 		.map((entry) => join(directory, entry.name))
 		.sort();
+}
+
+function relativeTestPath(file) {
+	return `./${relative(projectRoot, file).split(sep).join("/")}`;
 }
 
 const unitFiles = discover(testsRoot);
@@ -42,9 +46,9 @@ if (wantWriteManifest) {
 	writeFileSync(manifestPath, JSON.stringify({
 		version: 1,
 		note: "Expected test-entry manifest for the runner self-check (npm run test:selfcheck). Regenerate with: node scripts/run-unit-tests.mjs --write-manifest",
-		unitFiles: unitFiles.map((file) => file.replace(projectRoot, ".")),
-		integrationFiles: integrationFiles.map((file) => file.replace(projectRoot, ".")),
-		e2eFiles: e2eFiles.map((file) => file.replace(projectRoot, ".")),
+		unitFiles: unitFiles.map(relativeTestPath),
+		integrationFiles: integrationFiles.map(relativeTestPath),
+		e2eFiles: e2eFiles.map(relativeTestPath),
 	}, null, 2) + "\n");
 	console.log("Wrote " + manifestPath + " (" + unitFiles.length + " unit, " + integrationFiles.length + " integration, " + e2eFiles.length + " e2e entries).");
 	process.exit(0);
@@ -55,7 +59,7 @@ if (wantSelfCheck) {
 		throw new Error("Missing " + manifestPath + ". Run: node scripts/run-unit-tests.mjs --write-manifest");
 	}
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	const rel = (file) => file.replace(projectRoot, ".");
+	const rel = relativeTestPath;
 	const expectedUnit = new Set(manifest.unitFiles ?? []);
 	const expectedIntegration = new Set(manifest.integrationFiles ?? []);
 	const expectedE2e = new Set(manifest.e2eFiles ?? []);
@@ -73,6 +77,7 @@ if (wantSelfCheck) {
 		process.exit(1);
 	}
 	console.log("Runner self-check OK: " + unitFiles.length + " unit + " + integrationFiles.length + " integration + " + e2eFiles.length + " e2e entries match " + manifestPath + ".");
+	process.exit(0);
 }
 
 // ---- Execution ---------------------------------------------------------
@@ -85,11 +90,11 @@ const isolationArgs = isolationProbe.status === 0 ? ["--test-isolation=none"] : 
 const result = spawnSync(
 	process.execPath,
 	[
-		"--import", join(projectRoot, "scripts", "test-adapter-hooks.mjs"),
+		"--import", relativeTestPath(join(projectRoot, "scripts", "test-adapter-hooks.mjs")),
 		"--experimental-strip-types",
 		"--test",
 		...isolationArgs,
-		...testFiles,
+		...testFiles.map(relativeTestPath),
 	],
 	{ cwd: projectRoot, stdio: "inherit" },
 );
