@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { runGoalCompletionAuditor } from "./goal-auditor.ts";
+import type { runEvidencePrecheck } from "./goal-precheck.ts";
 import { registerGoalCommands } from "./goal-commands.ts";
 import { registerGoalEvents } from "./goal-events.ts";
 import {
@@ -23,7 +24,7 @@ import { filterGoalSessionContext, isDelegatedGoalSession } from "./goal-session
  */
 export default function goalExtension(
 	pi: ExtensionAPI,
-	dependencies: { runCompletionAuditor?: typeof runGoalCompletionAuditor; runTaskReview?: typeof runGoalCompletionAuditor } = {},
+	dependencies: { runCompletionAuditor?: typeof runGoalCompletionAuditor; runTaskReview?: typeof runGoalCompletionAuditor; runEvidencePrecheck?: typeof runEvidencePrecheck } = {},
 ): void {
 	if (isDelegatedGoalSession()) {
 		// Inherit conversation without inheriting ownership of the parent's goal.

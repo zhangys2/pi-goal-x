@@ -8,6 +8,7 @@ import {
 } from "./goal-policy.ts";
 import { loadGoalSettings, loadGoalSettingsFileConfig } from "./goal-settings.ts";
 import { runGoalCompletionAuditor } from "./goal-auditor.ts";
+import { runEvidencePrecheck } from "./goal-precheck.ts";
 import { nowIso, type GoalRecord } from "./goal-record.ts";
 import { latestEventsForGoal, latestAuditorResultForGoal, goalRuntimeEvents } from "./goal-ledger.ts";
 import { mergeGoalPromptFromDisk } from "./storage/goal-files.ts";
@@ -249,6 +250,17 @@ if (settings.disabled === true) {
 
 	if (previousAudit?.verdict === "disapproved") warmContext = `${warmContext ?? ""}\nPrevious rejection (verify whether resolved): ${previousAudit.report.slice(0, 600)}`;
 
+	// Log-only: runs beside the auditor and never changes the outcome.
+	const precheckSettings = loadGoalSettings(ctx.cwd).precheck;
+	const precheck = precheckSettings?.enabled
+		? (core.dependencies.runEvidencePrecheck ?? runEvidencePrecheck)({
+			goal: auditTarget,
+			completionSummary: completionSummary?.trim() || undefined,
+			settings: precheckSettings,
+			signal: completionAuditController.signal,
+		})
+		: null;
+
 	const auditor = await (core.dependencies.runCompletionAuditor ?? runGoalCompletionAuditor)({
 		ctx,
 		goal: auditTarget,
@@ -265,6 +277,14 @@ if (settings.disabled === true) {
 			core.goalWidgetComponentRef.current?.invalidate();
 		},
 	});
+	if (precheck) {
+		const outcome = await precheck;
+		try {
+			core.goalService.appendEvents(ctx, [{ type: "precheck_result", goalId: auditTarget.id, ...outcome, enforced: false, at: nowIso() }]);
+		} catch {
+			// Ledger append failure should not block completion
+		}
+	}
 	// Clear abort controller — audit finished on its own
 	if (core.auditAbortController === completionAuditController) core.auditAbortController = null;
 	// Clear auditor progress display

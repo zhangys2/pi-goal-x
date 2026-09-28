@@ -28,6 +28,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { KeyId } from "@earendil-works/pi-tui";
+import type { PrecheckSettings } from "./goal-precheck.ts";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -126,6 +127,8 @@ export interface GoalSettingsResolvedShape {
 	goalsRoot?: string;
 	/** Issue #26: opt-in read-only blocker Oracle configuration (sparse). */
 	oracle?: GoalOracleSettingsLayer;
+	/** Opt-in log-only evidence pre-check before the completion auditor (sparse). */
+	precheck?: GoalPrecheckSettingsLayer;
 	/**
 	 * Goal-level provider-error recovery backoff (sparse). maxAttempts 0 or
 	 * unset = unbounded retry (default); maxDelayMs caps the delay plateau.
@@ -158,6 +161,13 @@ export interface ResolvedGoalOracleSettings {
 	maxFailedAttemptsPerBlocker: number;
 }
 
+/** Sparse per-leaf evidence pre-check settings. The API key is never a setting. */
+export interface GoalPrecheckSettingsLayer {
+	enabled?: boolean;
+	model?: string;
+	rejectBelow?: number;
+}
+
 /** Sparse per-leaf network-recovery settings (maxAttempts 0 = unbounded). */
 export interface GoalNetworkRecoverySettingsLayer {
 	maxAttempts?: number;
@@ -185,6 +195,8 @@ export interface GoalSettingsLayer extends GoalSettingsResolvedShape {}
 export interface ResolvedGoalSettingsShape extends GoalSettingsResolvedShape {
 	/** Issue #26: resolved opt-in blocker Oracle configuration. */
 	oracle?: ResolvedGoalOracleSettings;
+	/** Resolved evidence pre-check configuration. */
+	precheck?: PrecheckSettings;
 	/** Resolved goal-level provider-error recovery configuration. */
 	networkRecovery?: ResolvedGoalNetworkRecoverySettings;
 }
@@ -307,6 +319,11 @@ function asPositiveInt(value: unknown): number | undefined {
 	return undefined;
 }
 
+function asRejectBelow(value: unknown): number | undefined {
+	const n = typeof value === "string" ? Number(value) : value;
+	return typeof n === "number" && Number.isFinite(n) && n >= 0.01 && n <= 0.5 ? n : undefined;
+}
+
 /** Positive-integer-or-zero parser (for settings where 0 = off / no limit). */
 function asNonNegativeInt(value: unknown): number | undefined {
 	if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
@@ -351,8 +368,11 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 	"hideUnfocusedPrompt",
 	"goalsRoot",
 	"oracle",
+	"precheck",
 	"networkRecovery",
 ]);
+
+const ALLOWED_PRECHECK_KEYS = new Set(["enabled", "model", "rejectBelow"]);
 
 const ALLOWED_NETWORK_RECOVERY_KEYS = new Set(["maxAttempts", "maxDelayMs"]);
 
@@ -532,6 +552,34 @@ export function parseSettingsLayer(
 					}
 				}
 				layer.oracle = oracle;
+				break;
+			}
+			case "precheck": {
+				if (!value || typeof value !== "object" || Array.isArray(value)) {
+					diagnostics.push(diagnostic("invalid_nested_key", "precheck must be an object", key));
+					break;
+				}
+				const precheck: GoalPrecheckSettingsLayer = {};
+				for (const [pKey, pValue] of Object.entries(value as Record<string, unknown>)) {
+					if (!ALLOWED_PRECHECK_KEYS.has(pKey)) {
+						diagnostics.push(diagnostic("unknown_key", `unknown precheck key: ${pKey}`, `precheck.${pKey}`));
+						continue;
+					}
+					if (pKey === "enabled") {
+						const parsed = asBool(pValue);
+						if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", "precheck.enabled must be true or false", "precheck.enabled"));
+						else precheck.enabled = parsed;
+					} else if (pKey === "model") {
+						const parsed = asNonEmptyString(pValue);
+						if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", "precheck.model must be a non-empty string", "precheck.model"));
+						else precheck.model = parsed;
+					} else {
+						const parsed = asRejectBelow(pValue);
+						if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", "precheck.rejectBelow must be a number between 0.01 and 0.5", "precheck.rejectBelow"));
+						else precheck.rejectBelow = parsed;
+					}
+				}
+				layer.precheck = precheck;
 				break;
 			}
 			case "networkRecovery": {
@@ -835,6 +883,21 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		globalValue: global.layer.oracle?.maxFailedAttemptsPerBlocker,
 		defaultValue: 2,
 	}));
+	const precheckEnabled = track("precheck.enabled", resolveLeaf<boolean>({
+		projectValue: project.layer.precheck?.enabled,
+		globalValue: global.layer.precheck?.enabled,
+		defaultValue: false,
+	}));
+	const precheckModel = track("precheck.model", resolveLeaf<string>({
+		projectValue: project.layer.precheck?.model,
+		globalValue: global.layer.precheck?.model,
+		defaultValue: "jev-1.13.0",
+	}));
+	const precheckRejectBelow = track("precheck.rejectBelow", resolveLeaf<number>({
+		projectValue: project.layer.precheck?.rejectBelow,
+		globalValue: global.layer.precheck?.rejectBelow,
+		defaultValue: 0.15,
+	}));
 	const strictExecutionContract = track("strictExecutionContract", resolveLeaf<boolean>({
 		projectValue: project.layer.strictExecutionContract,
 		globalValue: global.layer.strictExecutionContract,
@@ -925,6 +988,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 			projectResources: oracleProjectResources,
 			maxFailedAttemptsPerBlocker: oracleMaxFailedAttemptsPerBlocker,
 		},
+		precheck: { enabled: precheckEnabled, model: precheckModel, rejectBelow: precheckRejectBelow },
 	};
 
 	const snapshot = {
@@ -944,6 +1008,7 @@ function copyResolvedSettings(value: ResolvedGoalSettings): ResolvedGoalSettings
 		...(value.keybindings ? {keybindings: {dashboard: {...value.keybindings.dashboard}}} : {}),
 		...(value.networkRecovery ? {networkRecovery: {...value.networkRecovery}} : {}),
 		...(value.oracle ? {oracle: {...value.oracle}} : {}),
+		...(value.precheck ? {precheck: {...value.precheck}} : {}),
 	};
 }
 
@@ -1264,6 +1329,13 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 		if (so.projectResources !== undefined) o.projectResources = so.projectResources;
 		if (so.maxFailedAttemptsPerBlocker !== undefined) o.maxFailedAttemptsPerBlocker = so.maxFailedAttemptsPerBlocker;
 		if (Object.keys(o).length > 0) persisted.oracle = o;
+	}
+	if (settings.precheck) {
+		const o: Record<string, unknown> = {};
+		if (settings.precheck.enabled !== undefined) o.enabled = settings.precheck.enabled;
+		if (settings.precheck.model !== undefined) o.model = settings.precheck.model;
+		if (settings.precheck.rejectBelow !== undefined) o.rejectBelow = settings.precheck.rejectBelow;
+		if (Object.keys(o).length > 0) persisted.precheck = o;
 	}
 	if (settings.strictExecutionContract !== undefined) persisted.strictExecutionContract = settings.strictExecutionContract;
 	if (settings.maxAutonomousRuns !== undefined) persisted.maxAutonomousRuns = settings.maxAutonomousRuns;
