@@ -36,6 +36,7 @@ interface HarnessOptions {
 	cwd: string;
 	sessionEntries: unknown[];
 	runCompletionAuditor?: (...args: any[]) => Promise<any>;
+	runTaskReview?: (...args: any[]) => Promise<any>;
 	hasUI?: boolean;
 	select?: (prompt: string, options: string[]) => Promise<string | undefined>;
 	input?: (prompt: string, fallback: string) => Promise<string | undefined>;
@@ -88,7 +89,10 @@ function createHarness(options: HarnessOptions): Harness {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, options.runCompletionAuditor ? { runCompletionAuditor: options.runCompletionAuditor } : {});
+	goalExtension(pi as any, {
+		runCompletionAuditor: options.runCompletionAuditor,
+		runTaskReview: options.runTaskReview ?? (async () => ({ approved: true, disapproved: false, output: "<approved/>" })),
+	});
 	return {
 		handlers, tools, commands, ctx, notifies, activeToolsHistory,
 		statusCalls, widgetCalls,
@@ -448,7 +452,7 @@ describe("five-tool handler integration", () => {
 				await start(h);
 				await h.commands.get("goal-settings").handler("", h.ctx);
 				const lines = firstOptions.filter((o) => o.startsWith("  ") && !o.startsWith("  ───"));
-				assert.equal(lines.length, 20, `all twenty rows rendered, got: ${lines.join(" | ")}`);
+				assert.equal(lines.length, 21, `all twenty-one rows rendered, got: ${lines.join(" | ")}`);
 				assert.ok(lines.some((l) => l === "  auditor disabled: true (project override)"));
 				assert.ok(lines.some((l) => l === "  provider: anthropic (project override)"));
 				assert.ok(lines.some((l) => l === "  model: (default) (default)"));
@@ -880,10 +884,16 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 });
 
 describe("completion transaction hardening (follow-up Stage 3)", () => {
-	it("completion commit write failure never reports success and never clears focus", async () => {
+	it("completion commit write failure never reports success and never clears focus", async (t) => {
 		const f = fixture();
 		const goalsDir = path.join(f.cwd, ".pi", "goals");
 		try {
+			// Windows does not enforce chmod-based directory write restrictions,
+			// so this filesystem-failure simulation is not portable there.
+			if (process.platform === "win32") {
+				t.skip("Windows does not enforce chmod-based directory write restrictions");
+				return;
+			}
 			// Pre-create the ledger file so its fallback append path works even
 			// when the goals directory is read-only (append needs write on the
 			// file, not the directory; the atomic goal write needs a writable

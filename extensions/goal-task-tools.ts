@@ -584,26 +584,13 @@ pi.registerTool(defineTool({
 		const taskFocus = core.focusedOperationToken(core.state.goal.id);
 
 		if (params.status === "start") {
-			const result = core.goalService.updateTask(ctx, {
-				focusToken: taskFocus,
-				taskId: params.task_id,
-				validate: (task) => {
-					if (task.status !== "pending") {
-						return { ok: false, message: `Task "${params.task_id}" is ${task.status}; only pending tasks can be started.` };
-					}
-					return { ok: true };
-				},
-				update: (task) => task,
-				// §8.1: set explicit execution focus; a later start replaces it, and
-				// completing/skipping this task clears it.
-				setCurrentTaskId: params.task_id,
-				ledger: (written) => [{
-					type: "task_started",
-					goalId: written.id,
-					taskId: params.task_id,
-					at: written.updatedAt,
-				}],
-			});
+			const task = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
+			if (!task) return { content: [{ type: "text", text: `Task "${params.task_id}" not found.` }], details: goalDetails(core.state.goal) };
+			if (task.status !== "pending") return { content: [{ type: "text", text: `Task "${params.task_id}" is ${task.status}; only pending tasks can be started.` }], details: goalDetails(core.state.goal) };
+			const conflict = openCodeTaskConflict(core.state.goal.taskList.tasks, params.task_id);
+			if (conflict) return { content: [{ type: "text", text: openCodeTaskConflictMessage(conflict, params.task_id) }], details: goalDetails(core.state.goal) };
+			const baseline = task.reviewBaseline ?? gitBaseline(ctx.cwd);
+			const result = core.goalService.updateTask(ctx, progressSpec({ task_id: params.task_id, status: "start" }, core, ctx, baseline));
 			if (!result.ok) {
 				return { content: [{ type: "text", text: result.message }], details: goalDetails(core.state.goal) };
 			}

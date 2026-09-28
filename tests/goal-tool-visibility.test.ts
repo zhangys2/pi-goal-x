@@ -104,7 +104,7 @@ describe("Applicable tool profiles", () => {
 	};
 
 	before(() => {
-		piGoalExtension(mockPi as any);
+		piGoalExtension(mockPi as any, { runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
 	});
 
 	function expectGoalProfile(expected: readonly string[]): void {

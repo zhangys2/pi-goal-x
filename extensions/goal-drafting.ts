@@ -408,7 +408,7 @@ export function registerDraftingTools(core: GoalCore): void {
 					return derived && derived.length > 0 ? { tasks: derived, blockCompletion: false, proposedAt: nowIso() } : undefined;
 				})();
 				await offerProjectOrchestrationSetup(core, ctx);
-				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract);
+				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract, params.token_budget ?? undefined);
 				clearGoalDrafting(core, ctx);
 				const created = core.state.goal;
 				return { content: [{ type: "text", text: `${summary}\n\n${buildGoalCreatedReport({
