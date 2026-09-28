@@ -80,7 +80,7 @@ function createHarness(cwd: string, opts: { runCompletionAuditor?: (...args: any
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, { runCompletionAuditor: opts.runCompletionAuditor, runTaskReview: opts.runTaskReview });
+	goalExtension(pi as any, { runCompletionAuditor: opts.runCompletionAuditor });
 	return {
 		ctx,
 		commands,
@@ -574,7 +574,6 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const staged: StageRecord[] = [];
 	const h = createHarness(cwd, {
-		runTaskReview: async () => ({ approved: true, disapproved: false, output: "ok", model: "mock/task-review" }),
 		runCompletionAuditor: async (args: any) => {
 			// §19.9 step 12: report all five audit stages through onProgress.
 			const stages: StageRecord[] = [
@@ -659,7 +658,6 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 		await callTool(h, "update_goal_task", "comp-1", { task_id: "t1", status: "complete", evidence: "Source reviewed" });
 		await callTool(h, "update_goal_task", "start-2", { task_id: "t2", status: "start" });
 		await callTool(h, "update_goal_task", "comp-2", { task_id: "t2", status: "complete", evidence: "Export implemented" });
-		assert.ok(ledgerEvents(cwd).some((e) => e.type === "task_review" && e.taskId === "t2" && e.verdict === "approved"), "approved task review is traceable");
 		await callTool(h, "update_goal_task", "start-3", { task_id: "t3", status: "start" });
 		await callTool(h, "update_goal_task", "comp-3", { task_id: "t3.1", status: "complete", evidence: "Loading state" });
 		await callTool(h, "update_goal_task", "comp-4", { task_id: "t3.2", status: "complete", evidence: "Filename" });
@@ -739,11 +737,7 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 	}
 });
 
-test("archive failure never reports success; the complete record stays recoverable (§16.6)", async (t) => {
-	if (process.platform === "win32") {
-		t.skip("directory mode bits do not reliably block writes on Windows");
-		return;
-	}
+test("archive failure never reports success; the complete record stays recoverable (§16.6)", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-archive-fail-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const h = createHarness(cwd, {

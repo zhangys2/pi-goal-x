@@ -107,6 +107,7 @@ export interface GoalStateEntry {
 
 export interface GoalFocusEntry {
 	version: 1;
+	storageRoot?: string;
 	focusedGoalId: string | null;
 	reason: GoalFocusReason;
 }
@@ -243,7 +244,7 @@ export function normalizeGoalFocusEntry(value: unknown): GoalFocusEntry | null {
 		raw.reason === "created" || raw.reason === "selected" || raw.reason === "unfocused" || raw.reason === "resumed" || raw.reason === "completed" || raw.reason === "cleared" || raw.reason === "aborted" || raw.reason === "migrated"
 			? raw.reason
 			: "selected";
-	return { version: 1, focusedGoalId, reason };
+	return { version: 1, focusedGoalId, reason, ...(typeof raw.storageRoot === "string" ? { storageRoot: raw.storageRoot } : {}) };
 }
 
 export function createGoal(config: GoalCreationConfig, now = Date.now()): GoalRecord {
@@ -334,7 +335,6 @@ export function normalizeTaskList(value: unknown): GoalTaskList | undefined {
 		tasks,
 		blockCompletion: raw.blockCompletion === true,
 		proposedAt: typeof raw.proposedAt === "string" ? raw.proposedAt : nowIso(),
-		...(normalizeReviewBaseline(raw.reviewBaseline) ? { reviewBaseline: normalizeReviewBaseline(raw.reviewBaseline) } : {}),
 	};
 }
 

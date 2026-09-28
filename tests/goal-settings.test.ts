@@ -34,15 +34,6 @@ test("parseGoalSettings: null/undefined returns empty defaults", () => {
 	assert.deepEqual(parseGoalSettings([]), {});
 });
 
-test("per-task review settings parse and reject malformed exclusions", () => {
-	const parsed = parseSettingsLayer({ disableTaskReviews: true, taskReviewExcludedTypes: ["docs", "generated"] }, "project", "t.json");
-	assert.deepEqual(parsed.layer.disableTaskReviews, true);
-	assert.deepEqual(parsed.layer.taskReviewExcludedTypes, ["docs", "generated"]);
-	const invalid = parseSettingsLayer({ taskReviewExcludedTypes: ["docs", ""] }, "project", "t.json");
-	assert.equal(invalid.layer.taskReviewExcludedTypes, undefined);
-	assert.equal(invalid.diagnostics[0]?.code, "invalid_value");
-});
-
 test("parseGoalSettings: empty object returns empty defaults", () => {
 	assert.deepEqual(parseGoalSettings({}), {});
 });
@@ -127,9 +118,8 @@ test("parseGoalSettings: multiple unknown keys rejected with the full list", () 
 
 test("goalSettingsPath: resolves under .pi/ with new filename", () => {
 	const p = goalSettingsPath("/tmp/project");
-	assert.equal(path.basename(p), "pi-goal-x-settings.json");
-	assert.equal(path.basename(path.dirname(p)), ".pi");
-	assert.equal(path.basename(path.dirname(path.dirname(p))), "project");
+	assert.ok(p.endsWith(path.join(".pi", "pi-goal-x-settings.json")));
+	assert.ok(p.startsWith("/tmp/project"));
 });
 
 test("goalSettingsPath: respects PI_GOAL_SETTINGS_FILE env var", () => {
@@ -292,49 +282,6 @@ test("loadGoalSettings: objectiveMaxChars defaults to no limit and honors the en
 		assert.equal(loadGoalSettings(dir, { PI_GOAL_OBJECTIVE_MAX_CHARS: "8000" }).objectiveMaxChars, 8000, "env var overrides file");
 	});
 	assert.equal(loadGoalSettings("/tmp/does-not-exist", {}).objectiveMaxChars, 0, "unset resolves to the default 0 (no limit)");
-});
-
-// ── auditor inspection guidance (workspaces + environment) ───────────────
-
-test("parseGoalSettings: auditorWorkspaces takes non-empty paths and auditorEnvironment takes text", () => {
-	assert.deepEqual(
-		parseGoalSettings({ auditorWorkspaces: ["C:/repos/CVI", " /home/me/lib "], auditorEnvironment: "Run tests via wsl -e bash -lc '…'" }),
-		{ auditorWorkspaces: ["C:/repos/CVI", "/home/me/lib"], auditorEnvironment: "Run tests via wsl -e bash -lc '…'" },
-	);
-	assert.deepEqual(parseGoalSettings({ auditorWorkspaces: "C:/repos/CVI" }), {}, "a single string is not a list");
-	assert.deepEqual(parseGoalSettings({ auditorWorkspaces: ["C:/repos/CVI", ""] }), {}, "an empty entry rejects the list");
-	assert.deepEqual(parseGoalSettings({ auditorEnvironment: "  " }), {}, "blank environment rejected");
-	const { diagnostics } = parseSettingsLayer({ auditorWorkspaces: [1], auditorEnvironment: 5 }, "project", "/p.json");
-	assert.deepEqual(diagnostics.map((d) => [d.settingPath, d.code]), [
-		["auditorWorkspaces", "invalid_value"],
-		["auditorEnvironment", "invalid_value"],
-	]);
-});
-
-test("loadGoalSettings: auditor workspaces and environment layer project over global", () => {
-	withTempDir((dir) => {
-		const globalPath = path.join(dir, "global.json");
-		fs.writeFileSync(globalPath, JSON.stringify({ auditorWorkspaces: ["/global/repo"], auditorEnvironment: "global note" }), "utf8");
-		const env = { PI_GOAL_GLOBAL_SETTINGS_FILE: globalPath };
-		// Layer reads are cached per path until saved or invalidated, so each
-		// project directory is written before it is first loaded.
-		const globalOnly = path.join(dir, "global-only");
-		const fromGlobal = loadGoalSettings(globalOnly, env);
-		assert.deepEqual(fromGlobal.auditorWorkspaces, ["/global/repo"]);
-		assert.equal(fromGlobal.auditorEnvironment, "global note");
-
-		const withProject = path.join(dir, "with-project");
-		const projectPath = goalSettingsPath(withProject);
-		fs.mkdirSync(path.dirname(projectPath), { recursive: true });
-		fs.writeFileSync(projectPath, JSON.stringify({ auditorWorkspaces: ["/project/repo"] }), "utf8");
-		const layered = loadGoalSettings(withProject, env);
-		assert.deepEqual(layered.auditorWorkspaces, ["/project/repo"], "project list replaces global list");
-		assert.equal(layered.auditorEnvironment, "global note", "unset project leaf inherits global");
-
-		const none = loadGoalSettings(path.join(dir, "elsewhere"), { PI_GOAL_GLOBAL_SETTINGS_FILE: path.join(dir, "missing.json") });
-		assert.equal(none.auditorWorkspaces, undefined);
-		assert.equal(none.auditorEnvironment, undefined);
-	});
 });
 
 // ── networkRecovery (provider-error recovery backoff) ─────────────────

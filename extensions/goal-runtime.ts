@@ -24,8 +24,6 @@ export interface GoalRuntimeHooks {
 	dispatchFailed?(ctx: ExtensionContext): void;
 	/** Dispatch a hidden follow-up checkpoint message (pi.sendMessage + triggerTurn). */
 	sendFollowUp(content: string, details: Record<string, unknown>): void;
-	/** Best-effort, opt-in operational telemetry. */
-	observe?(ctx: ExtensionContext, event: string, details?: Record<string, unknown>): void;
 	/** Current focused goal (state.goal). */
 	getGoal(): GoalRecord | null;
 	/** Whether a checkpointed goal id is still actionable (active + autoContinue). */
@@ -100,7 +98,6 @@ export class GoalRuntime {
 			return;
 		}
 		this.continuationScheduledFor = goalId;
-		this.hooks.observe?.(ctx, "continuation_scheduled", { goalId, delayMs: delay, force });
 		this.continuationTimer = setTimeout(() => this.sendQueuedContinuation(ctx, goalId), delay);
 		this.continuationTimer.unref?.();
 	}
@@ -126,7 +123,6 @@ export class GoalRuntime {
 		const plan = networkErrorBackoffPlan(this.networkErrorRetryAttempt + 1, policy);
 		if (!plan) return null;
 		this.networkErrorRetryAttempt = plan.attempt;
-		this.hooks.observe?.(ctx, "network_retry_scheduled", { goalId: goal.id, attempt: plan.attempt, delayMs: plan.delayMs });
 		this.networkErrorRetryTimer = setTimeout(() => {
 			this.networkErrorRetryTimer = null;
 			if (!this.hooks.isActionable(goal.id)) return;
@@ -194,7 +190,6 @@ export class GoalRuntime {
 			checkpointSeq: this.checkpointSeq,
 			timestamp: Date.now(),
 		};
-		this.hooks.observe?.(ctx, "continuation_dispatched", { goalId: goal.id });
 		try { this.hooks.sendFollowUp(checkpointTriggerPrompt(goal.id), details as unknown as Record<string, unknown>); }
 		catch { this.hooks.dispatchFailed?.(ctx); }
 	}

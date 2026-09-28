@@ -6,14 +6,14 @@
   <a href="https://pi.dev/packages?type=extension" target="_blank" rel="noopener noreferrer">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/badge-dark.svg">
-      <img src="assets/badge-light.svg" alt="TOP 0.3% of Pi coding agent extensions: #7 of 3,318 by downloads · Sep 17, 2026 (best recorded rank)" width="480">
+      <img src="assets/badge-light.svg" alt="TOP 0.3% of Pi coding agent extensions: #7 of 3,275 by downloads · Sep 22, 2026 (best recorded rank)" width="480">
     </picture>
   </a>
 </div>
 
 # pi-goal-x
 
-Adds `/goal` functionality to [pi](https://github.com/earendil-works/pi-coding-agent). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
+Adds `/goal` functionality to [pi](https://pi.dev). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
 
 The extension saves goal objectives, tasks, and progress across sessions. You can pause, resume, revise, or switch goals as your work changes.
 
@@ -63,13 +63,6 @@ For an ordered goal, you can provide the steps or define them with the agent:
 ```
 
 Use `/sisyphus-direct <objective>` to start an ordered goal without drafting.
-
-Sisyphus plans are intentionally ordered, but they are not immutable: if the
-user changes the plan, use `/goal-tweak` and obtain confirmation before
-replacing it. A skipped step must include a reason, and a skipped or completed
-step can be reopened with `update_goal_task` when later evidence shows it is
-needed again. Completion still requires every required step to be complete or
-explicitly justified as skipped.
 
 ## Tasks and subtasks
 
@@ -158,20 +151,9 @@ Run `/goal-report` to write it immediately and see its path. Set `disableGoalRep
 
 ## Completion auditor
 
-When enabled, a separate agent reviews the work before the goal is accepted as complete. It checks the objective, tasks, recorded evidence, completion requirements, and workspace. The goal's and tasks' completion requirements are its checklist; the objective explains what they mean.
+When enabled, a separate agent reviews the work before the goal is accepted as complete. It checks the objective, tasks, recorded evidence, completion requirements, and workspace.
 
-If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. The next review checks each earlier finding and reports whether it is fixed. You can choose the auditor model in `/goal-settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
-
-If the work spans more than the project directory, such as a second repository, or is verified somewhere the auditor cannot run commands directly, such as WSL, tell the auditor in the settings file. `auditorWorkspaces` lists extra directories it may inspect, and `auditorEnvironment` describes how to run verification:
-
-```json
-{
-  "auditorWorkspaces": ["C:/Users/me/repos/second-repo"],
-  "auditorEnvironment": "Builds and tests run in WSL: wsl -e bash -lc 'cd /mnt/c/Users/me/repos/project && ctest --test-dir build'"
-}
-```
-
-The auditor treats both as guidance for where to look, never as evidence.
+If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. You can choose the auditor model in `/goal-settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
 
 ## Progress and goal controls
 
@@ -214,6 +196,7 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 | Task tracking (`disableTasks`) | Turn task lists on or off. Set to `true` to disable them. |
 | Subtask depth (`subtaskDepth`) | Limit how many levels of subtasks the agent can create. |
 | Completion requirements (`disableContracts`) | Turn explicit goal and task completion requirements on or off. Set to `true` to disable them. |
+| Unfocused reminder (`hideUnfocusedPrompt`) | When a session has no focused goal but open goals exist in the selected pool, the agent receives a `[PI GOAL UNFOCUSED]` reminder on every request. Set to `true` to stop that reminder. Defaults to `false`. This is independent of `hideUnfocusedBanner`, which hides only the unfocused widget and status hint. Neither setting selects or resumes a goal; the separate `autoSelectSingleGoal` setting still applies. |
 | Auditor disabled | Turn off independent completion review. |
 | Auditor provider, model, and thinking level | Choose which model reviews completed work and its reasoning effort. |
 | Auditor workspaces and environment (`auditorWorkspaces`, `auditorEnvironment`) | Point the auditor at extra directories and explain how to run verification. Set in the settings file. |
@@ -278,7 +261,3 @@ execution.
 ## License
 
 MIT
-
-### Prompt caching
-
-Goal state is refreshed at the request tail while the system prompt and conversation prefix stay stable. Pi retains control of provider cache settings. See [prompt caching](docs/prompt-caching.md) for explicit-cache handling, validation, and cache invalidation boundaries.

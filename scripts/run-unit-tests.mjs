@@ -1,14 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const testsRoot = join(projectRoot, "tests");
 const integrationRoot = join(testsRoot, "integration");
 const e2eRoot = join(testsRoot, "e2e");
 const manifestPath = join(testsRoot, ".test-manifest.json");
-const relFile = (file) => `./${relative(projectRoot, file).replaceAll("\\", "/")}`;
 const suite = process.argv[2] ?? "unit";
 const wantSelfCheck = process.argv.includes("--selfcheck");
 const wantWriteManifest = process.argv.includes("--write-manifest");
@@ -31,13 +30,6 @@ const testFiles = suite === "integration"
 			? [...unitFiles, ...integrationFiles, ...e2eFiles]
 			: unitFiles;
 
-// Keep test arguments relative to cwd. Absolute Windows paths can be rewritten
-// by MSYS/Git Bash and then rejected by Node's ESM loader.
-const testArgs = testFiles.map((file) => {
-	const relativePath = relative(projectRoot, file).replaceAll("\\", "/");
-	return `./${relativePath}`;
-});
-
 if (testFiles.length === 0) {
 	throw new Error("No " + suite + " test files were discovered.");
 }
@@ -50,9 +42,9 @@ if (wantWriteManifest) {
 	writeFileSync(manifestPath, JSON.stringify({
 		version: 1,
 		note: "Expected test-entry manifest for the runner self-check (npm run test:selfcheck). Regenerate with: node scripts/run-unit-tests.mjs --write-manifest",
-		unitFiles: unitFiles.map(relFile),
-		integrationFiles: integrationFiles.map(relFile),
-		e2eFiles: e2eFiles.map(relFile),
+		unitFiles: unitFiles.map((file) => file.replace(projectRoot, ".")),
+		integrationFiles: integrationFiles.map((file) => file.replace(projectRoot, ".")),
+		e2eFiles: e2eFiles.map((file) => file.replace(projectRoot, ".")),
 	}, null, 2) + "\n");
 	console.log("Wrote " + manifestPath + " (" + unitFiles.length + " unit, " + integrationFiles.length + " integration, " + e2eFiles.length + " e2e entries).");
 	process.exit(0);
@@ -63,7 +55,7 @@ if (wantSelfCheck) {
 		throw new Error("Missing " + manifestPath + ". Run: node scripts/run-unit-tests.mjs --write-manifest");
 	}
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	const rel = relFile;
+	const rel = (file) => file.replace(projectRoot, ".");
 	const expectedUnit = new Set(manifest.unitFiles ?? []);
 	const expectedIntegration = new Set(manifest.integrationFiles ?? []);
 	const expectedE2e = new Set(manifest.e2eFiles ?? []);
@@ -93,11 +85,11 @@ const isolationArgs = isolationProbe.status === 0 ? ["--test-isolation=none"] : 
 const result = spawnSync(
 	process.execPath,
 	[
-		"--import", pathToFileURL(join(projectRoot, "scripts", "test-adapter-hooks.mjs")).href,
+		"--import", join(projectRoot, "scripts", "test-adapter-hooks.mjs"),
 		"--experimental-strip-types",
 		"--test",
 		...isolationArgs,
-		...testArgs,
+		...testFiles,
 	],
 	{ cwd: projectRoot, stdio: "inherit" },
 );

@@ -88,7 +88,7 @@ function createHarness(options: HarnessOptions): Harness {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, { runCompletionAuditor: options.runCompletionAuditor, runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
+	goalExtension(pi as any, options.runCompletionAuditor ? { runCompletionAuditor: options.runCompletionAuditor } : {});
 	return {
 		handlers, tools, commands, ctx, notifies, activeToolsHistory,
 		statusCalls, widgetCalls,
@@ -459,6 +459,7 @@ describe("five-tool handler integration", () => {
 				assert.ok(lines.some((l) => l === "  subtaskDepth: 3 (project override)"));
 				assert.ok(lines.some((l) => l === "  autoSelectSingleGoal: false (default)"));
 				assert.ok(lines.some((l) => l === "  hideUnfocusedBanner: false (default)"));
+				assert.ok(lines.some((l) => l === "  hideUnfocusedPrompt: false (default)"));
 				assert.ok(lines.some((l) => l === "  stall timeout (minutes): 0 (default)"));
 				assert.ok(lines.some((l) => l === "  max objective length (0 = none): 0 (default)"), "objective length row defaults to 0");
 			} finally {
@@ -879,11 +880,7 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 });
 
 describe("completion transaction hardening (follow-up Stage 3)", () => {
-	it("completion commit write failure never reports success and never clears focus", async (t) => {
-		if (process.platform === "win32") {
-			t.skip("POSIX directory permissions do not reliably block writes on Windows");
-			return;
-		}
+	it("completion commit write failure never reports success and never clears focus", async () => {
 		const f = fixture();
 		const goalsDir = path.join(f.cwd, ".pi", "goals");
 		try {

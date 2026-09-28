@@ -11,16 +11,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
-const WORKER = fileURLToPath(new URL("settings-race-worker.mjs", import.meta.url));
+const WORKER = new URL("settings-race-worker.mjs", import.meta.url).pathname;
 
-test("two concurrent processes editing different keys never lose an update", async (t) => {
-	if (process.platform === "win32") {
-		t.skip("Concurrent lock-file cleanup is not reliable on Windows");
-		return;
-	}
+test("two concurrent processes editing different keys never lose an update", async () => {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "goal-settings-race-")));
 	try {
 		const globalFile = path.join(dir, "g.json");

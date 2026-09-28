@@ -17,7 +17,6 @@ handlers from their dedicated modules:
 | `goal-core-tools.ts` | `create_goal` / `get_goal` / `update_goal` executors plus the blocked flow |
 | `goal-completion.ts` | The completion transaction: `runGoalCompletionFlow` (audit orchestration) + shared `commitGoalCompletion` |
 | `goal-task-tools.ts` | `set_goal_tasks` / `update_goal_task` executors plus flat parent-linked conversion, id-stable merge, `countTasks` |
-| `goal-task-review.ts` | Per-task code review gate: git review baselines, task-scoped changed files and diff, classification, skip rules, and the reviewer call with its `task_review` ledger outcome |
 | `goal-task-confirmation.ts` | Task-only result boundary (`{decision}`, no auditor toggle) with neutral Confirm task list / Keep current tasks labels |
 | `goal-commands.ts` | The curated fourteen-command palette and its handlers |
 | `goal-events.ts` | Lifecycle and provider event handlers (`context`, `before_provider_request`, `turn_start`, `tool_call`, `tool_execution_end`, `turn_end`, `message_end`, `session_start`, `session_before_compact`, `session_compact`, `session_tree`, `before_agent_start`, `agent_end`, `agent_settled`, `session_shutdown`) |

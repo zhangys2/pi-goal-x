@@ -7,15 +7,14 @@
  * --apply without --confirm-pi-closed fails.
  */
 
-import { after, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-const CLI = fileURLToPath(new URL("../scripts/recover-session-checkpoints.mjs", import.meta.url));
+const CLI = new URL("../scripts/recover-session-checkpoints.mjs", import.meta.url).pathname;
 
 function entry(overrides: Record<string, unknown>): Record<string, unknown> {
 	return {
@@ -37,12 +36,8 @@ interface Fixture {
 	legacyContent: string;
 }
 
-const tempDirs: string[] = [];
-after(() => { for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true }); });
-
 function makeSessionFixture(): Fixture {
 	const dir = mkdtempSync(path.join(tmpdir(), "goal-recover-"));
-	tempDirs.push(dir);
 	const file = path.join(dir, "session.jsonl");
 	const legacyContent = `[GOAL CHECKPOINT goalId=g1]\nContinue working toward the active pi goal.\n${"x".repeat(6000)}`;
 	const lines = [
@@ -152,19 +147,10 @@ describe("pi-goal-x-recover", () => {
 		assert.equal(readFileSync(fx.file, "utf8"), before, "refused apply must not modify the file");
 	});
 
-	it("refuses a symlink target", (t) => {
+	it("refuses a symlink target", () => {
 		const fx = makeSessionFixture();
 		const link = path.join(fx.dir, "linked.jsonl");
-		try {
-			symlinkSync(fx.file, link);
-		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code === "EPERM" || code === "EACCES") {
-				t.skip(`symbolic links unavailable: ${code}`);
-				return;
-			}
-			throw error;
-		}
+		symlinkSync(fx.file, link);
 		const out = runCli(["--session", link], { expectFailure: true });
 		assert.match(out, /__exit_1__/);
 		assert.match(out, /symbolic link/);

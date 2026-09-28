@@ -242,7 +242,6 @@ export interface TaskProgressInput {
  evidence?: string;
  reason?: string;
 }
-
 /** Dry-runs a batch in order, so a batch that validation would reject never starts a paid review. */
 function batchValidationFailure(tasks: GoalTask[], specs: GoalTaskUpdateSpec[]): string | undefined {
  const tree = structuredClone(tasks);
@@ -441,7 +440,6 @@ pi.registerTool(defineTool({
 				details: goalDetails(core.state.goal),
 			};
 		}
-		const reviewBaseline = gitBaseline(ctx.cwd);
 		const applyResult = core.goalService.apply(ctx, {
 			reconcile: false,
 			focusToken: taskListFocus,
@@ -455,7 +453,7 @@ pi.registerTool(defineTool({
 				// otherwise clear it. Dashboard state recomputes on the next render.
 				const currentTaskId =
 					g.currentTaskId && currentTaskIdIsPending(merged, g.currentTaskId) ? g.currentTaskId : undefined;
-				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now, ...(reviewBaseline ? { reviewBaseline } : {}) }, updatedAt: now };
+				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now }, updatedAt: now };
 			},
 			ledger: (written) => [{
 				type: "task_list_set",
@@ -586,11 +584,6 @@ pi.registerTool(defineTool({
 		const taskFocus = core.focusedOperationToken(core.state.goal.id);
 
 		if (params.status === "start") {
-			// Outside the update closure: GoalService retries it once on a conflicting write.
-			const target = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
-			const open = target?.status === "pending" ? openCodeTaskConflict(core.state.goal.taskList.tasks, params.task_id) : undefined;
-			if (open) return { content: [{ type: "text", text: openCodeTaskConflictMessage(open, params.task_id) }], details: goalDetails(core.state.goal) };
-			const startBaseline = target?.reviewBaseline ? undefined : gitBaseline(ctx.cwd);
 			const result = core.goalService.updateTask(ctx, {
 				focusToken: taskFocus,
 				taskId: params.task_id,
@@ -600,7 +593,7 @@ pi.registerTool(defineTool({
 					}
 					return { ok: true };
 				},
-				update: (task) => ({ ...task, reviewBaseline: task.reviewBaseline ?? startBaseline }),
+				update: (task) => task,
 				// §8.1: set explicit execution focus; a later start replaces it, and
 				// completing/skipping this task clears it.
 				setCurrentTaskId: params.task_id,
