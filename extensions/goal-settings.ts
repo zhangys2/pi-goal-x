@@ -107,6 +107,10 @@ export interface GoalSettingsResolvedShape {
 	autoSelectSingleGoal?: boolean;
 	/** E3: load the project's own skills/extensions into auditor sessions (off by default = isolation). */
 	auditorProjectResources?: boolean;
+	/** Extra directories (e.g. a second repository) the auditor may inspect. Guidance, not evidence. */
+	auditorWorkspaces?: string[];
+	/** Plain-text instructions for how the auditor can run verification (e.g. through WSL). Guidance, not evidence. */
+	auditorEnvironment?: string;
 	/** F5: stall detector timeout in minutes (0 = off). */
 	stallTimeoutMinutes?: number;
 	/** Optional extension-run limit per creation/resume; zero disables, absent inherits (default unlimited). */
@@ -359,6 +363,8 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 	"disabled",
 	"autoSelectSingleGoal",
 	"auditorProjectResources",
+	"auditorWorkspaces",
+	"auditorEnvironment",
 	"stallTimeoutMinutes",
 	"maxAutonomousRuns",
 	"strictExecutionContract",
@@ -478,6 +484,21 @@ export function parseSettingsLayer(
 				} else {
 					layer.thinkingLevel = parsed;
 				}
+				break;
+			}
+			case "auditorWorkspaces": {
+				const entries = Array.isArray(value) ? value.map(asNonEmptyString) : undefined;
+				if (!entries || entries.length === 0 || entries.some((entry) => entry === undefined)) {
+					diagnostics.push(diagnostic("invalid_value", `${key} must be a non-empty list of non-empty paths`, key));
+				} else {
+					layer.auditorWorkspaces = entries as string[];
+				}
+				break;
+			}
+			case "auditorEnvironment": {
+				const parsed = asNonEmptyString(value);
+				if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", `${key} must be a non-empty string`, key));
+				else layer.auditorEnvironment = parsed;
 				break;
 			}
 			case "keybindings": {
@@ -847,6 +868,16 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		globalValue: global.layer.auditorProjectResources,
 		defaultValue: false,
 	}));
+	const auditorWorkspaces = track("auditorWorkspaces", resolveLeaf<string[]>({
+		projectValue: project.layer.auditorWorkspaces,
+		globalValue: global.layer.auditorWorkspaces,
+		defaultValue: undefined as unknown as string[],
+	}));
+	const auditorEnvironment = track("auditorEnvironment", resolveLeaf<string>({
+		projectValue: project.layer.auditorEnvironment,
+		globalValue: global.layer.auditorEnvironment,
+		defaultValue: undefined as unknown as string,
+	}));
 	const hideUnfocusedBanner = track("hideUnfocusedBanner", resolveLeaf<boolean>({
 		projectValue: project.layer.hideUnfocusedBanner,
 		globalValue: global.layer.hideUnfocusedBanner,
@@ -977,6 +1008,8 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		disabled,
 		autoSelectSingleGoal,
 		auditorProjectResources,
+		...(auditorWorkspaces ? { auditorWorkspaces } : {}),
+		...(auditorEnvironment ? { auditorEnvironment } : {}),
 		hideUnfocusedBanner,
 		hideUnfocusedPrompt,
 		goalsRoot,
@@ -1014,6 +1047,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 
 function copyResolvedSettings(value: ResolvedGoalSettings): ResolvedGoalSettings {
 	return {...value,
+		...(value.auditorWorkspaces ? {auditorWorkspaces: [...value.auditorWorkspaces]} : {}),
 		...(value.keybindings ? {keybindings: {dashboard: {...value.keybindings.dashboard}}} : {}),
 		...(value.networkRecovery ? {networkRecovery: {...value.networkRecovery}} : {}),
 		...(value.oracle ? {oracle: {...value.oracle}} : {}),
@@ -1318,6 +1352,8 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 	if (settings.subtaskDepth !== undefined) persisted.subtaskDepth = settings.subtaskDepth;
 	if (settings.autoSelectSingleGoal !== undefined) persisted.autoSelectSingleGoal = settings.autoSelectSingleGoal;
 	if (settings.auditorProjectResources !== undefined) persisted.auditorProjectResources = settings.auditorProjectResources;
+	if (settings.auditorWorkspaces?.length) persisted.auditorWorkspaces = [...settings.auditorWorkspaces];
+	if (settings.auditorEnvironment) persisted.auditorEnvironment = settings.auditorEnvironment;
 	if (settings.hideUnfocusedBanner !== undefined) persisted.hideUnfocusedBanner = settings.hideUnfocusedBanner;
 	if (settings.goalsRoot !== undefined) persisted.goalsRoot = settings.goalsRoot;
 	if (settings.hideUnfocusedPrompt !== undefined) persisted.hideUnfocusedPrompt = settings.hideUnfocusedPrompt;

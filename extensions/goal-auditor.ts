@@ -232,6 +232,14 @@ export function buildGoalAuditorPrompt(args: {
 			escapePromptPayload(args.warmContext.trim()),
 			"</warm_context>",
 		] : []),
+		...(args.settings?.auditorWorkspaces?.length || args.settings?.auditorEnvironment ? [
+			"",
+			"Inspection guidance from the user's settings (guidance, not evidence). You may inspect these workspaces in addition to the current directory, and follow the environment note to run verification:",
+			"<inspection_guidance>",
+			...(args.settings.auditorWorkspaces ?? []).map((workspace) => `workspace: ${escapePromptPayload(workspace)}`),
+			...(args.settings.auditorEnvironment ? [`environment: ${escapePromptPayload(args.settings.auditorEnvironment)}`] : []),
+			"</inspection_guidance>",
+		] : []),
 
 	].join("\n");
 }

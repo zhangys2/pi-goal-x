@@ -155,6 +155,17 @@ When enabled, a separate agent reviews the work before the goal is accepted as c
 
 If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. You can choose the auditor model in `/goal-settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
 
+If the work spans more than the project directory, such as a second repository, or is verified somewhere the auditor cannot run commands directly, such as WSL, tell the auditor in the settings file. `auditorWorkspaces` lists extra directories it may inspect, and `auditorEnvironment` describes how to run verification:
+
+```json
+{
+  "auditorWorkspaces": ["C:/Users/me/repos/second-repo"],
+  "auditorEnvironment": "Builds and tests run in WSL: wsl -e bash -lc 'cd /mnt/c/Users/me/repos/project && ctest --test-dir build'"
+}
+```
+
+The auditor treats both as guidance for where to look, never as evidence.
+
 ### Evidence pre-check (experimental, log-only)
 
 When the auditor starts, goal-x can also ask [TypeSafe](https://docs.typesafe.ai)'s Jev model, for each complete task with a completion requirement, whether the task's recorded evidence says the requirement was met. The answer is written to the goal ledger (`.pi/goals/goal_events.jsonl`) as a `precheck_result` event next to the auditor's verdict. It never changes the outcome and is not shown in the conversation. The aim is to learn whether it would reliably catch completion claims made before any evidence was recorded, so a later release can reject those without starting an audit.
