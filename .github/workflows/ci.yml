@@ -57,6 +57,9 @@ jobs:
           ln -s "$GITHUB_WORKSPACE/node_modules" .benchmark-base/node_modules
           # Main preserves compact historical checkpoints; use the corrected fixture for both runs.
           cp experiments/bench/b10-checkpoint-growth.mjs .benchmark-base/experiments/bench/b10-checkpoint-growth.mjs
+          # Both runs must use the same harness: the child-process rule and the task-review stub decide how far a handler runs.
+          cp experiments/bench/node-child-process.mjs .benchmark-base/experiments/bench/node-child-process.mjs
+          cp experiments/bench/bench-common.mjs .benchmark-base/experiments/bench/bench-common.mjs
           npm --prefix .benchmark-base run bench:naf -- after naf
           npm run bench:naf -- after naf
           PI_GOAL_BENCH_REFERENCE="$GITHUB_WORKSPACE/.benchmark-base/experiments/bench/baseline-naf-after.json" npm run bench:gate:naf
