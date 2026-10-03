@@ -26,3 +26,7 @@ Changes are recorded on `codex/runtime-token-optimization` in three local commit
 ## Context baseline re-measure after merging fork changes (2026-10-03)
 
 Merging upstream main into the fork kept upstream's `baseline-main.json`, which does not include the fork's model-facing additions: the `update_goal_task` and `set_goal_tasks` parameters for code-change labels, review types, checks, isolation and integration; the immediate-block wording on `update_goal({status: "blocked"})`; and the worktree-subagent guidance line. These add about 2.2k serialized characters (roughly 540 tokens) to each fixture. The baseline was regenerated with `npm run context:measure` on Linux, the CI platform, because the Windows capture differs byte-for-byte. The semantic gates and provider cross-checks pass unchanged.
+
+## Context baseline re-measure after merging upstream 0.32.3 (2026-10-03)
+
+Upstream 0.32 removed the `next_action` field from ready continuations and stopped reporting an unlimited run allowance, which shrinks the tool schema and the goal prompt. The fork's `depends_on` wait parameter, wait-notice and task-review additions stay. The baseline was regenerated with `npm run context:measure` on Linux, the CI platform. The semantic gates and provider cross-checks pass unchanged.
