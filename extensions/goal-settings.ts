@@ -434,6 +434,15 @@ export function parseSettingsLayer(
 				}
 				break;
 			}
+			case "taskReviewExcludedTypes": {
+				const entries = Array.isArray(value) ? value.map(asNonEmptyString) : undefined;
+				if (!entries || entries.length === 0 || entries.some((entry) => entry === undefined)) {
+					diagnostics.push(diagnostic("invalid_value", `${key} must be a non-empty list of non-empty strings`, key));
+				} else {
+					layer.taskReviewExcludedTypes = entries as string[];
+				}
+				break;
+			}
 			case "subtaskDepth": {
 				const parsed = asPositiveInt(value);
 				if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", `${key} must be an integer >= 1`, key));

@@ -440,6 +440,7 @@ pi.registerTool(defineTool({
 				details: goalDetails(core.state.goal),
 			};
 		}
+		const reviewBaseline = gitBaseline(ctx.cwd);
 		const applyResult = core.goalService.apply(ctx, {
 			reconcile: false,
 			focusToken: taskListFocus,
@@ -453,7 +454,7 @@ pi.registerTool(defineTool({
 				// otherwise clear it. Dashboard state recomputes on the next render.
 				const currentTaskId =
 					g.currentTaskId && currentTaskIdIsPending(merged, g.currentTaskId) ? g.currentTaskId : undefined;
-				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now }, updatedAt: now };
+				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now, ...(reviewBaseline ? { reviewBaseline } : {}) }, updatedAt: now };
 			},
 			ledger: (written) => [{
 				type: "task_list_set",
