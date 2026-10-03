@@ -539,7 +539,7 @@ test("consecutive task review rejections converge, then block the goal until the
 	initGitRepo(cwd);
 	const previousReports: Array<string | null | undefined> = [];
 	const h = createHarness(cwd, { runTaskReview: async (args: any) => {
-		previousReports.push(args.previousAuditReport);
+		previousReports.push(/PREVIOUS REVIEW FINDINGS TO RECHECK:\n([\s\S]*?)\n\nTASK DIFF:/.exec(args.completionSummary)?.[1]);
 		return { approved: false, disapproved: true, output: `finding ${previousReports.length}\n<disapproved/>` };
 	} });
 	try {

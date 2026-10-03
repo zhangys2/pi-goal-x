@@ -16,8 +16,8 @@
  */
 
 import assert from "node:assert/strict";
-import test, { after } from "node:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import test from "node:test";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -123,12 +123,8 @@ function createHarness(cwd: string): Harness {
 	};
 }
 
-const tempDirs: string[] = [];
-after(() => { for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true }); });
-
 function fixtureCwd(): { cwd: string; goal: GoalRecord } {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-modal-escape-"));
-	tempDirs.push(cwd);
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	writeFileSync(path.join(cwd, ".pi", "goals", "active_goal_fixture.md"), FIXTURE_GOAL);
 	const parsed = createGoal({ objective: "Golden fixture goal objective", autoContinue: true, sisyphus: false }, Date.UTC(2026, 7, 3, 9, 0, 0));

@@ -17,7 +17,7 @@
  */
 
 import assert from "node:assert/strict";
-import test, { after } from "node:test";
+import test from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -51,12 +51,8 @@ function fixturePath(rel: string): string {
 	return path.join(TEST_DIR, "fixtures", rel);
 }
 
-const tempDirs: string[] = [];
-after(() => { for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true }); });
-
 function tempCwd(): string {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-golden-"));
-	tempDirs.push(cwd);
 	mkdirSync(path.join(cwd, GOALS_DIR), { recursive: true });
 	return cwd;
 }
@@ -153,8 +149,8 @@ test("golden: prompt body is authoritative over the JSON header objective", () =
 		writeFixtureGoal(cwd);
 		const filePath = path.join(cwd, FIXTURE_GOAL_RELPATH);
 		const edited = readFileSync(filePath, "utf8").replace(
-			/(# Goal Prompt\r?\n\r?\n)Golden fixture goal objective/,
-			"$1Edited objective from the prompt body",
+			"# Goal Prompt\n\nGolden fixture goal objective",
+			"# Goal Prompt\n\nEdited objective from the prompt body",
 		);
 		writeFileSync(filePath, edited);
 
@@ -369,7 +365,7 @@ test("golden: compaction summary text for a focused active goal", () => {
 			"[FOCUSED GOAL]",
 			"Goal golden_fixture_goal — running",
 			"  Objective: Golden fixture goal objective",
-			"  Usage: 123K (123,456) tokens",
+			"  Cumulative goal usage (not context occupancy): 123K (123,456) tokens",
 			"  Time: 1h00m00s",
 			"",
 			"[INSTRUCTION]",

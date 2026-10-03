@@ -1,3 +1,4 @@
+import { appendGoalEvent } from "../extensions/goal-ledger.ts";
 /**
  * Stage 3 core-tools tests: create_goal / get_goal / update_goal.
  *
@@ -185,7 +186,7 @@ test("create_goal accepts token_budget and sisyphus mode", async () => {
 		const h = createHarness({ cwd, sessionEntries: [] });
 		await start(h);
 		const create = h.tools.get("create_goal")!;
-		await (create.execute as any)("create-2", {
+		const result = await (create.execute as any)("create-2", {
 			objective: "=== Goal ===\nObjective: Budgeted sisyphus",
 			mode: "sisyphus",
 			token_budget: 5000,
@@ -195,6 +196,7 @@ test("create_goal accepts token_budget and sisyphus mode", async () => {
 		const parsed = parseGoalFile(path.join(cwd, ".pi", "goals", active[0]!));
 		assert.ok(parsed, "goal must parse");
 		assert.equal(parsed.tokenBudget, 5000, "token_budget must be persisted");
+		assert.match(JSON.stringify(result.content), /Budget: 5000 tokens/);
 		assert.equal(parsed.sisyphus, true, "sisyphus mode must be persisted");
 	} finally {
 		try { rmSync(cwd, { recursive: true, force: true }); } catch {}
@@ -334,11 +336,14 @@ test("update_goal(complete) runs the auditor without a verification-summary para
 			runCompletionAuditor: async (args: any) => { auditArgs = args; return approved; },
 		});
 		await start(h);
+		appendGoalEvent(h.ctx, { type: "audit_result", goalId: h.core.state.goal!.id, verdict: "disapproved", report: "Missing boundary test " + "x".repeat(1000), at: new Date().toISOString() });
 		const update = h.tools.get("update_goal")!;
 		await (update.execute as any)("update-1", { status: "complete" }, undefined, undefined, h.ctx);
 		assert.ok(auditArgs, "auditor must run");
 		assert.equal(auditArgs.verificationSummary, undefined, "no verification-summary paperwork");
 		assert.equal(auditArgs.completionSummary, undefined, "no completion claim required");
+		assert.match(auditArgs.warmContext, /Previous rejection.*Missing boundary test/);
+		assert.ok(auditArgs.warmContext.length < 1200, "previous findings are bounded");
 		// Deferred archival happens at turn_end.
 		await h.handlers.get("turn_end")?.({ message: { role: "assistant", stopReason: "stop", usage: { input: 0, output: 0 } } }, h.ctx);
 		assert.equal(activeGoalFiles(f.cwd).length, 0, "approved completion archives the goal");
@@ -373,32 +378,6 @@ test("update_goal(complete) with a rejection keeps the goal open with feedback",
 		assert.deepEqual(h.core.auditResult?.verdict, "disapproved", "rejection sets the result card verdict");
 		h.core.clearAuditResult();
 		assert.equal(h.core.auditResult, null, "clearAuditResult restores the normal dashboard state");
-	} finally {
-		f.cleanup();
-	}
-});
-
-test("update_goal(complete) after a rejection hands the previous audit report to the next audit", async () => {
-	const f = makeFixture();
-	const calls: any[] = [];
-	const reports = [
-		{ approved: false, disapproved: true, output: "Key failures:\n- Timing results are not reported.\n<disapproved/>", model: "mock" },
-		{ approved: false, disapproved: true, output: "Still missing timing.\n<disapproved/>", model: "mock" },
-	];
-	try {
-		const h = createHarness({
-			cwd: f.cwd,
-			sessionEntries: f.sessionEntries,
-			runCompletionAuditor: async (args: any) => { calls.push(args); return reports[calls.length - 1]; },
-		});
-		await start(h);
-		const update = h.tools.get("update_goal")!;
-		await (update.execute as any)("update-a", { status: "complete" }, undefined, undefined, h.ctx);
-		assert.ok(!calls[0].previousAuditReport, "first audit has no previous report");
-		h.core.clearAuditResult();
-		await (update.execute as any)("update-b", { status: "complete" }, undefined, undefined, h.ctx);
-		assert.equal(calls.length, 2, "second completion attempt runs the auditor again");
-		assert.equal(calls[1].previousAuditReport, reports[0]!.output, "second audit receives the first rejection's report");
 	} finally {
 		f.cleanup();
 	}

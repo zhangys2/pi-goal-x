@@ -2,7 +2,7 @@
  * Issue #30 — checkpoint health diagnostics (extensions/goal-session-health.ts).
  */
 
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
@@ -12,7 +12,7 @@ import {
 	readSessionCheckpointHealth,
 } from "../extensions/goal-session-health.ts";
 import { checkpointTriggerPrompt } from "../extensions/prompts/goal-prompts.ts";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
@@ -70,13 +70,9 @@ describe("inspectCheckpointHealth", () => {
 	});
 });
 
-const tempDirs: string[] = [];
-after(() => { for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true }); });
-
 describe("readSessionCheckpointHealth", () => {
 	it("reads a session JSONL including header and malformed lines", () => {
 		const dir = mkdtempSync(path.join(tmpdir(), "goal-health-"));
-		tempDirs.push(dir);
 		const file = path.join(dir, "session.jsonl");
 		const header = JSON.stringify({ type: "session", id: "s1", cwd: dir });
 		const v2 = JSON.stringify(entry({ content: checkpointTriggerPrompt("g1"), details: { version: 2, kind: "checkpoint", goalId: "g1" } }));

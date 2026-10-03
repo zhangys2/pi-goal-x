@@ -233,8 +233,7 @@ export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionC
 		ctx,
 		goal: reviewGoal,
 		detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${reviewBaseline?.revision ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}${checkFacts}`,
-		completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion. The task's verification contract is the checklist: report gaps outside it as non-blocking notes unless they make the contracted work incorrect. When a verification command fails because of the environment (toolchain, linker, credentials, network) rather than the code, name it as an environment blocker, not a code defect.${checkFacts}\n\nTASK DIFF:\n${taskDiff}`,
-		previousAuditReport: previousReview,
+		completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion. The task's verification contract is the checklist: report gaps outside it as non-blocking notes unless they make the contracted work incorrect. When a verification command fails because of the environment (toolchain, linker, credentials, network) rather than the code, name it as an environment blocker, not a code defect.${previousReview ? `\n\nPREVIOUS REVIEW FINDINGS TO RECHECK:\n${previousReview}` : ""}${checkFacts}\n\nTASK DIFF:\n${taskDiff}`,
 		settings,
 	});
 	const event: GoalLedgerEvent = {

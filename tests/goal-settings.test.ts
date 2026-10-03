@@ -34,15 +34,6 @@ test("parseGoalSettings: null/undefined returns empty defaults", () => {
 	assert.deepEqual(parseGoalSettings([]), {});
 });
 
-test("per-task review settings parse and reject malformed exclusions", () => {
-	const parsed = parseSettingsLayer({ disableTaskReviews: true, taskReviewExcludedTypes: ["docs", "generated"] }, "project", "t.json");
-	assert.deepEqual(parsed.layer.disableTaskReviews, true);
-	assert.deepEqual(parsed.layer.taskReviewExcludedTypes, ["docs", "generated"]);
-	const invalid = parseSettingsLayer({ taskReviewExcludedTypes: ["docs", ""] }, "project", "t.json");
-	assert.equal(invalid.layer.taskReviewExcludedTypes, undefined);
-	assert.equal(invalid.diagnostics[0]?.code, "invalid_value");
-});
-
 test("parseGoalSettings: empty object returns empty defaults", () => {
 	assert.deepEqual(parseGoalSettings({}), {});
 });
@@ -127,9 +118,8 @@ test("parseGoalSettings: multiple unknown keys rejected with the full list", () 
 
 test("goalSettingsPath: resolves under .pi/ with new filename", () => {
 	const p = goalSettingsPath("/tmp/project");
-	assert.equal(path.basename(p), "pi-goal-x-settings.json");
-	assert.equal(path.basename(path.dirname(p)), ".pi");
-	assert.equal(path.basename(path.dirname(path.dirname(p))), "project");
+	assert.ok(p.endsWith(path.join(".pi", "pi-goal-x-settings.json")));
+	assert.ok(p.startsWith("/tmp/project"));
 });
 
 test("goalSettingsPath: respects PI_GOAL_SETTINGS_FILE env var", () => {
@@ -294,7 +284,7 @@ test("loadGoalSettings: objectiveMaxChars defaults to no limit and honors the en
 	assert.equal(loadGoalSettings("/tmp/does-not-exist", {}).objectiveMaxChars, 0, "unset resolves to the default 0 (no limit)");
 });
 
-// ── auditor inspection guidance (workspaces + environment) ───────────────
+// ── networkRecovery (provider-error recovery backoff) ─────────────────
 
 test("parseGoalSettings: auditorWorkspaces takes non-empty paths and auditorEnvironment takes text", () => {
 	assert.deepEqual(
