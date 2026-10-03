@@ -22,3 +22,7 @@ The previous baseline excluded active-tool filtering and SDK guidance and did no
 ## Delivery
 
 Changes are recorded on `codex/runtime-token-optimization` in three local commits: measurement corrections (`882178a`), runtime improvements (`b3e6364`), then model-facing changes and final evidence. The runtime-only staged tree was independently extracted and passed TypeScript, its full test suite, and a freshly captured context gate before committing, so that phase can be inspected or reverted separately. The final acceptance gate passes: 38.0% lower active-workflow extension context; 100k-event activity p50 12.203 → 0.010 ms; cold rebuild p50 68.135 → 64.959 ms. No changes were pushed remotely.
+
+## Context baseline re-measure after merging fork changes (2026-10-03)
+
+Merging upstream main into the fork kept upstream's `baseline-main.json`, which does not include the fork's model-facing additions: the `update_goal_task` and `set_goal_tasks` parameters for code-change labels, review types, checks, isolation and integration; the immediate-block wording on `update_goal({status: "blocked"})`; and the worktree-subagent guidance line. These add about 2.2k serialized characters (roughly 540 tokens) to each fixture. The baseline was regenerated with `npm run context:measure` on Linux, the CI platform, because the Windows capture differs byte-for-byte. The semantic gates and provider cross-checks pass unchanged.
