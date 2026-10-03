@@ -17,13 +17,13 @@ export interface GoalSchedulerState {
 	generation: string;
 	used: number;
 	phase: "idle" | "ready" | "waiting" | "claimed" | "running" | "interrupted";
-	decision?: { kind: "ready"; nextAction: string; purpose: GoalDispatchKind } | { kind: "wait" };
+	decision?: { kind: "ready"; purpose: GoalDispatchKind } | { kind: "wait" };
 	wait?: GoalWait;
 	dispatch?: { id: string; kind: GoalDispatchKind; claimedAt: number };
 	repairUsed: boolean;
 }
 export type GoalContinuation =
-	| { kind: "ready"; next_action: string }
+	| { kind: "ready" }
 	| { kind: "wait"; reason: string; deadline: string; depends_on?: "producer" | "user"; wait_id?: string; polling?: { interval_seconds: number; max_checks: number } };
 
 export function newGoalScheduler(owner: string): GoalSchedulerState {
@@ -39,7 +39,10 @@ export function normalizeGoalScheduler(raw: unknown): GoalSchedulerState | undef
 	const integer = (n: unknown) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
 	const text = (v: unknown) => typeof v === "string" && v.length > 0 && v.length <= 2000;
 	if (s.version !== 1 || !text(s.owner) || !text(s.generation) || !integer(s.used) || typeof s.repairUsed !== "boolean" || !["idle", "ready", "waiting", "claimed", "running", "interrupted"].includes(s.phase)) return invalid();
-	if (s.decision && (s.decision.kind !== "wait" && (s.decision.kind !== "ready" || !text(s.decision.nextAction) || !["ready", "repair", "kickoff", "recovery"].includes(s.decision.purpose)))) return invalid();
+	// Goals saved before next actions were removed still carry decision.nextAction.
+	// The field is stripped after validation and never makes a goal invalid:
+	// rejecting one would strand it as interrupted with spent allowance.
+	if (s.decision && (s.decision.kind !== "wait" && (s.decision.kind !== "ready" || !["ready", "repair", "kickoff", "recovery"].includes(s.decision.purpose)))) return invalid();
 	if (s.wait) {
 		const w = s.wait;
 		if (!text(w.id) || !text(w.token) || !text(w.reason) || (!integer(w.deadline) || w.deadline > 8_640_000_000_000_000)) return invalid();
@@ -51,7 +54,9 @@ export function normalizeGoalScheduler(raw: unknown): GoalSchedulerState | undef
 	if ((s.phase === "claimed" || s.phase === "running") && !s.dispatch) return invalid();
 	if (s.phase === "ready" && s.decision?.kind !== "ready") return invalid();
 	if (s.phase === "waiting" && (!s.wait || s.decision?.kind !== "wait")) return invalid();
-	return structuredClone(s);
+	const normalized = structuredClone(s) as GoalSchedulerState;
+	if (normalized.decision && "nextAction" in normalized.decision) delete (normalized.decision as Record<string, unknown>).nextAction;
+	return normalized;
 }
 
 /** Rounded "2h 5m" / "45s" for wait notices; the exact deadline is printed beside it. */
@@ -77,19 +82,24 @@ export function buildWaitNotice(wait: GoalWait, kind: "declared" | "heartbeat", 
 	return lines.join("\n");
 }
 
-export function schedulerSummaryParts(s: GoalSchedulerState | undefined, limit?: number): { runs: string; instructions: string } {
-	const runs = `Autonomous runs: ${s?.used ?? 0}/${limit ?? "unlimited"}${limit === 0 ? " (automatic continuation disabled)" : ""}.`;
+export function schedulerSummaryParts(s: GoalSchedulerState | undefined, limit?: number, showRuns = true): { runs: string; instructions: string } {
+	// An unlimited allowance has no limit to report, so the runs line is left
+	// empty rather than rendered as "used/unlimited". A finite allowance is
+	// reported unless showAutonomousRuns is off. Enforcement reads the limit
+	// elsewhere; this is display only.
+	const runs = limit !== undefined && showRuns ? `Autonomous runs: ${s?.used ?? 0}/${limit}${limit === 0 ? " (automatic continuation disabled)" : ""}.` : "";
 	const lines: string[] = [];
-	if (s?.decision?.kind === "ready") lines.push(`Next action: ${s.decision.nextAction}`);
-	if (s?.wait) {
-		lines.push(`Waiting: ${s.wait.reason}; wait_id=${s.wait.id}; deadline=${new Date(s.wait.deadline).toISOString()}.`);
-		if (s.wait.nextCheckAt !== undefined) lines.push(`Next check: ${new Date(s.wait.nextCheckAt).toISOString()}; ${s.wait.remainingChecks} checks remaining.`);
+	if (s) {
+		if (s.wait) {
+			lines.push(`Waiting: ${s.wait.reason}; wait_id=${s.wait.id}; deadline=${new Date(s.wait.deadline).toISOString()}.`);
+			if (s.wait.nextCheckAt !== undefined) lines.push(`Next check: ${new Date(s.wait.nextCheckAt).toISOString()}; ${s.wait.remainingChecks} checks remaining.`);
+		}
+		if (s.phase === "interrupted" || s.phase === "claimed") lines.push("Execution requires dispatch admission or explicit /goal-resume after interruption.");
 	}
-	if (s && (s.phase === "interrupted" || s.phase === "claimed")) lines.push("Execution requires dispatch admission or explicit /goal-resume after interruption.");
 	return { runs, instructions: lines.join("\n") };
 }
 
-export function schedulerSummary(s: GoalSchedulerState | undefined, limit?: number): string {
-	const { runs, instructions } = schedulerSummaryParts(s, limit);
-	return instructions ? `${runs}\n${instructions}` : runs;
+export function schedulerSummary(s: GoalSchedulerState | undefined, limit?: number, showRuns = true): string {
+	const { runs, instructions } = schedulerSummaryParts(s, limit, showRuns);
+	return [runs, instructions].filter(Boolean).join("\n");
 }

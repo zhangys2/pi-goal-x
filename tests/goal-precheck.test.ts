@@ -40,7 +40,7 @@ function answering(p: Record<string, unknown>, init: { status?: number; model?: 
 		const answers = Object.fromEntries(Object.keys(body.questions).map((k) => [k, { type: "noul", noul: p[k] }]));
 		return new Response(JSON.stringify(init.status && init.status >= 400 ? { detail: "nope" } : { model: init.model ?? "jev-1.13.0", answers }), { status: init.status ?? 200 });
 	};
-	return { calls, fetch: fetchStub as typeof fetch };
+	return { calls, fetch: fetchStub as unknown as typeof fetch };
 }
 
 // ── request building ─────────────────────────────────────────────────────────
@@ -109,15 +109,15 @@ test("maps every failure to a skipped or error outcome", async () => {
 		assert.equal(out.reason, reason);
 	};
 	let called = false;
-	await expect(run({ env: {}, fetch: (async () => { called = true; return new Response("{}"); }) as typeof fetch }), "skipped", "no_api_key");
+	await expect(run({ env: {}, fetch: (async () => { called = true; return new Response("{}"); }) as unknown as typeof fetch }), "skipped", "no_api_key");
 	assert.equal(called, false, "no request without a key");
 	await expect(run({ goal: goalWith([task("a", { verificationContract: undefined })]) }), "skipped", "nothing_to_check");
 	await expect(run({ goal: goalWith([task("a", { title: "t".repeat(90_000) })]) }), "skipped", "oversize");
 	await expect(run({ fetch: answering({}, { status: 529 }).fetch }), "error", "http_529");
-	await expect(run({ fetch: (async () => { throw new TypeError("fetch failed"); }) as typeof fetch }), "error", "network");
+	await expect(run({ fetch: (async () => { throw new TypeError("fetch failed"); }) as unknown as typeof fetch }), "error", "network");
 	await expect(run({ fetch: answering({ "t:a": "high" }).fetch }), "error", "malformed");
 	await expect(run({ fetch: answering({ "t:a": 1.5 }).fetch }), "error", "malformed");
-	await expect(run({ fetch: (async () => new Response(JSON.stringify({ model: "m", answers: {} }))) as typeof fetch }), "error", "malformed");
+	await expect(run({ fetch: (async () => new Response(JSON.stringify({ model: "m", answers: {} }))) as unknown as typeof fetch }), "error", "malformed");
 	const aborted = new AbortController();
 	aborted.abort();
 	await expect(run({
@@ -125,7 +125,7 @@ test("maps every failure to a skipped or error outcome", async () => {
 		fetch: ((_url: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
 			if (init?.signal?.aborted) reject(init.signal.reason);
 			init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
-		})) as typeof fetch,
+		})) as unknown as typeof fetch,
 	}), "error", "aborted");
 });
 
