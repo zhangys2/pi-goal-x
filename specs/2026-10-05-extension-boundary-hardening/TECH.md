@@ -21,3 +21,7 @@ Extract `GoalAuditRuntime` into `extensions/goal-audit-runtime.ts`, owning progr
 Baseline: `node --experimental-strip-types --import ./scripts/test-adapter-hooks.mjs --test tests/goal-auditor.test.ts tests/goal-core-tools.test.ts tests/goal-task-checks-gate.test.ts tests/goal-task-review.test.ts tests/goal-worker-integration.test.ts`.
 
 Final checks: `npm run check`, `npm run lint`, `npm run test:all`, and test-manifest self-check if new test entries are added.
+
+## PR #31 context gate follow-up
+
+Compare the two auditor captures against a counterfactual with the previous system/checklist wording, retaining the same SDK/platform/fixture data. Confirm the intentional delta is limited to child request size and extension-attributable size, with semantic counts and parent request breakdowns unchanged. Update only those fields in the two committed fixture rows and the corresponding aggregate totals; do not regenerate unrelated platform-specific SDK measurements or relax the gate. Validate the strict gate in a Linux-equivalent SDK capture when available, provider/retention boundaries, and the actual GitHub CI run after pushing.

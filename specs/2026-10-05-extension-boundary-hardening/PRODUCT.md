@@ -13,4 +13,4 @@ Implement the user's selected improvements in order: (1) end-to-end cancellation
 
 ## Verification
 
-Use focused public-interface regression tests first, followed by typecheck, lint, and the full test suite. Record failures and remaining platform limitations honestly. No dependencies installed or release requested. After implementation, the user requested committing the completed session work and opening a PR against the origin fork's main branch.
+Use focused public-interface regression tests first, followed by typecheck, lint, and the full test suite. Record failures and remaining platform limitations honestly. The user subsequently requested fixing PR #31 CI context-baseline drift: preserve the approved auditor guidance and strict context gate, and update only measurements attributable to intentional auditor prompt changes, with a recorded rationale. Do not incorporate unrelated Windows SDK measurement differences. No dependencies installed or release requested. After implementation, the user requested committing the completed session work and opening a PR against the origin fork's main branch.

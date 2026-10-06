@@ -1,6 +1,6 @@
 {
-  "generatedAtCommit": "main",
-  "measuredAt": "2026-10-03",
+  "generatedAtCommit": "7eb0d0f+auditor-trust-boundary-delta",
+  "measuredAt": "2026-10-06",
   "fixtures": [
     {
       "fixture": "active-regular-10-tasks",
@@ -115,9 +115,9 @@
       "breakdown": {
         "sdkGuidanceChars": 293,
         "hostToolSchemaChars": 2555,
-        "childRequestChars": 5410,
+        "childRequestChars": 5907,
         "extensionMessageChars": 681,
-        "extensionAttributableChars": 7528,
+        "extensionAttributableChars": 8025,
         "baseSystemChars": 2823,
         "extensionSystemChars": 0,
         "goalStateChars": 0,
@@ -187,9 +187,9 @@
       "breakdown": {
         "sdkGuidanceChars": 293,
         "hostToolSchemaChars": 2555,
-        "childRequestChars": 5414,
+        "childRequestChars": 5911,
         "extensionMessageChars": 705,
-        "extensionAttributableChars": 7556,
+        "extensionAttributableChars": 8053,
         "baseSystemChars": 2823,
         "extensionSystemChars": 0,
         "goalStateChars": 0,
@@ -870,8 +870,8 @@
   "totals": {
     "totalSerializedChars": 309279,
     "estimatedTokens": 77329,
-    "childRequestChars": 15352,
-    "combinedSerializedChars": 324631,
-    "extensionAttributableChars": 194162
+    "childRequestChars": 16346,
+    "combinedSerializedChars": 325625,
+    "extensionAttributableChars": 195156
   }
 }
