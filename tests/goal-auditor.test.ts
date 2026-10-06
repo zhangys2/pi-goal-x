@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
 	buildGoalAuditorPrompt,
+	makeAuditorResourceLoader,
 	parseAuditorDecision,
 	resolveAuditorModel,
 	resolveAuditorSessionModelOptions,
@@ -94,6 +95,8 @@ test("runGoalCompletionAuditor passes parent modelRuntime into createSession", a
 
 		assert.equal(captured?.modelRuntime, runtime);
 		assert.equal(captured?.modelRegistry, modelRegistry);
+		assert.equal(captured?.cwd, cwd, "audit keeps the current workspace");
+		assert.deepEqual(captured?.tools, ["read", "grep", "find", "ls", "bash"], "inspection and verification tools remain unchanged");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -161,6 +164,16 @@ test("loadGoalSettings does not read old env vars", () => {
 	// Old env vars are ignored; only PI_GOAL_DISABLE_TASKS/CONTRACTS work
 	assert.deepEqual(loadGoalSettings("/tmp", { PI_GOAL_AUDITOR_PROVIDER: "fireworks" as string }).provider, undefined);
 	// PI_GOAL_SETTINGS_FILE env var can point to an alternative path
+});
+
+test("auditor guidance distinguishes independent conversation from filesystem enforcement", () => {
+	const systemPrompt = makeAuditorResourceLoader().getSystemPrompt();
+	assert.match(systemPrompt ?? "", /independent.*conversation/i);
+	assert.match(systemPrompt ?? "", /not.*(?:filesystem|OS).*sandbox/i);
+	assert.match(systemPrompt ?? "", /bash.*(?:unrestricted|permissions)/i);
+	const prompt = buildGoalAuditorPrompt({ goal: goal(), detailedSummary: "test" });
+	assert.match(prompt, /(?:verification commands|builds and tests).*write/i);
+	assert.match(prompt, /(?:must|do not|never).*(?:edit|modify|mutate).*source/i);
 });
 
 test("buildGoalAuditorPrompt demands semantic approval markers", () => {
@@ -453,6 +466,32 @@ test("runGoalCompletionAuditor cleans up abort listener on normal completion", a
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
+});
+
+test("auditor disposes its session even when initial progress or subscription throws", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-goal-auditor-cleanup-"));
+	try {
+		for (const failSubscribe of [false, true]) {
+			let disposed = 0;
+			let unsubscribed = 0;
+			const result = await runGoalCompletionAuditor({
+				ctx: { cwd } as any, goal: goal(), detailedSummary: "test",
+				onProgress: () => { throw new Error("progress failed"); },
+				createSession: async () => ({ session: {
+					abort: () => {},
+					subscribe: () => {
+						if (failSubscribe) throw new Error("subscribe failed");
+						return () => { unsubscribed++; };
+					},
+					prompt: async () => {},
+					dispose: () => { disposed++; },
+				} }) as any,
+			});
+			assert.equal(result.approved, false);
+			assert.equal(disposed, 1);
+			assert.equal(unsubscribed, failSubscribe ? 0 : 1);
+		}
+	} finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });
 
 test("resolveAuditorModel refuses provider-only settings instead of choosing the first available model", () => {

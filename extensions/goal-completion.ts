@@ -7,7 +7,8 @@ import {
 	validateGoalCompletion,
 } from "./goal-policy.ts";
 import { loadGoalSettings, loadGoalSettingsFileConfig } from "./goal-settings.ts";
-import { runGoalCompletionAuditor } from "./goal-auditor.ts";
+import { runGoalCompletionAuditor, type GoalAuditorResult } from "./goal-auditor.ts";
+import { combineAbortSignals } from "./goal-cancellation.ts";
 import { runEvidencePrecheck } from "./goal-precheck.ts";
 import { nowIso, type GoalRecord } from "./goal-record.ts";
 import { latestEventsForGoal, latestAuditorResultForGoal, goalRuntimeEvents } from "./goal-ledger.ts";
@@ -22,7 +23,9 @@ import type { GoalMutationOutcome } from "./goal-service.ts";
 // requirements from the objective and any verification contract and inspects
 // actual workspace evidence. An optional completion_summary is forwarded as an
 // UNTRUSTED executor claim — never evidence and never an approval bypass.
-export async function runGoalCompletionFlow(core: GoalCore, ctx: ExtensionContext, completionSummary?: string): Promise<AgentToolResult<unknown>> {
+export async function runGoalCompletionFlow(core: GoalCore, ctx: ExtensionContext, completionSummary?: string, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
+ signal = combineAbortSignals(signal, ctx.signal, core.sessionAbortController.signal);
+ signal?.throwIfAborted();
  const flushError = core.goalService.flushForAudit(ctx);
  if (flushError) return {content: [{type: "text", text: flushError}], details: goalDetails(core.state.goal)};
 	core.reconcileFocusedGoalFromDisk(ctx);
@@ -214,83 +217,63 @@ if (settings.disabled === true) {
 	} catch {
 		// Ledger append failure should not block completion
 	}
-	// Set up auditor progress display (before createAgentSession)
-	const auditStartedAt = Date.now();
-	core.auditProgress = {
-		recentOutput: [],
-		phase: "running",
-		elapsedMs: 0,
-		auditorLabel,
-	};
-	// Start animation timer for the spinner in the auditor widget
-	core.stopAuditAnimation();
-	core.auditAnimationTimer = setInterval(() => {
-		if (!core.auditProgress) {
-			core.stopAuditAnimation();
-			return;
-		}
-		core.auditProgress.elapsedMs = Date.now() - auditStartedAt;
-		core.goalWidgetComponentRef.current?.invalidate();
-	}, 80);
-	core.auditAnimationTimer?.unref?.();
+	const audit = core.auditRuntime.start(auditorLabel);
+	const auditStartedAt = audit.startedAt;
+	const auditSignal = combineAbortSignals(signal, audit.controller.signal)!;
+	let auditor: GoalAuditorResult;
+	let auditFailed = true;
+	try {
+		// P1-6: warm start — seed the auditor with the parent-rendered ledger tail
+		// (recent lifecycle + task evidence) so it does not re-derive session facts.
+		const ledger = goalRuntimeEvents(ctx, auditTarget.id);
+		const warmTail = latestEventsForGoal(ledger, auditTarget.id, 8);
+		const previousAudit = latestAuditorResultForGoal(ledger, auditTarget.id);
+		let warmContext = warmTail.length > 0
+			? `Recent goal events (from the shared ledger):\n${warmTail.map((e) => `- ${e.at} ${e.type}${"taskId" in e ? ` (task ${e.taskId})` : ""}${"evidence" in e && e.evidence ? ` evidence: ${e.evidence}` : ""}`).join("\n")}`
+			: null;
 
-	// Create a dedicated AbortController for the audit so it can be interrupted via Escape
-	core.auditAbortController?.abort(); // Clean up any stale controller
-	const completionAuditController = new AbortController();
-	core.auditAbortController = completionAuditController;
+		if (previousAudit?.verdict === "disapproved") warmContext = `${warmContext ?? ""}\nPrevious rejection (verify whether resolved): ${previousAudit.report.slice(0, 600)}`;
 
-	// P1-6: warm start — seed the auditor with the parent-rendered ledger tail
-	// (recent lifecycle + task evidence) so it does not re-derive session facts.
-	const ledger = goalRuntimeEvents(ctx, auditTarget.id);
-	const warmTail = latestEventsForGoal(ledger, auditTarget.id, 8);
-	const previousAudit = latestAuditorResultForGoal(ledger, auditTarget.id);
-	let warmContext = warmTail.length > 0
-		? `Recent goal events (from the shared ledger):\n${warmTail.map((e) => `- ${e.at} ${e.type}${"taskId" in e ? ` (task ${e.taskId})` : ""}${"evidence" in e && e.evidence ? ` evidence: ${e.evidence}` : ""}`).join("\n")}`
-		: null;
+		// Log-only: runs beside the auditor and never changes the outcome.
+		const precheckSettings = loadGoalSettings(ctx.cwd).precheck;
+		const precheck = precheckSettings?.enabled
+			? (core.dependencies.runEvidencePrecheck ?? runEvidencePrecheck)({
+				goal: auditTarget,
+				completionSummary: completionSummary?.trim() || undefined,
+				settings: precheckSettings,
+				signal: auditSignal,
+			}).catch(() => null)
+			: null;
 
-	if (previousAudit?.verdict === "disapproved") warmContext = `${warmContext ?? ""}\nPrevious rejection (verify whether resolved): ${previousAudit.report.slice(0, 600)}`;
-
-	// Log-only: runs beside the auditor and never changes the outcome.
-	const precheckSettings = loadGoalSettings(ctx.cwd).precheck;
-	const precheck = precheckSettings?.enabled
-		? (core.dependencies.runEvidencePrecheck ?? runEvidencePrecheck)({
+		auditor = await (core.dependencies.runCompletionAuditor ?? runGoalCompletionAuditor)({
+			ctx,
 			goal: auditTarget,
+			detailedSummary: detailedSummary(auditTarget),
 			completionSummary: completionSummary?.trim() || undefined,
-			settings: precheckSettings,
-			signal: completionAuditController.signal,
-		})
-		: null;
-
-	const auditor = await (core.dependencies.runCompletionAuditor ?? runGoalCompletionAuditor)({
-		ctx,
-		goal: auditTarget,
-		detailedSummary: detailedSummary(auditTarget),
-		completionSummary: completionSummary?.trim() || undefined,
-		settings: loadGoalSettings(ctx.cwd),
-		warmContext,
-		signal: completionAuditController.signal,
-		onProgress: (progress) => {
-			core.auditProgress = {
-				...progress,
-				elapsedMs: Date.now() - auditStartedAt,
-			};
-			core.goalWidgetComponentRef.current?.invalidate();
-		},
-	});
-	if (precheck) {
-		const outcome = await precheck;
-		try {
-			core.goalService.appendEvents(ctx, [{ type: "precheck_result", goalId: auditTarget.id, ...outcome, enforced: false, at: nowIso() }]);
-		} catch {
-			// Ledger append failure should not block completion
+			settings: loadGoalSettings(ctx.cwd),
+			warmContext,
+			signal: auditSignal,
+			onProgress: (progress) => core.auditRuntime.update(audit, progress),
+		});
+		if (precheck) {
+			const outcome = await precheck;
+			if (outcome) {
+				try {
+					core.goalService.appendEvents(ctx, [{ type: "precheck_result", goalId: auditTarget.id, ...outcome, enforced: false, at: nowIso() }]);
+				} catch {
+					// Ledger append failure should not block completion
+				}
+			}
 		}
+		// Finish owned audit resources — including cancellation and exceptions
+		auditFailed = false;
+	} finally {
+		core.auditRuntime.finish(audit, auditFailed || signal?.aborted === true);
 	}
-	// Clear abort controller — audit finished on its own
-	if (core.auditAbortController === completionAuditController) core.auditAbortController = null;
-	// Clear auditor progress display
-	core.stopAuditAnimation();
+	// Parent cancellation is not the explicit Escape-to-bypass workflow.
+	signal?.throwIfAborted();
 	if (!core.isFocusedOperationCurrent(completionFocus)) {
-		core.auditProgress = null;
+		if (!core.auditAbortController) core.auditProgress = null;
 		core.goalWidgetComponentRef.current?.invalidate();
 		return core.focusedOperationCancelledResult("Goal completion", completionFocus);
 	}
@@ -312,6 +295,7 @@ if (settings.disabled === true) {
 		} finally {
 			core.exitGoalModal();
 		}
+		signal?.throwIfAborted();
 		// Consume the transient abort state recorded by the low-level callback.
 		core.auditAborted = false;
 		if (!core.isFocusedOperationCurrent(completionFocus)) {

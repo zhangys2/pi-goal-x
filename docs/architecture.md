@@ -12,12 +12,17 @@ handlers from their dedicated modules:
 | Module | Responsibility |
 |---|---|
 | `goal.ts` | Thin installer: renderers + module registration only |
-| `goal-state.ts` | `GoalCore`: all mutable state (pool, focus, audit/UI flags), `GoalService`/`GoalRuntime`/`GoalAccounting` wiring, persistence and reconciliation closures, widget status |
+| `goal-state.ts` | `GoalCore`: pool/focus state, service/runtime/accounting/audit wiring, persistence and reconciliation closures, widget status |
 | `goal-tools.ts` | Registration composition only: a 14-line installer that wires `registerCoreTools` + `registerTaskTools` |
 | `goal-core-tools.ts` | `create_goal` / `get_goal` / `update_goal` executors plus the blocked flow |
 | `goal-completion.ts` | The completion transaction: `runGoalCompletionFlow` (audit orchestration) + shared `commitGoalCompletion` |
+| `goal-audit-runtime.ts` | Completion-audit progress, controller ownership, animation/result-card timers, explicit Escape cancellation, and idempotent cleanup |
 | `goal-task-tools.ts` | `set_goal_tasks` / `update_goal_task` executors plus flat parent-linked conversion, id-stable merge, `countTasks` |
 | `goal-task-confirmation.ts` | Task-only result boundary (`{decision}`, no auditor toggle) with neutral Confirm task list / Keep current tasks labels |
+| `goal-cancellation.ts` | Composition of tool, active-turn, session-lifetime, and explicit Escape abort signals |
+| `goal-worker-integration.ts` | Three-way worker patch integration, verification, path-scoped commit, and ownership-checked rollback |
+| `goal-integration-git.ts` | Asynchronous Git execution with timeout, output bounds, and process-tree cancellation |
+| `storage/goal-integration-lock.ts` | Fail-fast repository-wide integration lock across processes and worktrees |
 | `goal-commands.ts` | The curated fourteen-command palette and its handlers |
 | `goal-events.ts` | Lifecycle and provider event handlers (`context`, `before_provider_request`, `turn_start`, `tool_call`, `tool_execution_end`, `turn_end`, `message_end`, `session_start`, `session_before_compact`, `session_compact`, `session_tree`, `before_agent_start`, `agent_end`, `agent_settled`, `session_shutdown`) |
 | `goal-widget.ts` | Terminal input keybindings (Esc pause / abort-audit, Ctrl+Shift+T overlay) and the hidden debug helpers |
@@ -274,6 +279,14 @@ completion claim, and goal metadata, can inspect the workspace with `read`,
 - `<disapproved/>`, no marker, an error, or abort rejects completion and leaves
   the goal open.
 
+The separate conversation and default empty resource loader do not sandbox the
+filesystem or process. Audits and task reviews retain the current workspace;
+`bash` has the host's permissions and environment. Non-mutating instructions are
+policy rather than enforcement, and verification scripts may write artifacts or
+run arbitrary code. Extra workspaces are guidance, not access-control allowlists;
+opt-in project resources can add executable behavior. See the
+[auditor trust boundary](advanced-usage.md#auditor-trust-boundary).
+
 The auditor uses the current/default model unless
 `.pi/pi-goal-x-settings.json` overrides `provider`, `model`, or `thinkingLevel`.
 The user can Escape an in-flight audit to choose "complete without audit" or
@@ -295,6 +308,19 @@ Old readers remain for backward-compatible reads of existing data:
 `readActiveGoalPool`, `readGoalLedger`, `mergeGoalPromptFromDisk`,
 `latestAuditorResultForGoal`, and `normalizeGoalRecord` are all retained and in
 use. The ledger is append-only JSONL and is never rewritten in place.
+
+## Cancellation and integration boundaries
+
+Tool and active-turn cancellation reach nested completion auditors, task reviewers,
+and blocker advisers. Session shutdown/replacement cancels session-owned operations.
+Cancelled operations cannot complete tasks/goals, and parent cancellation never opens
+the explicit Escape audit-bypass dialog. Audit timers and subscriptions are released
+on failure as well as normal completion.
+
+Worker integration serializes cooperating integrations with a repository-wide lock.
+Rollback preserves paths changed after application rather than guessing ownership;
+Git subprocesses and recovery commands are bounded. See [integration safety](integration-safety.md)
+for cancellation, concurrency, and crash-recovery limits.
 
 ## Tests
 

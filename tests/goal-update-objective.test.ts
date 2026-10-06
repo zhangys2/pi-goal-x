@@ -70,7 +70,7 @@ test("update_goal routes complete directly to the shared completion flow", () =>
 		"internal options type must not carry verificationSummary");
 	assert.ok(!source.includes("confirmBypassAuditor"),
 		"internal options type must not carry confirmBypassAuditor");
-	assert.ok(source.includes("return deps.runGoalCompletionFlow(core, ctx, params.completion_summary);"),
+	assert.ok(source.includes("return deps.runGoalCompletionFlow(core, ctx, params.completion_summary, signal);"),
 		"executor must route status=complete to the completion flow with the scalar claim");
 	assert.ok(!source.includes("updatedObjective"),
 		"handler must not reference updatedObjective in error messages");

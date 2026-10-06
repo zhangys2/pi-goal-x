@@ -33,6 +33,7 @@ import {
 import { GoalService } from "./goal-service.ts";
 import { goalActivityEvents } from "./goal-ledger.ts";
 import { GoalAccounting } from "./goal-accounting.ts";
+import { GoalAuditRuntime } from "./goal-audit-runtime.ts";
 import { newGoalScheduler } from "./goal-scheduler-state.ts";
 import { GoalScheduler } from "./goal-scheduler.ts";
 import { GoalRuntime } from "./goal-runtime.ts";
@@ -66,6 +67,7 @@ export interface GoalCore {
 	readonly focusRevision: number;
 	hasExplicitSessionFocus: boolean;
 	runningGoalId: string | null;
+	readonly sessionAbortController: AbortController;
 	auditProgress: AuditorWidgetProgress | null;
 	auditAnimationTimer: ReturnType<typeof setInterval> | null;
 	auditAbortController: AbortController | null;
@@ -86,6 +88,7 @@ export interface GoalCore {
 	runtime: GoalRuntime;
 	scheduler: GoalScheduler;
 	auditMessages: GoalAuditMessages;
+	readonly auditRuntime: GoalAuditRuntime;
 	accounting: GoalAccounting;
 
 	assignFocusedGoalId(goalId: string | null): void;
@@ -226,33 +229,11 @@ export function createGoalCore(
 		},
 	});
 	let runningGoalId: string | null = null;
+	let sessionAbortController = new AbortController();
 	let terminalInputUnsubscribe: (() => void) | null = null;
-	let auditProgress: AuditorWidgetProgress | null = null;
-	let auditAnimationTimer: ReturnType<typeof setInterval> | null = null;
-	let auditResult: { verdict: AuditVerdict; report: string; at: string } | null = null;
-	let auditResultClearTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function setAuditResult(verdict: AuditVerdict, report: string): void {
-		auditResult = { verdict, report, at: nowIso() };
-		if (auditResultClearTimer) clearTimeout(auditResultClearTimer);
-		// Short-lived foreground display (§2.5): the card is visible while the
-		// user reads it, then the normal dashboard returns automatically.
-		auditResultClearTimer = setTimeout(() => {
-			auditResult = null;
-			auditResultClearTimer = null;
-			goalWidgetComponentRef.current?.invalidate();
-		}, 6000);
-		auditResultClearTimer.unref?.();
-		goalWidgetComponentRef.current?.invalidate();
-	}
-
-	function clearAuditResult(): void {
-		if (auditResultClearTimer) clearTimeout(auditResultClearTimer);
-		auditResultClearTimer = null;
-		auditResult = null;
-	}
-	let auditAbortController: AbortController | null = null;
-	let auditAborted = false;
+	// Short-lived foreground display (§2.5): the card is visible while the
+	// user reads it, then the normal dashboard returns automatically.
+	const auditRuntime = new GoalAuditRuntime(() => goalWidgetComponentRef.current?.invalidate());
 
 	let goalModalDepth = 0;
 	let debugMode = false;
@@ -349,25 +330,6 @@ export function createGoalCore(
 		} catch (err) {
 			console.error("[pi-goal] installDraftingToolProfile error:", err instanceof Error ? err.message : String(err));
 		}
-	}
-
-	function stopAuditAnimation(): void {
-		if (auditAnimationTimer) {
-			clearInterval(auditAnimationTimer);
-			auditAnimationTimer = null;
-		}
-	}
-
-	function abortAudit(ctx: ExtensionContext): void {
-		if (!auditAbortController || !auditProgress) return;
-		auditAbortController.abort();
-		auditAbortController = null;
-		stopAuditAnimation();
-		auditProgress = null;
-		goalWidgetComponentRef.current?.invalidate();
-		// Record the abort as transient runtime state only; the completion flow
-		// decides the single canonical ledger outcome after the dialog choice.
-		auditAborted = true;
 	}
 
 	function clearContinuationTimer(): void {
@@ -675,13 +637,13 @@ export function createGoalCore(
 					makeGoalWidgetFactory({
 						getGoal: () => goalForDisplay() ?? state.goal,
 						getOpenGoalCount: () => otherOpenGoalCount(goalsById, null),
-						getAuditorProgress: () => auditProgress,
+						getAuditorProgress: () => auditRuntime.progress,
 						getSettings: () => loadGoalSettings(goalCwd),
 						getDebugMode: () => debugMode,
 						getStalled: () => stallNotified,
 						getExpanded: () => dashboardExpanded,
 						getLedgerEvents: () => state.goal ? goalActivityEvents(storage, state.goal.id) : [],
-						getAuditResult: () => auditResult,
+						getAuditResult: () => auditRuntime.result,
 						componentRef: goalWidgetComponentRef,
 					}),
 					{ placement: "aboveEditor" },
@@ -706,13 +668,13 @@ export function createGoalCore(
 				makeGoalWidgetFactory({
 					getGoal: () => goalForDisplay() ?? state.goal,
 					getOpenGoalCount: () => otherOpenGoalCount(goalsById, null),
-					getAuditorProgress: () => auditProgress,
+					getAuditorProgress: () => auditRuntime.progress,
 					getSettings: () => loadGoalSettings(goalCwd),
 					getDebugMode: () => debugMode,
 					getStalled: () => stallNotified,
 					getExpanded: () => dashboardExpanded,
 					getLedgerEvents: () => state.goal ? goalActivityEvents(storage, state.goal.id) : [],
-					getAuditResult: () => auditResult,
+					getAuditResult: () => auditRuntime.result,
 					componentRef: goalWidgetComponentRef,
 				}),
 				{ placement: "aboveEditor" },
@@ -724,6 +686,8 @@ export function createGoalCore(
 	}
 
 	async function loadState(ctx: ExtensionContext): Promise<void> {
+		sessionAbortController.abort();
+		sessionAbortController = new AbortController();
 		clearGoalWidget(ctx);
 		focusStorageRoot = goalStorageRoot(ctx);
 		externalFocusRoot = focusStorageRoot !== path.resolve(ctx.cwd, ".pi/goals");
@@ -950,44 +914,25 @@ export function createGoalCore(
 		set runningGoalId(value: string | null) {
 			runningGoalId = value;
 		},
-		get auditProgress() {
-			return auditProgress;
-		},
-		set auditProgress(value: AuditorWidgetProgress | null) {
-			auditProgress = value;
-		},
-		get auditResult() {
-			return auditResult;
-		},
-		set auditResult(value: { verdict: AuditVerdict; report: string; at: string } | null) {
-			auditResult = value;
-		},
-		setAuditResult,
-		clearAuditResult,
-		get auditAnimationTimer() {
-			return auditAnimationTimer;
-		},
-		set auditAnimationTimer(value: ReturnType<typeof setInterval> | null) {
-			auditAnimationTimer = value;
-		},
-		get auditAbortController() {
-			return auditAbortController;
-		},
-		set auditAbortController(value: AbortController | null) {
-			auditAbortController = value;
-		},
+		get auditProgress() { return auditRuntime.progress; },
+		set auditProgress(value: AuditorWidgetProgress | null) { auditRuntime.progress = value; },
+		get auditResult() { return auditRuntime.result; },
+		set auditResult(value: { verdict: AuditVerdict; report: string; at: string } | null) { auditRuntime.result = value; },
+		setAuditResult: (verdict, report) => auditRuntime.setResult(verdict, report),
+		clearAuditResult: () => auditRuntime.clearResult(),
+		get sessionAbortController() { return sessionAbortController; },
+		get auditAnimationTimer() { return auditRuntime.animationTimer; },
+		set auditAnimationTimer(value: ReturnType<typeof setInterval> | null) { auditRuntime.animationTimer = value; },
+		get auditAbortController() { return auditRuntime.controller; },
+		set auditAbortController(value: AbortController | null) { auditRuntime.controller = value; },
 		get goalModalDepth() {
 			return goalModalDepth;
 		},
 		set goalModalDepth(value: number) {
 			goalModalDepth = value;
 		},
-		get auditAborted() {
-			return auditAborted;
-		},
-		set auditAborted(value: boolean) {
-			auditAborted = value;
-		},
+		get auditAborted() { return auditRuntime.aborted; },
+		set auditAborted(value: boolean) { auditRuntime.aborted = value; },
 		get goalWorkToolCalledThisTurn() {
 			return goalWorkToolCalledThisTurn;
 		},
@@ -1024,6 +969,7 @@ export function createGoalCore(
 		runtime,
 		get scheduler() { return scheduler; },
 		auditMessages: new GoalAuditMessages(),
+		auditRuntime,
 		accounting,
 		assignFocusedGoalId,
 		focusedOperationToken,
@@ -1031,8 +977,8 @@ export function createGoalCore(
 		focusedOperationCancelledResult,
 		installGoalToolProfile,
 		installDraftingToolProfile,
-		stopAuditAnimation,
-		abortAudit,
+		stopAuditAnimation: () => auditRuntime.stopAnimation(),
+		abortAudit: () => auditRuntime.abortByUser(),
 		clearContinuationTimer,
 		clearContinuationState,
 		clearActiveAccounting,

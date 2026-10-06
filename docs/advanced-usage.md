@@ -93,6 +93,28 @@ Worktrees pointing to the same root share goals, archives, ledger and locks; foc
 
 Token usage shown in the dashboard is cumulative across goal turns. The model receives a separate context snapshot when Pi can supply one; unavailable context is never reported as zero. Retained snapshots are bounded and newer snapshots supersede older ones.
 
+## Auditor trust boundary
+
+Completion audits and per-task code reviews run in a separate in-memory Pi conversation,
+**in the current project workspace**, with `read`, `grep`, `find`, `ls`, and `bash`.
+They are not filesystem- or OS-sandboxed. Bash is unrestricted and runs with Pi's
+operating-system permissions and environment; the auditor also reuses the parent's
+model runtime and authentication. The instruction not to edit source, delete files,
+or change Git history is a model policy, not technical read-only enforcement.
+Builds and tests may write generated artifacts, and repository scripts can execute
+arbitrary code. Do not run untrusted verification commands with sensitive credentials
+or permissions. Use an external OS/container sandbox with restricted credentials and
+filesystem access when enforced isolation is required.
+
+By default, the auditor's resource loader omits project extensions, skills, prompts,
+themes, and context files. That isolates resource discovery and conversation state,
+not process permissions. `auditorProjectResources: true` opts into loading those
+resources; project extensions can add executable behavior and should be trusted.
+
+`auditorWorkspaces` lists inspection guidance, not an access-control allowlist.
+`auditorEnvironment` describes verification commands, not an enforced environment
+restriction. Neither setting confines bash or prevents access elsewhere on the host.
+
 ## Diagnostics and recovery
 
 Use `/goal-status verbose` for effective settings and storage location, `/goal-status health` or `/goal-recovery` to check for problems, and `/goal-refresh` to reload saved goals and settings after external changes. `/goal-recovery repair` offers repairs after confirmation.

@@ -201,7 +201,8 @@ export async function checkTaskBeforeCompletion(core: GoalCore, ctx: ExtensionCo
 	return { failure: `Task ${task.id} remains pending because one of its checks failed.\n\n${formatCheckFailure(run)}\n\nFix the cause and complete the task again. If the failure comes from the environment (missing toolchain, credentials, network) rather than the code, block the goal and tell the user what to fix.` };
 }
 
-export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string, checkRun?: TaskCheckRun): Promise<{ failure?: string; approval?: GoalLedgerEvent; blocked?: boolean }> {
+export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionContext, task: GoalTask, evidence?: string, checkRun?: TaskCheckRun, signal?: AbortSignal): Promise<{ failure?: string; approval?: GoalLedgerEvent; blocked?: boolean }> {
+	signal?.throwIfAborted();
 	const goal = core.state.goal;
 	if (!goal) return { failure: "Task review could not start because no goal is focused." };
 	const reviewBaseline = task.reviewBaseline ?? goal.taskList?.reviewBaseline;
@@ -235,7 +236,9 @@ export async function reviewTaskBeforeCompletion(core: GoalCore, ctx: ExtensionC
 		detailedSummary: `Task under review: ${task.id}\nTitle: ${task.title}\nCode change label: ${task.codeChange === undefined ? "legacy/inferred" : String(task.codeChange)}\nReview baseline: ${reviewBaseline?.revision ?? "(unavailable)"}\nTask diff summary:\n${taskDiff}\nVerification contract: ${task.verificationContract ?? "(none)"}\nExecutor evidence: ${evidence ?? "(none)"}${checkFacts}`,
 		completionSummary: `This task is proposed for completion. Review only this task's complete diff since the baseline, including untracked files, and its associated tests before allowing completion. The task's verification contract is the checklist: report gaps outside it as non-blocking notes unless they make the contracted work incorrect. When a verification command fails because of the environment (toolchain, linker, credentials, network) rather than the code, name it as an environment blocker, not a code defect.${previousReview ? `\n\nPREVIOUS REVIEW FINDINGS TO RECHECK:\n${previousReview}` : ""}${checkFacts}\n\nTASK DIFF:\n${taskDiff}`,
 		settings,
+		signal,
 	});
+	signal?.throwIfAborted();
 	const event: GoalLedgerEvent = {
 		type: "task_review",
 		goalId: goal.id,

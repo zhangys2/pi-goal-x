@@ -32,7 +32,7 @@ export type GoalLedgerEvent =
   | { type: "task_started"; goalId: string; taskId: string; at: string }
   | { type: "task_review"; goalId: string; taskId: string; verdict: "approved" | "disapproved" | "error" | "skipped"; report?: string; baseline?: string; at: string }
   | { type: "task_checks"; goalId: string; taskId: string; passed: boolean; trigger: "completion" | "integration"; results: TaskCheckResult[]; at: string }
-  | { type: "task_integration"; goalId: string; taskId: string; outcome: "integrated" | "conflict" | "checks_failed" | "commit_failed" | "rejected"; patchPath: string; commit?: string; files?: string[]; message?: string; at: string }
+  | { type: "task_integration"; goalId: string; taskId: string; outcome: "integrated" | "conflict" | "checks_failed" | "commit_failed" | "rejected" | "cancelled"; patchPath: string; commit?: string; files?: string[]; message?: string; at: string }
   | { type: "goal_budget_changed"; goalId: string; oldBudget: number | null; newBudget: number | null; tokensUsed: number; at: string }
   | { type: "goal_budget_limited"; goalId: string; budget: number; tokensUsed: number; at: string }
   | { type: "goal_budget_warning"; goalId: string; budget: number; tokensUsed: number; pct: number; at: string }
@@ -745,7 +745,7 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
         (obj.trigger === "completion" || obj.trigger === "integration") && Array.isArray(obj.results);
     case "task_integration":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string" && typeof obj.patchPath === "string" &&
-        ["integrated", "conflict", "checks_failed", "commit_failed", "rejected"].includes(obj.outcome as string) &&
+        ["integrated", "conflict", "checks_failed", "commit_failed", "rejected", "cancelled"].includes(obj.outcome as string) &&
         (obj.commit === undefined || typeof obj.commit === "string") && (obj.message === undefined || typeof obj.message === "string");
     case "goal_budget_changed":
       return typeof obj.goalId === "string" && (obj.oldBudget === null || (Number.isSafeInteger(obj.oldBudget) && Number(obj.oldBudget) > 0)) && (obj.newBudget === null || (Number.isSafeInteger(obj.newBudget) && Number(obj.newBudget) > 0)) && typeof obj.tokensUsed === "number";

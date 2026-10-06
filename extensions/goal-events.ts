@@ -595,6 +595,8 @@ export function registerGoalEvents(core: GoalCore): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		core.sessionAbortController.abort();
+		core.auditRuntime.shutdown();
 		core.auditMessages.clear();
 		core.scheduler.shutdown();
 		continuationAfterSettleFor = null;

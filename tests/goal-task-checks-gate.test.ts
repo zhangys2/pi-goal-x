@@ -21,7 +21,7 @@ const node = process.execPath;
 const pass = { command: node, args: ["-e", "process.exit(0)"] };
 const fail = { command: node, args: ["-e", "console.error('CHECK_BROKE'); process.exit(2)"] };
 
-function harness(cwd: string, sessionEntries: unknown[], reviews: string[]) {
+function harness(cwd: string, sessionEntries: unknown[], reviews: string[], reviewer?: (args: any) => Promise<any>) {
 	const handlers = new Map<string, Function>();
 	const tools = new Map<string, ToolDefinition>();
 	let activeTools = ["read", "bash", "edit", "write"];
@@ -46,21 +46,21 @@ function harness(cwd: string, sessionEntries: unknown[], reviews: string[]) {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, { runTaskReview: async (args: any) => { reviews.push(args.completionSummary); return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	goalExtension(pi as any, { runTaskReview: async (args: any) => { reviews.push(args.completionSummary); return reviewer ? reviewer(args) : { approved: true, disapproved: false, output: "<approved/>" }; } });
 	return { handlers, tools, ctx };
 }
 
-async function setup(tasks: Array<Record<string, unknown>>) {
+async function setup(tasks: Array<Record<string, unknown>>, reviewer?: (args: any) => Promise<any>) {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-checks-gate-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const goal = createGoal({ objective: "Checks goal", autoContinue: false, sisyphus: false }, Date.UTC(2026, 8, 19));
 	goal.taskList = { tasks: tasks as any, blockCompletion: false, proposedAt: new Date().toISOString() };
 	writeActiveGoalFile({ cwd }, goal);
 	const reviews: string[] = [];
-	const h = harness(cwd, [{ type: "custom", customType: "pi-goal-focus", data: goalFocusDetails(goal.id, "created") }], reviews);
+	const h = harness(cwd, [{ type: "custom", customType: "pi-goal-focus", data: goalFocusDetails(goal.id, "created") }], reviews, reviewer);
 	await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
 	await h.handlers.get("before_agent_start")?.({ systemPrompt: "base", prompt: "go", systemPromptOptions: {} }, h.ctx);
-	const call = async (params: Record<string, unknown>) => (h.tools.get("update_goal_task")!.execute as any)("call", params, undefined, undefined, h.ctx);
+	const call = async (params: Record<string, unknown>, signal?: AbortSignal) => (h.tools.get("update_goal_task")!.execute as any)("call", params, signal, undefined, h.ctx);
 	const goalOnDisk = (): GoalRecord => {
 		const file = readdirSync(path.join(cwd, ".pi", "goals")).find((n) => n.startsWith("active_goal_"))!;
 		return parseGoalFile(path.join(cwd, ".pi", "goals", file))!;
@@ -68,6 +68,23 @@ async function setup(tasks: Array<Record<string, unknown>>) {
 	const events = () => readFileSync(goalLedgerPath({ cwd }), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 	return { cwd, call, reviews, goalOnDisk, events, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
+
+test("task review receives cancellation and cannot complete a task after abort", async () => {
+	for (const batch of [false, true]) {
+		const controller = new AbortController();
+		const f = await setup([{ id: "code", title: "Implement", status: "pending", codeChange: true }], async (args) => {
+			assert.ok(args.signal, "review must receive the operation signal");
+			controller.abort();
+			assert.equal(args.signal.aborted, true);
+			return { approved: true, output: "<approved/>" };
+		});
+		try {
+			const update = { task_id: "code", status: "complete", evidence: "done" };
+			await assert.rejects(f.call(batch ? { updates: [update] } : update, controller.signal), { name: "AbortError" });
+			assert.equal(f.goalOnDisk().taskList!.tasks[0]!.status, "pending");
+		} finally { f.cleanup(); }
+	}
+});
 
 test("passing checks complete the task and reach the reviewer as facts", async () => {
 	const f = await setup([{ id: "code", title: "Implement", status: "pending", codeChange: true, checks: [pass] }]);
