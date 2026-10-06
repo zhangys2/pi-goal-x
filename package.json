@@ -36,6 +36,7 @@
     "docs/architecture.md",
     "docs/prompt-caching.md",
     "docs/advanced-usage.md",
+    "docs/integration-safety.md",
     "docs/pi-autoresearch-survey.md",
     "docs/pi-goal-x-unified-dashboard-plan.md",
     "docs/unified-dashboard.md",

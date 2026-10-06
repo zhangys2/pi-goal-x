@@ -1,4 +1,5 @@
 import { formatCheckResults } from "./goal-task-checks.ts";
+import { combineAbortSignals } from "./goal-cancellation.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Static } from "@earendil-works/pi-ai";
@@ -133,7 +134,7 @@ export function recentNonEmptyLines(text: string, limit: number): string[] {
 	return lines.reverse();
 }
 
-/** §60: human-readable labels for the auditor's read-only tool set. */
+/** §60: labels for inspection/verification tools; the historical export name does not imply bash enforcement. */
 export function labelForReadOnlyTool(toolName: string): string {
 	switch (toolName) {
 		case "read": return "Inspecting files...";
@@ -187,7 +188,7 @@ export function buildGoalAuditorPrompt(args: {
 		"You are the independent completion auditor for pi-goal. Decide whether the user's objective is actually satisfied.",
 		"Audit checklist:",
 		"1. Extract the real success criteria, including every explicit requirement and quality/reader outcome. Disapprove missing, contradicted, weakly verified or uninspectable requirements.",
-		"2. Inspect real artifacts with read/grep/find/ls/bash as needed. Never mutate files or clean runtime metadata (.pi goals/subagents). Report environment failures separately. Paperwork, counts and build success alone are not proof.",
+		"2. Inspect real artifacts with read/grep/find/ls/bash as needed. Do not edit source files, delete files, clean runtime metadata (.pi goals/subagents), or change Git history. Verification commands such as builds and tests may write normal generated artifacts; report any required destructive mutation instead of performing it. Report environment failures separately. Paperwork, counts and build success alone are not proof.",
 		...(!args.settings?.disableContracts && args.goal.verificationContract?.trim()
 			? ["3. Verify that the executor has satisfied every item in the <verification_contract>. If any item is missing or weakly addressed, disapprove."] : []),
 		"4. Explain missing or weak evidence concisely. Disapprove alpha scaffold, generated template, shallow draft or proxy milestones lacking the user-facing value requested.",
@@ -245,9 +246,10 @@ export function buildGoalAuditorPrompt(args: {
 }
 
 export function makeAuditorResourceLoader(systemPrompt = [
-	"You are a read-only completion auditor running in an isolated pi agent session.",
+	"You are an independent completion auditor with your own conversation, running in the current project workspace.",
+	"This is not a filesystem or OS sandbox. Bash is unrestricted and inherits the host's permissions and environment; the non-mutating policy is instructions, not enforcement.",
 	"Inspect the repository and decide whether the claimed goal completion is genuinely satisfied.",
-	"Never modify files. Never approve unless the actual user objective is complete.",
+	"Do not modify source files, delete files, or change Git history. Builds and tests may write normal generated artifacts. Never approve unless the actual user objective is complete.",
 ].join("\n")): ResourceLoader {
 	return {
 		getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
@@ -338,6 +340,8 @@ export async function runGoalCompletionAuditor(args: {
 	 */
 	createSession?: typeof createAgentSession;
 }): Promise<GoalAuditorResult> {
+	args = { ...args, signal: combineAbortSignals(args.signal, args.ctx.signal) };
+	if (args.signal?.aborted) return { approved: false, disapproved: true, output: "", error: "Auditor aborted." };
 	const config = loadGoalSettings(args.ctx.cwd);
 	const resolved = resolveAuditorModel(args.ctx, config);
 	const model = resolved.model;
@@ -366,9 +370,8 @@ export async function runGoalCompletionAuditor(args: {
 			model,
 			thinkingLevel,
 			...resolveAuditorSessionModelOptions(args.ctx),
-			// E3: default = the empty isolated loader (deliberate isolation);
-			// when auditorProjectResources is on, let the runtime build its own
-			// loader so the project's skills/extensions reach the auditor.
+			// Default discovery omits project resources; it does not sandbox bash.
+			// Opting in lets project skills/extensions run in the auditor too.
 			...(projectResources
 				? { resourceLoaderOptions: { noExtensions: false, noSkills: false, noPromptTemplates: false, noThemes: false, noContextFiles: false } }
 				: { resourceLoader: makeAuditorResourceLoader() }),
@@ -376,7 +379,10 @@ export async function runGoalCompletionAuditor(args: {
 			settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
 			tools: ["read", "grep", "find", "ls", "bash"],
 		} as Parameters<typeof createAgentSession>[0]);
-		const unsubscribe = session.subscribe((event) => {
+		let unsubscribe = () => {};
+		const abortSession = () => { void session.abort(); };
+		try {
+		unsubscribe = session.subscribe((event) => {
 			if (event.type === "agent_start") {
 				// PR E §60: progress is derived from session events — no model-facing
 				// report_auditor_progress tool exists anymore.
@@ -393,7 +399,7 @@ export async function runGoalCompletionAuditor(args: {
 					: String(event.args ?? "").slice(0, 120);
 				progress.currentToolStartedAt = Date.now();
 				progress.phase = "tool_executing";
-				// §60 derive the human label + estimate from the read-only tool.
+				// §60 derive the human label and estimate from the inspection/verification tool.
 				progress.label = labelForReadOnlyTool(event.toolName);
 				progress.percentage = Math.max(progress.percentage ?? 0, estimateAuditProgress(event.toolName));
 				emitProgress();
@@ -457,25 +463,14 @@ export async function runGoalCompletionAuditor(args: {
 		});
 		// Wire the external AbortSignal to abort the running session when fired
 		// This is the mechanism that makes Esc-to-skip actually stop the auditor.
-		const abortSession = () => { session.abort(); };
 		args.signal?.addEventListener("abort", abortSession, { once: true });
 
 		// Emit initial progress
 		progress.label = "Starting audit...";
 		progress.percentage = 0;
 		emitProgress();
-		try {
-			if (args.signal?.aborted) return { approved: false, disapproved: true, output: "", model: modelLabel(model), thinkingLevel, error: "Auditor aborted." };
-			await session.prompt(buildGoalAuditorPrompt(args));
-		} finally {
-			args.signal?.removeEventListener("abort", abortSession);
-			progress.phase = "done";
-			progress.label = "Audit complete.";
-			progress.percentage = 100;
-			emitProgress();
-			unsubscribe();
-   session.dispose?.();
-		}
+		if (args.signal?.aborted) return { approved: false, disapproved: true, output: "", model: modelLabel(model), thinkingLevel, error: "Auditor aborted." };
+		await session.prompt(buildGoalAuditorPrompt(args));
 		// session.abort() does NOT throw — the agent loop returns normally with
 		// whatever output was captured before the abort. Check the signal after
 		// prompt completes and treat any abort as auditor-aborted regardless of
@@ -493,6 +488,14 @@ export async function runGoalCompletionAuditor(args: {
 		const output = outputParts.join("\n\n").trim();
 		const decision = parseAuditorDecision(output);
 		return { ...decision, output, model: modelLabel(model), thinkingLevel };
+		} finally {
+			args.signal?.removeEventListener("abort", abortSession);
+			try { unsubscribe(); } finally { session.dispose?.(); }
+			progress.phase = "done";
+			progress.label = "Audit complete.";
+			progress.percentage = 100;
+			emitProgress();
+		}
 	} catch (error) {
 		const isAborted = args.signal?.aborted || (error instanceof Error && error.name === "AbortError");
 		return {

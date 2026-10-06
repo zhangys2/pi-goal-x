@@ -129,6 +129,131 @@ async function start(h: ReturnType<typeof createHarness>): Promise<void> {
 
 // ── Tool surface ─────────────────────────────────────────────────────────────
 
+test("completion propagates tool cancellation and cannot approve after cancellation", async () => {
+	const f = makeFixture();
+	const controller = new AbortController();
+	let receivedSignal: AbortSignal | undefined;
+	let dialogs = 0;
+	try {
+		const h = createHarness({
+			cwd: f.cwd, sessionEntries: f.sessionEntries, hasUI: true,
+			uiCustom: async () => { dialogs++; return "complete_without_audit"; },
+			runCompletionAuditor: async (args) => {
+				receivedSignal = args.signal;
+				controller.abort();
+				return { approved: true, output: "<approved/>" };
+			},
+		});
+		await start(h);
+		await assert.rejects((h.tools.get("update_goal")!.execute as any)("cancel", { status: "complete" }, controller.signal, undefined, h.ctx), { name: "AbortError" });
+		assert.equal(receivedSignal?.aborted, true);
+		assert.equal(h.core.state.goal.status, "active");
+		assert.equal(h.core.auditAnimationTimer, null);
+		assert.equal(h.core.auditAbortController, null);
+		assert.equal(h.core.auditProgress, null);
+		assert.equal(dialogs, 0, "operation cancellation cannot offer an audit bypass");
+	} finally { f.cleanup(); }
+});
+
+test("completion cancellation from the context never opens the Escape dialog", async () => {
+	const f = makeFixture();
+	const controller = new AbortController();
+	let dialogs = 0;
+	try {
+		const h = createHarness({
+			cwd: f.cwd, sessionEntries: f.sessionEntries, hasUI: true,
+			uiCustom: async () => { dialogs++; return "complete_without_audit"; },
+			runCompletionAuditor: async (args) => {
+				controller.abort();
+				assert.equal(args.signal.aborted, true);
+				return { approved: false, error: "Auditor aborted." };
+			},
+		});
+		(h.ctx as any).signal = controller.signal;
+		await start(h);
+		await assert.rejects((h.tools.get("update_goal")!.execute as any)("cancel", { status: "complete" }, undefined, undefined, h.ctx), { name: "AbortError" });
+		assert.equal(dialogs, 0);
+		assert.equal(h.core.state.goal.status, "active");
+		assert.equal(h.core.auditAnimationTimer, null);
+	} finally { f.cleanup(); }
+});
+
+test("session shutdown cancels an in-flight completion without offering a bypass", async () => {
+	const f = makeFixture();
+	try {
+		let h: ReturnType<typeof createHarness>;
+		h = createHarness({
+			cwd: f.cwd, sessionEntries: f.sessionEntries,
+			runCompletionAuditor: async (args) => {
+				await h.handlers.get("session_shutdown")!({}, h.ctx);
+				assert.equal(args.signal.aborted, true);
+				return { approved: true, output: "<approved/>" };
+			},
+		});
+		await start(h);
+		await assert.rejects((h.tools.get("update_goal")!.execute as any)("shutdown", { status: "complete" }, undefined, undefined, h.ctx), { name: "AbortError" });
+		assert.equal(h.core.state.goal.status, "active");
+		assert.equal(h.core.auditAnimationTimer, null);
+		assert.equal(h.core.auditAbortController, null);
+		assert.equal(h.core.auditProgress, null);
+	} finally { f.cleanup(); }
+});
+
+test("a cancelled old-session audit cannot clear a replacement session's audit resources", async () => {
+	const f = makeFixture();
+	let resolveFirst!: (value: any) => void;
+	let resolveSecond!: (value: any) => void;
+	let firstEntered!: () => void;
+	let secondEntered!: () => void;
+	const firstReady = new Promise<void>((resolve) => { firstEntered = resolve; });
+	const secondReady = new Promise<void>((resolve) => { secondEntered = resolve; });
+	let calls = 0;
+	const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries, runCompletionAuditor: async () => {
+		calls++;
+		return new Promise((resolve) => {
+			if (calls === 1) { resolveFirst = resolve; firstEntered(); }
+			else { resolveSecond = resolve; secondEntered(); }
+		});
+	} });
+	try {
+		await start(h);
+		const execute = (h.tools.get("update_goal")!.execute as any);
+		const first = execute("old", { status: "complete" }, undefined, undefined, h.ctx);
+		const cancelled = assert.rejects(first, { name: "AbortError" });
+		await firstReady;
+		await start(h);
+		const second = execute("new", { status: "complete" }, undefined, undefined, h.ctx);
+		await secondReady;
+		const timer = h.core.auditAnimationTimer;
+		const controller = h.core.auditAbortController;
+		resolveFirst({ approved: true, output: "<approved/>" });
+		await cancelled;
+		assert.equal(h.core.auditAnimationTimer, timer);
+		assert.equal(h.core.auditAbortController, controller);
+		assert.ok(h.core.auditProgress);
+		resolveSecond({ approved: false, output: "<disapproved/>" });
+		await second;
+	} finally {
+		resolveFirst?.({ approved: false, output: "<disapproved/>" });
+		resolveSecond?.({ approved: false, output: "<disapproved/>" });
+		h.core.clearAuditResult();
+		f.cleanup();
+	}
+});
+
+test("an unexpected auditor exception releases completion resources", async () => {
+	const f = makeFixture();
+	try {
+		const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries, runCompletionAuditor: async () => { throw new Error("review failed"); } });
+		await start(h);
+		await assert.rejects((h.tools.get("update_goal")!.execute as any)("throw", { status: "complete" }, undefined, undefined, h.ctx), /review failed/);
+		assert.equal(h.core.auditAnimationTimer, null);
+		assert.equal(h.core.auditAbortController, null);
+		assert.equal(h.core.auditProgress, null);
+		assert.equal(h.core.state.goal.status, "active");
+	} finally { f.cleanup(); }
+});
+
 test("exactly three goal tools are advertised when tasks are disabled", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-core-notasks-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
@@ -355,6 +480,30 @@ test("update_goal(complete) runs the auditor without a verification-summary para
 	} finally {
 		f.cleanup();
 	}
+});
+
+test("audit result cards expire after six seconds and repeated shutdown clears them", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const f = makeFixture();
+	const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries, runCompletionAuditor: async () => ({ approved: false, output: "Missing evidence\n<disapproved/>" }) });
+	try {
+		await start(h);
+		const execute = h.tools.get("update_goal")!.execute as any;
+		await execute("result", { status: "complete" }, undefined, undefined, h.ctx);
+		assert.equal(h.core.auditResult?.verdict, "disapproved");
+		t.mock.timers.tick(5999);
+		assert.equal(h.core.auditResult?.verdict, "disapproved");
+		t.mock.timers.tick(1);
+		assert.equal(h.core.auditResult, null);
+		await execute("another-result", { status: "complete" }, undefined, undefined, h.ctx);
+		await h.handlers.get("session_shutdown")!({}, h.ctx);
+		await h.handlers.get("session_shutdown")!({}, h.ctx);
+		t.mock.timers.tick(6000);
+		assert.equal(h.core.auditResult, null);
+		assert.equal(h.core.auditProgress, null);
+		assert.equal(h.core.auditAnimationTimer, null);
+		assert.equal(h.core.auditAbortController, null);
+	} finally { h.core.clearAuditResult(); f.cleanup(); }
 });
 
 test("update_goal(complete) with a rejection keeps the goal open with feedback", async () => {
