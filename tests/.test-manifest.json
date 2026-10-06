@@ -89,6 +89,7 @@
     "./tests/session-checkpoint-recovery.test.ts",
     "./tests/session-state-growth.test.ts",
     "./tests/task-list-overlay.test.ts",
+    "./tests/test-runner.test.ts",
     "./tests/verification-contract.test.ts"
   ],
   "integrationFiles": [

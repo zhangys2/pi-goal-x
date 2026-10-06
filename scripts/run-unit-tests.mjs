@@ -74,6 +74,7 @@ if (wantSelfCheck) {
 		process.exit(1);
 	}
 	console.log("Runner self-check OK: " + unitFiles.length + " unit + " + integrationFiles.length + " integration + " + e2eFiles.length + " e2e entries match " + manifestPath + ".");
+	process.exit(0);
 }
 
 // ---- Execution ---------------------------------------------------------

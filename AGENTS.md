@@ -6,6 +6,11 @@ Spec directories include `PRODUCT.md`, when implementation planning is useful `T
 `MILESTONES.md` records meaningful implementation milestones, failed attempts, setbacks, fixes, validation notes, and decisions without a strict schema.
 When a user steers behavior mid-workflow, update `PRODUCT.md` first when behavior changes, then `TECH.md`, then implementation, tests, and `MILESTONES.md` as needed.
 
+## Agent workflow
+
+- Scope checkpoint and edit recovery: [docs/agent-workflow.md](docs/agent-workflow.md).
+- Focused tests and final verification: [docs/verification.md](docs/verification.md).
+
 ## README scope
 
 Keep `README.md` as the existing user overview through Settings, followed by License. Do not append feature explanations, release notes, compatibility/version notices, troubleshooting, implementation details, validation results, or links advertising additional documentation unless the user explicitly requests that README change. A code change does not by itself authorize expanding the README.
