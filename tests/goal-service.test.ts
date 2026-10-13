@@ -6,7 +6,7 @@
  *   → 4. active-file write → 5. ledger append → 6. memory commit → 7. effects
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -545,6 +545,45 @@ describe("cross-process mutation control (follow-up Stage 4)", () => {
 			const lock = acquireGoalLock({ cwd: f.cwd }, f.written.id, { attempts: 3, retryMs: 5 });
 			lock.release();
 			assert.ok(!existsSync(lockPath), "stale lock removed and released");
+		} finally {
+			f.cleanup();
+		}
+	});
+
+	it("recovers an old malformed lock through the metadata TTL", () => {
+		const f = fixture();
+		try {
+			const lockDir = path.join(f.cwd, ".pi", "goals", ".locks");
+			mkdirSync(lockDir, { recursive: true });
+			const lockPath = path.join(lockDir, `${f.written.id}.lock`);
+			writeFileSync(lockPath, "{partial", "utf8");
+			const past = new Date(Date.now() - 2_000);
+			utimesSync(lockPath, past, past);
+
+			const lock = acquireGoalLock({ cwd: f.cwd }, f.written.id, { attempts: 2, staleTtlMs: 1 });
+			lock.release();
+			assert.ok(!existsSync(lockPath), "the recovered lock is released");
+		} finally {
+			f.cleanup();
+		}
+	});
+
+	it("a late stale holder cannot release a replacement owner's lock", () => {
+		const f = fixture();
+		try {
+			const lockPath = path.join(f.cwd, ".pi", "goals", ".locks", `${f.written.id}.lock`);
+			const original = acquireGoalLock({ cwd: f.cwd }, f.written.id);
+			const past = new Date(Date.now() - 2_000);
+			utimesSync(lockPath, past, past);
+			const replacement = acquireGoalLock({ cwd: f.cwd }, f.written.id, { attempts: 2, maxLiveLockMs: 1 });
+
+			original.release();
+			assert.throws(
+				() => acquireGoalLock({ cwd: f.cwd }, f.written.id, { attempts: 1 }),
+				/Timed out acquiring/,
+				"the replacement owner's lock must remain held",
+			);
+			replacement.release();
 		} finally {
 			f.cleanup();
 		}

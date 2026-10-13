@@ -3,13 +3,13 @@ import { goalStoragePath, ensureGoalStorageDirectory } from "./goal-root.ts";
  * Short per-goal filesystem lock (follow-up Stage 4).
  *
  * An exclusive lock is acquired through atomic creation of a lock file under
- * `.pi/goals/.locks/<goalId>.lock` carrying { pid, startedAt } metadata.
+ * `.pi/goals/.locks/<goalId>.lock` carrying { pid, startedAt, lockId } metadata.
  * Acquisition is bounded: on contention the caller waits briefly and retries,
  * and stale locks whose owner process is no longer alive are recovered by
- * removal. The TTL applies only to malformed/incomplete lock metadata; a live
- * process is never displaced just because it has held a lock for a long time.
- * The lock serializes cross-process mutations of the same goal; the optimistic
- * revision check (goal-service.ts) detects stale writers even when hand-off is fast.
+ * removal. A live process is not displaced by the normal stale TTL; a generous
+ * hard ceiling recovers leaked locks and PID reuse after a crash. The lock
+ * serializes cross-process mutations of the same goal; the optimistic revision
+ * check (goal-service.ts) detects stale writers even when hand-off is fast.
  */
 
 import { randomUUID } from "node:crypto";
@@ -38,6 +38,7 @@ export interface GoalLock {
 const DEFAULT_ACQUIRE_ATTEMPTS = 8;
 const DEFAULT_RETRY_MS = 1;
 const DEFAULT_STALE_TTL_MS = 30_000;
+const DEFAULT_MAX_LIVE_LOCK_MS = 10 * DEFAULT_STALE_TTL_MS;
 
 function safeLockName(goalId: string): string {
 	return goalId.replace(/[^A-Za-z0-9._-]/g, "_");
@@ -53,17 +54,21 @@ function pidAlive(pid: number): boolean {
 	}
 }
 
-function readLockPayload(lockPath: string): { pid?: number; startedAt?: string; lockId?: string } {
+function readLockPayload(lockPath: string): { pid?: number; startedAt?: string; lockId?: string; raw?: string } {
+	let rawText: string;
+	try { rawText = fs.readFileSync(lockPath, "utf8"); }
+	catch { return {}; }
 	try {
-		const raw = JSON.parse(fs.readFileSync(lockPath, "utf8")) as Record<string, unknown>;
+		const raw = JSON.parse(rawText) as Record<string, unknown>;
 		return {
 			pid: typeof raw.pid === "number" ? raw.pid : undefined,
 			startedAt: typeof raw.startedAt === "string" ? raw.startedAt : undefined,
 			lockId: typeof raw.lockId === "string" ? raw.lockId : undefined,
+			raw: rawText,
 		};
 	} catch {
-		// Unparseable payload means a writer crashed mid-create: treat as stale.
-		return {};
+		// Preserve malformed bytes to detect replacement before stale removal.
+		return { raw: rawText };
 	}
 }
 
@@ -82,11 +87,12 @@ function sleepMs(ms: number): void {
 export function acquireGoalLock(
 	ctx: GoalFileContext,
 	goalId: string,
-	opts: { attempts?: number; retryMs?: number; staleTtlMs?: number } = {},
+	opts: { attempts?: number; retryMs?: number; staleTtlMs?: number; maxLiveLockMs?: number } = {},
 ): GoalLock {
 	const attempts = opts.attempts ?? DEFAULT_ACQUIRE_ATTEMPTS;
 	const retryMs = opts.retryMs ?? DEFAULT_RETRY_MS;
 	const ttlMs = opts.staleTtlMs ?? DEFAULT_STALE_TTL_MS;
+	const maxLiveLockMs = opts.maxLiveLockMs ?? DEFAULT_MAX_LIVE_LOCK_MS;
 	const lockDir = goalStoragePath(ctx, GOAL_LOCK_DIR);
 	const lockPath = path.join(lockDir, `${safeLockName(goalId)}.lock`);
 	ensureGoalStorageDirectory(ctx, GOAL_LOCK_DIR, false);
@@ -117,16 +123,21 @@ export function acquireGoalLock(
 				const stat = fs.statSync(lockPath);
 				const payloadInfo = readLockPayload(lockPath);
 				const pid = payloadInfo.pid;
-				const metadataExpired = Date.now() - stat.mtimeMs > ttlMs;
-				// Never expire a lock owned by a live process: its eventual release
-				// must not race with a replacement owner's acquisition. The TTL is a
-				// recovery path only for malformed/incomplete metadata.
-				const stale = pid !== undefined ? !pidAlive(pid) : metadataExpired;
+				const ageMs = Date.now() - stat.mtimeMs;
+				const stale = pid !== undefined
+					? !pidAlive(pid) || ageMs > maxLiveLockMs
+					: ageMs > ttlMs;
 				if (stale) {
 					try {
-						fs.unlinkSync(lockPath);
+						// Re-check the exact observed metadata before unlinking so a
+						// waiter cannot remove a replacement lock acquired meanwhile.
+						const currentStat = fs.statSync(lockPath);
+						const currentPayload = readLockPayload(lockPath);
+						if (currentStat.mtimeMs === stat.mtimeMs && currentPayload.raw === payloadInfo.raw) {
+							fs.unlinkSync(lockPath);
+						}
 					} catch {
-						// Someone else recovered it first; retry acquisition.
+						// Someone else recovered/replaced it; retry acquisition.
 					}
 					continue;
 				}
