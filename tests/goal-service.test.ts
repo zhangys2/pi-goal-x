@@ -550,6 +550,24 @@ describe("cross-process mutation control (follow-up Stage 4)", () => {
 		}
 	});
 
+	it("does not reclaim a live lock just because its TTL elapsed", () => {
+		const f = fixture();
+		try {
+			const original = acquireGoalLock({ cwd: f.cwd }, f.written.id);
+			assert.throws(
+				() => acquireGoalLock({ cwd: f.cwd }, f.written.id, { attempts: 1, staleTtlMs: -1 }),
+				/Timed out acquiring/,
+				"a live owner's lock must not be replaced based on age",
+			);
+
+			original.release();
+			const reusable = acquireGoalLock({ cwd: f.cwd }, f.written.id, { attempts: 1 });
+			reusable.release();
+		} finally {
+			f.cleanup();
+		}
+	});
+
 	it("a live lock is honored and released locks are reusable", () => {
 		const f = fixture();
 		try {

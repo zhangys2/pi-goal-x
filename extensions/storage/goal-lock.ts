@@ -5,12 +5,14 @@ import { goalStoragePath, ensureGoalStorageDirectory } from "./goal-root.ts";
  * An exclusive lock is acquired through atomic creation of a lock file under
  * `.pi/goals/.locks/<goalId>.lock` carrying { pid, startedAt } metadata.
  * Acquisition is bounded: on contention the caller waits briefly and retries,
- * and stale locks (older than the TTL, or whose pid is no longer alive) are
- * recovered by removal. The lock serializes cross-process mutations of the
- * same goal; the optimistic revision check (goal-service.ts) detects stale
- * writers even when the lock hand-off is fast.
+ * and stale locks whose owner process is no longer alive are recovered by
+ * removal. The TTL applies only to malformed/incomplete lock metadata; a live
+ * process is never displaced just because it has held a lock for a long time.
+ * The lock serializes cross-process mutations of the same goal; the optimistic
+ * revision check (goal-service.ts) detects stale writers even when hand-off is fast.
  */
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { GoalFileContext } from "./goal-files.ts";
@@ -51,12 +53,13 @@ function pidAlive(pid: number): boolean {
 	}
 }
 
-function readLockPayload(lockPath: string): { pid?: number; startedAt?: string } {
+function readLockPayload(lockPath: string): { pid?: number; startedAt?: string; lockId?: string } {
 	try {
 		const raw = JSON.parse(fs.readFileSync(lockPath, "utf8")) as Record<string, unknown>;
 		return {
 			pid: typeof raw.pid === "number" ? raw.pid : undefined,
 			startedAt: typeof raw.startedAt === "string" ? raw.startedAt : undefined,
+			lockId: typeof raw.lockId === "string" ? raw.lockId : undefined,
 		};
 	} catch {
 		// Unparseable payload means a writer crashed mid-create: treat as stale.
@@ -87,7 +90,8 @@ export function acquireGoalLock(
 	const lockDir = goalStoragePath(ctx, GOAL_LOCK_DIR);
 	const lockPath = path.join(lockDir, `${safeLockName(goalId)}.lock`);
 	ensureGoalStorageDirectory(ctx, GOAL_LOCK_DIR, false);
-	const payload = JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() });
+	const lockId = randomUUID();
+	const payload = JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), lockId });
 
 	for (let attempt = 0; attempt < attempts; attempt++) {
 		try {
@@ -98,7 +102,9 @@ export function acquireGoalLock(
 					if (released) return;
 					released = true;
 					try {
-						fs.unlinkSync(lockPath);
+						// Stale recovery may have replaced our lock while this owner was
+						// still running. Never unlink a replacement owner's lock.
+						if (readLockPayload(lockPath).lockId === lockId) fs.unlinkSync(lockPath);
 					} catch {
 						// Lock already gone (stale recovery elsewhere); nothing to do.
 					}
@@ -111,7 +117,11 @@ export function acquireGoalLock(
 				const stat = fs.statSync(lockPath);
 				const payloadInfo = readLockPayload(lockPath);
 				const pid = payloadInfo.pid;
-				const stale = Date.now() - stat.mtimeMs > ttlMs || (pid !== undefined && !pidAlive(pid));
+				const metadataExpired = Date.now() - stat.mtimeMs > ttlMs;
+				// Never expire a lock owned by a live process: its eventual release
+				// must not race with a replacement owner's acquisition. The TTL is a
+				// recovery path only for malformed/incomplete metadata.
+				const stale = pid !== undefined ? !pidAlive(pid) : metadataExpired;
 				if (stale) {
 					try {
 						fs.unlinkSync(lockPath);
