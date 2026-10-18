@@ -1,12 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { GoalCore } from "./goal-state.ts";
 import { formatCheckFailure, runTaskChecks, type TaskCheckRun } from "./goal-task-checks.ts";
 import { nowIso, type GoalTask, type GoalWorkBaseline } from "./goal-record.ts";
 import type { GoalLedgerEvent } from "./goal-ledger.ts";
 
-const MAX_DIFF_CHARS = 120000;
 export const BASELINE_STASH_MESSAGE = "goal-work-baseline";
 export const RUNTIME_STATE_PATHSPECS = [".", ":(exclude).pi/goals", ":(exclude).pi/.goals-pool-snapshot.json", ":(exclude).pi-subagents"];
 
@@ -39,29 +37,6 @@ function changedAtBaseline(cwd: string, baseline: GoalWorkBaseline): { tracked: 
 export function gitTaskChangedFiles(cwd: string, baseline: GoalWorkBaseline | undefined): string[] | undefined {
 	if (!baseline) return undefined;
 	try { const changes = changedAtBaseline(cwd, baseline); return [...changes.tracked, ...changes.untracked]; } catch { return undefined; }
-}
-function boundedDiff(full: string): string {
-	return full.length <= MAX_DIFF_CHARS ? full : `${full.slice(0, MAX_DIFF_CHARS)}\n\n[Diff truncated at ${MAX_DIFF_CHARS} characters.]`;
-}
-export function gitTaskDiff(cwd: string, baseline: GoalWorkBaseline | undefined): string {
-	if (!baseline) return "(no git baseline available)";
-	try {
-		const { tracked, untracked } = changedAtBaseline(cwd, baseline);
-		const trackedDiff = git(cwd, ["diff", "--binary", baseline.revision, "--", ...RUNTIME_STATE_PATHSPECS]);
-		const untrackedContent = untracked.map(file => {
-			try { return `\n--- untracked: ${file} ---\n${readFileSync(`${cwd}/${file}`, "utf8")}`; } catch { return `\n--- untracked: ${file} (unreadable) ---`; }
-		}).join("\n");
-		return boundedDiff(trackedDiff + untrackedContent || "(no changes since baseline)");
-	} catch { return "(could not read git diff for baseline)"; }
-}
-export function gitIntegrationChangedFiles(cwd: string, commits: readonly string[]): string[] | undefined {
-	try { return [...new Set(commits.flatMap(commit => outputLines(git(cwd, ["show", "--name-only", "--format=", "--no-renames", commit]))))]; }
-	catch { return undefined; }
-}
-export function gitIntegrationDiff(cwd: string, commits: readonly string[]): string {
-	if (!commits.length) return "(no integrated worker patches)";
-	try { return boundedDiff(commits.map(commit => git(cwd, ["show", "--binary", "--no-color", "--format=--- integration commit %H ---%n%B", commit])).join("\n")); }
-	catch { return "(could not read the integration commits)"; }
 }
 
 function flatten(tasks: readonly GoalTask[]): GoalTask[] { return tasks.flatMap(task => [task, ...flatten(task.subtasks ?? [])]); }

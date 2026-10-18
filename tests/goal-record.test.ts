@@ -10,6 +10,7 @@ import {
 	type GoalCreationConfig,
 	type GoalTaskList,
 } from "../extensions/goal-record.ts";
+import { parseGoalContentCached, serializeGoalFile } from "../extensions/storage/goal-files.ts";
 
 const baseConfig: GoalCreationConfig = {
 	objective: "=== Goal ===\nObjective: ship the refactor",
@@ -72,6 +73,10 @@ test("legacy review baselines migrate to the neutral work baseline field", () =>
 	assert.deepEqual(normalized?.taskList?.tasks[0]?.workBaseline, { revision: "abc", untracked: { "new.ts": "hash" } });
 	assert.deepEqual(normalized?.taskList?.workBaseline, { revision: "list", untracked: {} });
 	assert.equal(JSON.stringify(normalized).includes("reviewBaseline"), false, "writes use the review-agnostic persisted field");
+	const serialized = serializeGoalFile(normalized!);
+	const roundTripped = parseGoalContentCached("legacy-baseline-roundtrip.md", 1, serialized.length, serialized);
+	assert.deepEqual(roundTripped?.taskList?.tasks[0]?.workBaseline, { revision: "abc", untracked: { "new.ts": "hash" } });
+	assert.deepEqual(roundTripped?.taskList?.workBaseline, { revision: "list", untracked: {} });
 });
 
 test("cloneGoal returns a detached usage object", () => {

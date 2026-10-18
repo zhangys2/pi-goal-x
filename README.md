@@ -84,37 +84,9 @@ As work progresses, the agent marks the current task, records completed work, an
 
 Tasks can also have their own completion requirements—for example, “The download contains only rows matching the active filters.” The agent records evidence against those requirements, and the completion auditor uses that evidence when reviewing the overall result.
 
-### Per-task code review gate
+### Code-task coordination
 
-When a task is declared code-changing (`code_change: true` in `set_goal_tasks`),
-`update_goal_task(status="complete")` runs a separate read-only code review first. The task
-remains pending when the reviewer finds an issue, so the executor must resolve the findings and
-retry completion. Set `code_change: false` for documentation, research, report, and planning
-tasks. Tasks without the label are reviewed when their changed files include source code, and
-also when their changes cannot be determined (no git repository), so the gate fails closed.
-Completion evidence and prose filenames are never used for classification.
-
-The review sees only the task's own changes: tracked, staged, and untracked files changed since
-the task first started, or since the task list was set if it was never started. Restarting a
-rejected task keeps its original baseline. An oversized diff is marked as truncated and lists every
-changed file. Goal and subagent runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`,
-`.pi-subagents/`) is left out of the diff. Completion checks such as missing evidence run before
-the review, so an invalid completion never starts one.
-
-Code tasks run one at a time: a code task cannot start while another started code task is still
-open, because both would share one worktree and each review would include the other's changes.
-Tasks done by isolated workers are the exception (see below).
-A retry review checks the previous review's findings against the task's verification contract. If
-the same task is rejected three times in a row, the goal is blocked until you resume it with
-`/goal-resume`, for example after narrowing the task, fixing the build environment, or revising the
-contract.
-
-Every decision is recorded in the ledger as a `task_review` event: approved (written with the
-completion), rejected, failed, or skipped with its reason. The review uses the configured auditor
-provider/model. Set `disableTaskReviews: true` in settings to skip this gate, or set
-`taskReviewExcludedTypes` to a list of `review_type` values to skip selectively. These controls are
-independent of the goal-level completion auditor unless the auditor itself is disabled, in which
-case task reviews are skipped too.
+Tasks marked `code_change: true` are treated as code work for shared-worktree coordination and reporting. A code task cannot start while another shared-worktree code task is still open, because their changes would be difficult to separate. Tasks handled by isolated workers are the exception and may run in parallel (see [Integrating worker patches](#integrating-worker-patches)).
 
 ### Checks goal-x runs itself
 
@@ -127,7 +99,7 @@ A task can name the commands that prove it is done. goal-x runs them when the ta
 
 Checks run in the project directory, in order, and stop at the first failure. There is no shell, so pipes, globs, `&&` and `$VARS` do not work; use `{ "command": "bash", "args": ["-lc", "…"] }` when you need one. Each check times out after 600 seconds unless `timeout_seconds` says otherwise (at most 3600). On Windows, `npm`, `npx` and other `.cmd` tools work.
 
-A failure keeps the task pending and shows the failing command, its exit code, and the end of its output. No code review starts. A pass is stored with the task and given to the code reviewer and the completion auditor as facts, so they do not have to trust the executor's evidence. Both outcomes appear in the activity feed and the goal report.
+A failure keeps the task pending and shows the failing command, its exit code, and the end of its output. A pass is stored with the task and provided to the completion auditor as a recorded check result. Both outcomes appear in the activity feed and the goal report.
 
 ### Integrating worker patches
 
@@ -139,13 +111,13 @@ update_goal_task({ task_id: "api", status: "integrate", patch_path: "<patch>", c
 
 goal-x applies the patch on top of the current branch with a three-way merge, so a patch made on an older base lands the way a rebase would. It then runs the task's checks and commits. If the patch conflicts, a check fails, or a commit hook rejects the commit, goal-x restores exactly the files the patch touched and explains what went wrong. The branch is left as it was. Integration needs a started task, an attached branch, and a clean working tree (goal and subagent runtime state excepted).
 
-Mark tasks done by isolated workers `isolated: true`. Their changes arrive only through integration, so two isolated tasks may run at once, and each task's code review sees only its own integration commits. An isolated task cannot be completed before something is integrated; skip it with a reason if no change is needed. Completing it runs its checks again, because other tasks may have landed since.
+Mark tasks done by isolated workers `isolated: true`. Their changes arrive only through integration, so two isolated tasks may run at once. An isolated task cannot be completed before something is integrated; skip it with a reason if no change is needed. Completing it runs its checks again, because other tasks may have landed since.
 
 Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
 
 ## Goal report
 
-Each goal keeps one Markdown report under `.pi/goals/reports/`, rewritten once per turn that changes the goal. It holds the plan as a Mermaid DAG, the same graph again coloured by current status, a task table with timings and attempt counts, reviews and completion evidence quoted as claims rather than re-run, every block, pause and wait with how long it lasted, subagent artifacts observed during the goal, a timeline, and recommendations derived from that data — a task rejected three times, two code tasks running at once, changes outside a task's declared scope, a wait that expired, or a completion that names no verification command.
+Each goal keeps one Markdown report under `.pi/goals/reports/`, rewritten once per turn that changes the goal. It holds the plan as a Mermaid DAG, the same graph again coloured by current status, a task table with timings and attempt counts, audit history and completion evidence quoted as claims rather than re-run, every block, pause and wait with how long it lasted, subagent artifacts observed during the goal, a timeline, and recommendations derived from that data — overlapping code tasks, changes outside a task's declared scope, a wait that expired, or a completion that names no verification command.
 
 Run `/goal-report` to write it immediately and see its path. Set `disableGoalReport: true` to turn it off. The report is derived state: deleting it loses nothing, and it is never added to the model's prompt. Per-task tokens and cost are not recorded yet, so the table reports time only.
 

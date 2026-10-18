@@ -442,6 +442,10 @@ export function parseSettingsLayer(
 				}
 				break;
 			}
+			case "disableTaskReviews":
+			case "taskReviewExcludedTypes":
+				// Removed settings are accepted for compatibility and have no effect.
+				break;
 			case "subtaskDepth": {
 				const parsed = asPositiveInt(value);
 				if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", `${key} must be an integer >= 1`, key));

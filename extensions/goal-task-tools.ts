@@ -35,6 +35,8 @@ export interface FlatTaskInput {
 	title: string;
 	parent_id?: string;
 	verification_contract?: string;
+	/** Accepted for compatibility with older clients; ignored. */
+	review_type?: string;
 	code_change?: boolean;
 	checks?: TaskCheckInput[];
 	isolated?: boolean;
@@ -360,7 +362,8 @@ pi.registerTool(defineTool({
 			title: Type.String({ description: "Human-readable task title" }),
 			parent_id: Type.Optional(Type.String({ description: "Parent id; omit for roots." })),
 			verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
-			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires a per-task review." })),
+			review_type: Type.Optional(Type.String({ description: "Legacy compatibility field; ignored." })),
+			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code; used for shared-worktree task sequencing and reporting." })),
 			checks: taskChecksSchema(),
 			isolated: Type.Optional(Type.Boolean({ description: ISOLATED_TASK_DESCRIPTION })),
 			lightweight_subtasks: Type.Optional(Type.Boolean({ description: "Children do not gate parent completion." })),

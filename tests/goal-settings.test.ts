@@ -72,6 +72,13 @@ test("parseGoalSettings: autoSelectSingleGoal accepted as bool or string; explic
 	assert.deepEqual(parseGoalSettings({ autoSelectSingleGoal: "false" }), { autoSelectSingleGoal: false });
 });
 
+test("parseSettingsLayer silently ignores removed per-task review settings", () => {
+	const result = parseSettingsLayer({ disableTaskReviews: true, taskReviewExcludedTypes: ["code"] }, "project", "settings.json");
+	assert.deepEqual(result.layer, {});
+	assert.deepEqual(result.diagnostics, []);
+	assert.deepEqual(parseGoalSettings({ disableTaskReviews: true, taskReviewExcludedTypes: ["code"] }), {});
+});
+
 test("parseGoalSettings: unknown keys rejected", () => {
 	assert.throws(
 		() => parseGoalSettings({ disableTasks: true, disableContracts: false, foo: "bar" }),
