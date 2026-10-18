@@ -19,6 +19,7 @@ export type GoalLedgerEvent =
   | { type: "completion_requested"; goalId: string; summary?: string; at: string }
   | { type: "audit_started"; goalId: string; provider?: string; model?: string; thinkingLevel?: string; at: string }
   | { type: "audit_result"; goalId: string; verdict: "approved" | "disapproved" | "error"; report: string; at: string }
+  | { type: "precheck_result"; goalId: string; verdict: "passed" | "rejected" | "skipped" | "error"; enforced: boolean; model?: string; reason?: string; items: { taskId: string; pYes: number }[]; ms: number; at: string }
   | { type: "audit_skipped"; goalId: string; reason: "disabled" | "user_aborted"; provider?: string; model?: string; thinkingLevel?: string; at: string }
   | { type: "goal_completed"; goalId: string; archivePath?: string; at: string }
   | { type: "goal_archived"; goalId: string; archivePath: string; at: string }
@@ -32,7 +33,7 @@ export type GoalLedgerEvent =
   | { type: "goal_budget_changed"; goalId: string; oldBudget: number | null; newBudget: number | null; tokensUsed: number; at: string }
   | { type: "task_review"; goalId: string; taskId: string; verdict: "approved" | "disapproved" | "error" | "skipped"; report?: string; baseline?: string; at: string }
   | { type: "task_checks"; goalId: string; taskId: string; passed: boolean; trigger: "completion" | "integration"; results: TaskCheckResult[]; at: string }
-  | { type: "task_integration"; goalId: string; taskId: string; outcome: "integrated" | "conflict" | "checks_failed" | "commit_failed" | "rejected"; patchPath: string; commit?: string; files?: string[]; message?: string; at: string }
+  | { type: "task_integration"; goalId: string; taskId: string; outcome: "integrated" | "conflict" | "checks_failed" | "commit_failed" | "rejected" | "cancelled"; patchPath: string; commit?: string; files?: string[]; message?: string; at: string }
   | { type: "goal_budget_limited"; goalId: string; budget: number; tokensUsed: number; at: string }
   | { type: "goal_budget_warning"; goalId: string; budget: number; tokensUsed: number; pct: number; at: string }
   | { type: "goal_stalled"; goalId: string; reason: string; at: string }
@@ -707,6 +708,10 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
       return typeof obj.goalId === "string" && (obj.provider === undefined || typeof obj.provider === "string") && (obj.model === undefined || typeof obj.model === "string") && (obj.thinkingLevel === undefined || typeof obj.thinkingLevel === "string");
     case "audit_result":
       return typeof obj.goalId === "string" && (obj.verdict === "approved" || obj.verdict === "disapproved" || obj.verdict === "error") && typeof obj.report === "string";
+    case "precheck_result":
+      return typeof obj.goalId === "string" && ["passed", "rejected", "skipped", "error"].includes(obj.verdict as string) &&
+        typeof obj.enforced === "boolean" && Array.isArray(obj.items) && typeof obj.ms === "number" &&
+        (obj.model === undefined || typeof obj.model === "string") && (obj.reason === undefined || typeof obj.reason === "string");
     case "audit_skipped":
       return typeof obj.goalId === "string" && (obj.reason === "disabled" || obj.reason === "user_aborted") && (obj.provider === undefined || typeof obj.provider === "string") && (obj.model === undefined || typeof obj.model === "string") && (obj.thinkingLevel === undefined || typeof obj.thinkingLevel === "string");
     case "goal_completed":
@@ -727,8 +732,7 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
       return typeof obj.goalId === "string" && typeof obj.taskId === "string";
     case "task_started":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string";
-    case "goal_budget_changed":
-      return typeof obj.goalId === "string" && (obj.oldBudget === null || (Number.isSafeInteger(obj.oldBudget) && Number(obj.oldBudget) > 0)) && (obj.newBudget === null || (Number.isSafeInteger(obj.newBudget) && Number(obj.newBudget) > 0)) && typeof obj.tokensUsed === "number";
+
     case "task_review":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string" &&
         (obj.verdict === "approved" || obj.verdict === "disapproved" || obj.verdict === "error" || obj.verdict === "skipped") &&
@@ -739,8 +743,10 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
         (obj.trigger === "completion" || obj.trigger === "integration") && Array.isArray(obj.results);
     case "task_integration":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string" && typeof obj.patchPath === "string" &&
-        ["integrated", "conflict", "checks_failed", "commit_failed", "rejected"].includes(obj.outcome as string) &&
+        ["integrated", "conflict", "checks_failed", "commit_failed", "rejected", "cancelled"].includes(obj.outcome as string) &&
         (obj.commit === undefined || typeof obj.commit === "string") && (obj.message === undefined || typeof obj.message === "string");
+    case "goal_budget_changed":
+      return typeof obj.goalId === "string" && (obj.oldBudget === null || (Number.isSafeInteger(obj.oldBudget) && Number(obj.oldBudget) > 0)) && (obj.newBudget === null || (Number.isSafeInteger(obj.newBudget) && Number(obj.newBudget) > 0)) && typeof obj.tokensUsed === "number";
     case "goal_budget_limited":
       return typeof obj.goalId === "string" && typeof obj.budget === "number" && typeof obj.tokensUsed === "number";
     case "goal_budget_warning":

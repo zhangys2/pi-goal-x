@@ -29,7 +29,13 @@ export const execFile = forbid("execFile");
 export const fork = forbid("fork");
 export const spawnSync = forbid("spawnSync");
 export const execSync = forbid("execSync");
-export const execFileSync = forbid("execFileSync");
+const forbidExecFileSync = forbid("execFileSync");
+
+// The product records a git review baseline when a task list is set; git is the only
+// synchronous child process a benchmarked handler may run.
+export function execFileSync(file, ...args) {
+	return file === "git" ? real.execFileSync(file, ...args) : forbidExecFileSync(file, ...args);
+}
 
 export const execArgv = real.execArgv;
 export const execPath = real.execPath;

@@ -363,7 +363,7 @@ export function registerGoalCommands(core: GoalCore): void {
 	type SettingRow = {
 		key: keyof GoalSettings | string;
 		label: string;
-		section: "Goal behavior" | "Task tracking" | "Completion auditor" | "Blocker Oracle";
+		section: "Goal behavior" | "Task tracking" | "Completion auditor" | "Blocker Oracle" | "Evidence pre-check";
 		kind: "boolean" | "modelSelector" | "thinking" | "positiveInteger";
 		/** Settings path for the mutation (defaults to [key]). */
 		path?: string[];
@@ -376,6 +376,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		{ key: "disableContracts", label: "disableContracts", section: "Goal behavior", kind: "boolean" },
 		{ key: "strictExecutionContract", label: "explicit execution contracts (opt-in)", section: "Goal behavior", kind: "boolean" },
 		{ key: "maxAutonomousRuns", label: "autonomous run allowance", section: "Goal behavior", kind: "positiveInteger" },
+		{ key: "showAutonomousRuns", label: "show autonomous runs line", section: "Goal behavior", kind: "boolean" },
 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", section: "Goal behavior", kind: "positiveInteger" },
 		{ key: "objectiveMaxChars", label: "max objective length (0 = none)", section: "Goal behavior", kind: "positiveInteger" },
 		{ key: "disableTasks", label: "disableTasks", section: "Task tracking", kind: "boolean" },
@@ -391,11 +392,13 @@ export function registerGoalCommands(core: GoalCore): void {
 		{ key: "oracleThinkingLevel", label: "oracle thinking_level", section: "Blocker Oracle", kind: "thinking", path: ["oracle", "thinkingLevel"] },
 		{ key: "oracleProjectResources", label: "oracle project resources", section: "Blocker Oracle", kind: "boolean", path: ["oracle", "projectResources"] },
 		{ key: "oracleMaxFailedAttemptsPerBlocker", label: "max failed attempts per blocker", section: "Blocker Oracle", kind: "positiveInteger", path: ["oracle", "maxFailedAttemptsPerBlocker"] },
+		// Log-only; needs TYPESAFE_API_KEY. Model and threshold live in the settings file.
+		{ key: "precheckEnabled", label: "precheck enabled (log-only, sends goal text to TypeSafe)", section: "Evidence pre-check", kind: "boolean", path: ["precheck", "enabled"] },
 	];
 	const BOOLEAN_SETTING_KEYS = new Set<string>(SETTING_ROWS.filter((row) => row.kind === "boolean" && !row.path).map((row) => row.key));
 
 	function settingsValue(config: GoalSettings, key: keyof GoalSettings | string): string {
-		if (BOOLEAN_SETTING_KEYS.has(key)) {
+		if (SETTING_ROWS.find((row) => row.key === key)?.kind === "boolean") {
 			return (config as Record<string, unknown>)[key] === true ? "true" : "false";
 		}
 		if (key === "subtaskDepth") return config.subtaskDepth !== undefined ? String(config.subtaskDepth) : "1";

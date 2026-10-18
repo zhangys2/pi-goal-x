@@ -25,6 +25,7 @@ import {
 import { nowIso, currentTaskIdIsPending, type GoalTask, type GoalTaskList, type GoalWorkBaseline } from "./goal-record.ts";
 import type { GoalLedgerEvent } from "./goal-ledger.ts";
 import { integratePatch } from "./goal-worker-integration.ts";
+import { combineAbortSignals } from "./goal-cancellation.ts";
 import { DEFAULT_CHECK_TIMEOUT_SECONDS, MAX_CHECK_TIMEOUT_SECONDS, MAX_TASK_CHECKS, parseTaskChecks, type TaskCheckInput, type TaskCheckRun } from "./goal-task-checks.ts";
 
 export const MAX_TASKS = 50;
@@ -506,6 +507,8 @@ pi.registerTool(defineTool({
 	}, { additionalProperties: false }),
 	executionMode: "sequential",
 	async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
+  signal = combineAbortSignals(signal, ctx.signal, core.sessionAbortController.signal);
+  signal?.throwIfAborted();
   if (rawParams.updates !== undefined) {
    const fail = (text: string) => ({content: [{type: "text" as const, text}], details: goalDetails(core.state.goal)});
    if ([rawParams.task_id, rawParams.status, rawParams.evidence, rawParams.reason, rawParams.patch_path, rawParams.commit_message].some(v => v !== undefined)) return fail("Use either updates or single-task fields, never both; integrate is single-task only.");
@@ -530,6 +533,7 @@ pi.registerTool(defineTool({
     if (checks.failure) return fail(checks.failure);
     verified.set(update.task_id, {events: checks.event ? [checks.event] : [], checkRun: checks.run});
    }
+   signal?.throwIfAborted();
    const result = core.goalService.updateTasks(ctx, specs.map((spec): GoalTaskUpdateSpec => {
     const outcome = verified.get(spec.taskId);
     if (!outcome) return spec;
@@ -644,6 +648,7 @@ pi.registerTool(defineTool({
 				if (checks.event) verification.push(checks.event);
 				checkRun = checks.run;
 			}
+			signal?.throwIfAborted();
 			const result = core.goalService.updateTask(ctx, {
 				focusToken: taskFocus,
 				taskId: params.task_id,

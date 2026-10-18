@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createServer, type Socket } from "node:net";
 
 import { integratePatch, patchPaths, uncommittedPaths } from "../extensions/goal-worker-integration.ts";
+import { runIntegrationGit } from "../extensions/goal-integration-git.ts";
 
 const node = process.execPath;
 
@@ -136,6 +140,146 @@ test("preconditions reject without touching the repository", async () => {
 
 		git(f.dir, "checkout", "-q", "--detach");
 		assert.match((await integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "x" })).message, /detached/);
+	} finally { f.cleanup(); }
+});
+
+test("an already-cancelled integration never applies or commits a patch", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "b.txt"), "changed\n"));
+	try {
+		const controller = new AbortController();
+		controller.abort();
+		const before = f.head();
+		const result = await integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Cancelled", signal: controller.signal });
+		assert.equal(result.outcome, "cancelled");
+		assert.equal(f.head(), before);
+		assert.equal(readFileSync(path.join(f.dir, "b.txt"), "utf8"), "bee\n");
+	} finally { f.cleanup(); }
+});
+
+test("rollback preserves a patch path modified after application", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "a.txt"), "patch\n"));
+	try {
+		const before = f.head();
+		const result = await integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Do not overwrite", checks: [{ command: node, args: ["-e", "require('fs').writeFileSync('a.txt','NEW_EDIT\\n'); process.exit(1)"] }] });
+		assert.equal(result.outcome, "checks_failed");
+		assert.equal(f.head(), before);
+		assert.equal(readFileSync(path.join(f.dir, "a.txt"), "utf8"), "NEW_EDIT\n");
+		assert.deepEqual(result.leftover, ["a.txt"]);
+		assert.match(result.message, /preserv|changed|user/i);
+	} finally { f.cleanup(); }
+});
+
+test("patches cannot alter excluded goal runtime state", async () => {
+	const f = fixture((dir) => {
+		mkdirSync(path.join(dir, ".pi", "goals"), { recursive: true });
+		writeFileSync(path.join(dir, ".pi", "goals", "goal_events.jsonl"), "worker\n");
+	});
+	try {
+		mkdirSync(path.join(f.dir, ".pi", "goals"), { recursive: true });
+		const state = path.join(f.dir, ".pi", "goals", "goal_events.jsonl");
+		writeFileSync(state, "CURRENT_GOAL\n");
+		const result = await integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Unsafe" });
+		assert.equal(result.outcome, "rejected");
+		assert.equal(readFileSync(state, "utf8"), "CURRENT_GOAL\n");
+	} finally { f.cleanup(); }
+});
+
+async function gate() {
+	let connected!: (socket: Socket) => void;
+	const connection = new Promise<Socket>((resolve) => { connected = resolve; });
+	const server = createServer((socket) => { socket.on("error", () => {}); connected(socket); });
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const port = (server.address() as { port: number }).port;
+	const script = `const s=require('net').connect(${port},'127.0.0.1'); s.on('data',()=>{s.end();process.exit(0)});`;
+	return { server, connection, script };
+}
+
+test("concurrent integrations are rejected by a repository lock", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "b.txt"), "changed\n"));
+	const g = await gate();
+	let socket: Socket | undefined;
+	let pending: Promise<Awaited<ReturnType<typeof integratePatch>>> | undefined;
+	try {
+		pending = integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "First", checks: [{ command: node, args: ["-e", g.script] }] });
+		socket = await g.connection;
+		const second = await integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Second" });
+		assert.equal(second.outcome, "rejected");
+		assert.match(second.message, /integration.*lock|integration.*running/i);
+		socket.write("finish");
+		assert.equal((await pending).outcome, "integrated");
+	} finally {
+		socket?.destroy();
+		g.server.close();
+		await pending;
+		f.cleanup();
+	}
+});
+
+test("cancelling during checks rolls back before any commit", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "b.txt"), "changed\n"));
+	const g = await gate();
+	const controller = new AbortController();
+	let socket: Socket | undefined;
+	try {
+		const before = f.head();
+		const pending = integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Cancelled", signal: controller.signal, checks: [{ command: node, args: ["-e", g.script] }] });
+		socket = await g.connection;
+		controller.abort();
+		const result = await pending;
+		assert.equal(result.outcome, "cancelled");
+		assert.equal(f.head(), before);
+		assert.equal(readFileSync(path.join(f.dir, "b.txt"), "utf8"), "bee\n");
+		assert.equal(result.leftover, undefined);
+		assert.equal((await integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Retry" })).outcome, "integrated", "rollback releases its lock");
+	} finally { socket?.destroy(); g.server.close(); f.cleanup(); }
+});
+
+test("the repository integration lock also excludes another process", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "b.txt"), "changed\n"));
+	const g = await gate();
+	let socket: Socket | undefined;
+	let pending: Promise<Awaited<ReturnType<typeof integratePatch>>> | undefined;
+	try {
+		pending = integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "First", checks: [{ command: node, args: ["-e", g.script] }] });
+		socket = await g.connection;
+		const moduleUrl = pathToFileURL(path.resolve("extensions/goal-worker-integration.ts")).href;
+		const script = `import { integratePatch } from ${JSON.stringify(moduleUrl)}; console.log(JSON.stringify(await integratePatch(${JSON.stringify({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Second" })})));`;
+		const { stdout } = await promisify(execFile)(node, ["--experimental-strip-types", "--input-type=module", "-e", script], { timeout: 10000 });
+		const second = JSON.parse(stdout.trim());
+		assert.equal(second.outcome, "rejected");
+		assert.match(second.message, /integration.*running/i);
+		socket.write("finish");
+		assert.equal((await pending).outcome, "integrated");
+	} finally { socket?.destroy(); g.server.close(); await pending; f.cleanup(); }
+});
+
+test("cancelling a running commit hook stops its process tree without advancing HEAD", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "b.txt"), "changed\n"));
+	const g = await gate();
+	const controller = new AbortController();
+	let socket: Socket | undefined;
+	try {
+		const before = f.head();
+		writeFileSync(path.join(f.dir, ".git", "hooks", "pre-commit"), `#!/bin/sh\nexec "${node.replaceAll("\\", "/")}" -e ${JSON.stringify(g.script)}\n`, { mode: 0o755 });
+		const pending = integratePatch({ cwd: f.dir, patchPath: f.patchFile, commitMessage: "Cancelled hook", signal: controller.signal });
+		socket = await g.connection;
+		const closed = new Promise<void>((resolve) => socket!.once("close", resolve));
+		controller.abort();
+		const result = await pending;
+		await closed;
+		assert.equal(result.outcome, "cancelled");
+		assert.equal(f.head(), before);
+		assert.ok(readFileSync(path.join(f.dir, "b.txt"), "utf8") === "bee\n" || result.leftover?.includes("b.txt"), "any uncertain recovery must name preserved paths");
+	} finally { socket?.destroy(); g.server.close(); f.cleanup(); }
+});
+
+test("Git execution times out instead of waiting indefinitely", async () => {
+	const f = fixture((dir) => writeFileSync(path.join(dir, "b.txt"), "changed\n"));
+	try {
+		const result = await runIntegrationGit(f.dir, ["-c", `alias.wait=!"${node.replaceAll("\\", "/")}" -e "setInterval(()=>{},1000)"`, "wait"], undefined, undefined, 500);
+		assert.equal(result.ok, false);
+		assert.equal(result.timedOut, true);
+		assert.match(result.stderr, /timed out/);
 	} finally { f.cleanup(); }
 });
 

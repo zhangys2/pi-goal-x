@@ -13,7 +13,8 @@ import { loadGoalSettings } from "./goal-settings.ts";
 import { DIALOG_UNAVAILABLE_HINT, proposalDialogFailureMessage, formatQuestionnaireAnswers, runGoalQuestionnaire, shouldAutoConfirmProposal, showProposalDialog, type GoalQuestionnaireQuestion, type ProposalDecision } from "./goal-questionnaire.ts";
 import { currentTaskIdIsPending, nowIso, validateTokenBudgetInput, type GoalRecord, type GoalTaskList } from "./goal-record.ts";
 import type { GoalCore } from "./goal-state.ts";
-import { convertFlatTasks, countTasks, mergeTasksWithExisting, type FlatTaskInput } from "./goal-task-tools.ts";
+import { convertFlatTasks, countTasks, mergeTasksWithExisting, taskChecksSchema, ISOLATED_TASK_DESCRIPTION, type FlatTaskInput } from "./goal-task-tools.ts";
+import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 import { PROPOSE_DRAFT_TOOL_NAME, QUESTIONNAIRE_TOOL_NAME, QUESTION_TOOL_NAME } from "./goal-tool-names.ts";
 
 export type GoalDraftMode = GoalDraftingFocus | "tweak";
@@ -231,7 +232,9 @@ function flatTaskSchema() {
 		id: Type.String({ description: "Short stable slug, for example task-1." }),
 		title: Type.String({ description: "Human-readable task title." }),
 		parent_id: Type.Optional(Type.String({ description: "Optional parent task id in this proposal." })),
-		verification_contract: Type.Optional(Type.String({ description: "Evidence required for this task." })),
+		verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
+		checks: taskChecksSchema(),
+		isolated: Type.Optional(Type.Boolean({ description: ISOLATED_TASK_DESCRIPTION })),
 		lightweight_subtasks: Type.Optional(Type.Boolean({ description: "True only for a task with lightweight children." })),
 	}), { description: "Flat parent-linked task tree to confirm with the goal." });
 }
@@ -311,6 +314,7 @@ export function registerDraftingTools(core: GoalCore): void {
 		promptGuidelines: [
 			"Use only during a /goal, /sisyphus, or /goal-tweak guided draft.",
 			"Clarify ambiguity before proposing. Include tasks when the work naturally decomposes into trackable milestones; omit them for genuinely simple work.",
+			"Set token_budget only when the user explicitly asked for a token budget or a spend limit. Never invent, estimate, or infer one from the objective's size; omitting it creates a goal with no budget.",
 			"Confirmation creates or revises the goal atomically. Continue Chatting leaves drafting active for refinement.",
 		],
 		parameters: Type.Object({
@@ -401,6 +405,7 @@ export function registerDraftingTools(core: GoalCore): void {
 					const derived = deriveTasksFromObjective(extracted.objective);
 					return derived && derived.length > 0 ? { tasks: derived, blockCompletion: false, proposedAt: nowIso() } : undefined;
 				})();
+				await offerProjectOrchestrationSetup(core, ctx);
 				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract, proposedBudget);
 				clearGoalDrafting(core, ctx);
 				const created = core.state.goal;
@@ -490,7 +495,7 @@ export function registerDraftingTools(core: GoalCore): void {
 				// Resume glue mirrors replaceGoal: restart accounting and queue
 				// the auto-continuation so the revived goal keeps going.
 				core.beginAccounting();
-				const scheduling = core.scheduler.declare(ctx, {kind: "ready", next_action: "Continue the goal after the confirmed tweak."});
+				const scheduling = core.scheduler.declare(ctx, {kind: "ready"});
 				if (!scheduling.terminate) schedulingNote = "\n" + scheduling.content.filter(item => item.type === "text").map(item => item.text).join("\n");
 				core.queueContinuation(ctx, true);
 			}

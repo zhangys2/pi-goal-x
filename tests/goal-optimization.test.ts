@@ -55,7 +55,7 @@ test("ordered batch completes child then parent and starts the next task in one 
   const disk = parseGoalFile(path.join(f.cwd,f.goal.activePath))!;
   assert.equal(disk.currentTaskId, "next"); assert.equal(disk.taskList!.tasks[0]!.status, "complete");
   assert.equal(disk.revision, (before.revision ?? 0)+1);
-  assert.deepEqual(readGoalLedger(f.h.ctx).events.filter(e=>e.type.startsWith("task_")).map(e=>e.type), ["task_complete","task_complete","task_started"]);
+  assert.deepEqual(readGoalLedger(f.h.ctx).events.filter(e=>e.type === "task_complete" || e.type === "task_started").map(e=>e.type), ["task_complete","task_complete","task_started"]);
  } finally {f.cleanup();}
 });
 

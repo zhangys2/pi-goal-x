@@ -14,12 +14,18 @@ Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.
 { "maxAutonomousRuns": 20 }
 ```
 
+The `Autonomous runs: used/limit` line reports a finite allowance and is left out when
+allowance is unlimited. Set `showAutonomousRuns` to `false` to drop it for a finite
+allowance as well; it defaults to `true`.
+
 Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/goal-resume` renews the period and continues now, including from a waiting goal. No configured allowance is required unless the effective limit is zero, which disables resume. Tool calls within a run are not separate runs. Existing token budgets still apply.
 
-Explicit `ready` is optional in default mode. New `wait` declarations require strict mode; otherwise they return a non-terminating error. Previously saved waits retain their deadline, checks, and repair rules when upgrading or disabling strict mode, and may be re-declared with the same identity. Mode changes never resume a paused goal or renew consumed runs.
+Explicit `ready` is optional in default mode. A goal saved before next actions were
+removed still loads, with its `nextAction` field stripped during normalization.
+New `wait` declarations require strict mode; otherwise they return a non-terminating error. Previously saved waits retain their deadline, checks, and repair rules when upgrading or disabling strict mode, and may be re-declared with the same identity. Mode changes never resume a paused goal or renew consumed runs.
 
 ```js
-update_goal({ continuation: { kind: "ready", next_action: "Verify the build artifacts" } })
+update_goal({ continuation: { kind: "ready" } })
 update_goal({ continuation: {
   kind: "wait", reason: "Await the remote build",
   deadline: "2026-09-15T12:00:00Z",
@@ -86,6 +92,28 @@ Worktrees pointing to the same root share goals, archives, ledger and locks; foc
 `hideUnfocusedPrompt: true` suppresses ordinary unfocused reminders to the model independently of `hideUnfocusedBanner`; neither changes focus or bypasses stale-checkpoint checks.
 
 Token usage shown in the dashboard is cumulative across goal turns. The model receives a separate context snapshot when Pi can supply one; unavailable context is never reported as zero. Retained snapshots are bounded and newer snapshots supersede older ones.
+
+## Auditor trust boundary
+
+Completion audits and per-task code reviews run in a separate in-memory Pi conversation,
+**in the current project workspace**, with `read`, `grep`, `find`, `ls`, and `bash`.
+They are not filesystem- or OS-sandboxed. Bash is unrestricted and runs with Pi's
+operating-system permissions and environment; the auditor also reuses the parent's
+model runtime and authentication. The instruction not to edit source, delete files,
+or change Git history is a model policy, not technical read-only enforcement.
+Builds and tests may write generated artifacts, and repository scripts can execute
+arbitrary code. Do not run untrusted verification commands with sensitive credentials
+or permissions. Use an external OS/container sandbox with restricted credentials and
+filesystem access when enforced isolation is required.
+
+By default, the auditor's resource loader omits project extensions, skills, prompts,
+themes, and context files. That isolates resource discovery and conversation state,
+not process permissions. `auditorProjectResources: true` opts into loading those
+resources; project extensions can add executable behavior and should be trusted.
+
+`auditorWorkspaces` lists inspection guidance, not an access-control allowlist.
+`auditorEnvironment` describes verification commands, not an enforced environment
+restriction. Neither setting confines bash or prevents access elsewhere on the host.
 
 ## Diagnostics and recovery
 

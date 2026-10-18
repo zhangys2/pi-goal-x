@@ -4,6 +4,86 @@ All notable changes to pi-goal-x are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The default goal prompt no longer describes a wait it rejects** — with `strictExecutionContract` off, new waits are refused, but the blocker rule still told the agent that new waits declare `depends_on`. That clause now appears only in strict mode (or while a saved wait exists).
+- **Worker worktree isolation needs pi-subagents 0.69.0 or later** — on older versions, background (async) runs with `worktree: true` ran the child in the parent repo, so its edits and commits landed in the main checkout ([nicobailon/pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)). goal-x briefly forced those launches into the foreground; that workaround is removed now that the upstream fix has shipped.
+- **In-turn ledger events are no longer dropped** — a turn that recorded events without mutating the goal (a rejected task review is the common case) discarded its whole buffered transaction at flush, so the rejection never reached the ledger. Those events are now appended.
+- **The three-strike cap counts the rejection it just recorded** — it counted from the ledger after appending, but an in-turn append is buffered, so the count was always one short and a real goal was never blocked by it. Observed in a live session where a task was rejected three times and the agent had to block the goal itself.
+
+- **Task reviews no longer see goal runtime state** — `.pi/goals/`, `.pi/.goals-pool-snapshot.json`, and `.pi-subagents/` are excluded from task review diffs. Reviewers had rejected tasks for these untracked files, and an agent then deleted them, including the active goal, with `git clean`.
+- **Task reviews converge** — a retry review receives the previous rejection and checks it against the task's verification contract. Environment failures (toolchain, linker, credentials) are reported as environment blockers, not code defects.
+
+### Changed
+
+- **One code task at a time** — `update_goal_task` refuses to start a code task while another started code task is unresolved, so review diffs stay scoped to one task.
+- **Rejection cap** — three consecutive rejected reviews of the same task block the goal until `/goal-resume`.
+- Goal drafting asks for small, independently reviewable code tasks whose verification contracts list the tests, exact commands, and out-of-scope files, and for a toolchain check before confirming build-dependent goals.
+
+### Added
+
+- **`/loop`** — repeat a prompt on an interval without creating a goal: `/loop 5m check the deploy`, with an optional deadline (`/loop 30s --until 10m …`) and `/loop stop` to end it. With no prompt it repeats the last user message. The next send is timed from the moment the agent settles, so runs never overlap, and a loop started while the agent is busy waits for it. The status line shows the cadence while it runs.
+
+- **Checks goal-x runs itself** — a task can declare `checks` (`{ command, args?, timeout_seconds? }`, up to 8). Completing the task runs them in the project directory without a shell, stops at the first failure, and keeps the task pending with the failing command's exit code and output tail. A pass is stored on the task, recorded as a `task_checks` event, and given to the code reviewer and the completion auditor as facts instead of the executor's claim. On Windows, `.cmd` and `.bat` commands such as `npm` run through `cmd.exe` with escaped arguments.
+
+- **Worker patch integration** — `update_goal_task({ task_id, status: "integrate", patch_path, commit_message })` applies an isolated worker's patch on top of the current branch with a three-way merge, runs the task's checks on the result, and commits. On a conflict, failing check, or rejected commit it restores exactly the paths the patch touched and says why. Tasks marked `isolated: true` receive their changes only this way: they may run in parallel, and each is reviewed as its own integration commits.
+
+- **Removed stray Windows cache files** — four `%SystemDrive%/ProgramData/...` cache databases committed by accident are gone, and the path is ignored.
+
+- **Goal report (#14)** — every goal keeps one Markdown report at `.pi/goals/reports/`: plan DAG and current-state flowchart (Mermaid), task table with timings, quoted reviews and evidence, blocks/pauses/waits with elapsed time, observed subagent artifacts, timeline, and recommendations derived from the report's own data (repeat rejections, overlapping code tasks, scope drift, expired waits, completions naming no verification command). Written once per turn that changed goal state, never injected into the prompt. `/goal-report` writes it on demand; `disableGoalReport: true` turns it off.
+
+- **Waits are visible** — declaring a wait announces its reason and deadline, and a wait longer than 30 minutes reminds the user every 30 minutes that it is still waiting, with the time left. Reminders notify only: they dispatch no model turn and spend no autonomous allowance. A wait that expires now pauses with its reason and what to do next.
+
+- **Blocked goals ask for help** — blocking now notifies the user with the reason, what the agent already tried, and the fix, plus the commands to resume, revise or clear. `update_goal({status: "blocked"})` requires `suggested_action` written for the user (the command, install, credential or decision that unblocks it) and records `attempted_actions`; both appear in the notification and the compact dashboard. A session start restates a blocked goal, which previously vanished across restarts. Blocked was the only stop state that notified nothing at all.
+
+- **Waits cannot hide a blocker** — a new `wait` continuation declares `depends_on`. `"producer"` is an external condition that resolves itself; `"user"` is rejected with a pointer to `update_goal({status: "blocked"})`, so a goal asks instead of parking itself until a deadline. Re-declaring an existing `wait_id` is unchanged.
+- **Pre-existing work guard** — while a goal is active, the first `git add -A` / `git commit -a` style command that would sweep in paths already modified when the goal started is blocked, naming those paths, so the agent asks the user first. The next user-initiated run clears the gate, and commits that name their own paths are never affected.
+
+- **Project setup check** — when a goal is created in a git repository, goal-x reports existing `.pi/settings.json` subagent settings and `.pi/agents/*.md`, and checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. If rules are missing, it explains why and asks whether to add them to `.git/info/exclude`, `.gitignore`, or nowhere. It asks once per repository per session, and never writes without a choice or without a UI. It never creates agent or settings files.
+- **Isolated implementation workers** — while a goal is active, a `subagent` launch that runs `worker` (or its aliases) without a `worktree` value gets `worktree: true` when the working tree is clean. An explicit `worktree` is kept, and nothing is written to the project.
+
+## [0.32.3] — 2026-10-02
+
+### Fixed
+
+- Generic `Provider finish_reason: error` failures are now classified as transient provider failures, so an active auto-continue goal recovers via the existing goal-level backoff ladder instead of being stranded. Quota and billing errors are still checked first and are never retried.
+
+## [0.32.2] — 2026-10-02
+
+### Fixed
+
+- Dashboard keyboard navigation works again. The live widget component reference was never assigned, so the expanded-dashboard arrow keys and the compact Ctrl+Shift scroll chords did nothing, and a widget refresh after a state change was silently skipped. The reference is now passed to the widget factory at both registration sites and cleared when the widget is torn down.
+- One physical key press acts once. With the Kitty keyboard protocol active, holding or releasing a Goal shortcut (dashboard toggle, auditor toggle, Escape while the dashboard is expanded, navigation keys) no longer toggles or scrolls repeatedly.
+- A dashboard keybinding change made through the settings applies without restarting the session; the bindings are read when a key arrives.
+- The expanded dashboard anchors its viewport before the first scroll, keeps compact scroll chords away from the hidden task list, and owns the plain arrow keys even when the task list fits.
+- HTTP/2 `PROTOCOL_ERROR` provider failures are classified as transient, so an active goal run uses the existing network backoff instead of stopping on a stream error such as `stream error: stream ID 1; PROTOCOL_ERROR; received from peer`. Quota and billing errors are still checked first and are never retried.
+
+## [0.32.1] — 2026-10-01
+
+### Documentation
+
+- Remove the pi compatibility line from the README. It restated the supported host range that the `peerDependencies` in `package.json` already declare, and commit 4c65316 had already removed it once. The widening to pi 1.0.0 in 0.32.0 is unaffected; the supported range lives in `package.json`.
+
+## [0.32.0] — 2026-10-01
+
+### Changed
+
+- **pi 1.0.0 support.** The supported host range widens to `>=0.83.0 <2.0.0`, so pi 1.0.0 is supported alongside the 0.83-0.87 range that 0.31.7 added, rather than replacing it. Development and verification move to 1.0.0. No existing extension code needed changing: comparing the 0.84.1 and 1.0.0 type declarations across the three SDK packages, every declaration file that was removed is unused here, and `ExtensionAPI.on()` returning an unsubscribe function is not used, because every handler is registered once at activation.
+- Stop reporting the autonomous-run allowance when there is none. The `Autonomous runs: used/limit` line is left out when `maxAutonomousRuns` is unlimited, because an unlimited allowance has no limit to report. A finite allowance is reported as before and can be hidden with the new `showAutonomousRuns` setting, which defaults to on. Enforcement is unchanged.
+- Remove next actions. A ready disposition no longer carries a `nextAction`, the model declares `{ kind: "ready" }` without a `next_action` argument, and the `Next action:` line is gone from the dashboard, `/goal-status`, `get_goal`, and the agent prompt. `decision.purpose` is unchanged, so dispatch, repair, kickoff, and recovery behave as before. Goals saved before this change still load, with the field stripped during normalization. A repair or recovery dispatch no longer carries per-run text; a missing declaration still costs one repair and then pauses.
+- Stop the drafting tool from inventing token budgets. A drafted goal carries no budget unless the user asked for one. Goals have always started budgetless, and the drafting tool had a schema description but no prompt guideline, so the model could set one that was never requested.
+
+### Added
+
+- Handle the `session_compact_failed` event, which is new in pi 1.0.0. `session_before_compact` already charges the goal and `session_compact` re-arms the compaction reminder, so a failed compaction passed without notice and left the goal uncompacted. The handler is registered through a local type alias because the event does not exist before 1.0.0; on hosts that never emit it, it is never called.
+- `scripts/live-session-check.mjs` drives a pi `--mode rpc` session through draft, confirm, execute, audit, and archival. `createAgentSession` and `createExtensionRuntime` are stubbed or injected in every test, so the auditor's session construction was typechecked but never run.
+
+## [0.31.9] — 2026-09-24
+
+### Documentation
+
+- Update the README Pi link to https://pi.dev.
+
 ## [0.31.8] — 2026-09-22
 
 ### Documentation

@@ -6,14 +6,14 @@
   <a href="https://pi.dev/packages?type=extension" target="_blank" rel="noopener noreferrer">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/badge-dark.svg">
-      <img src="assets/badge-light.svg" alt="TOP 0.3% of Pi coding agent extensions: #7 of 3,275 by downloads · Sep 22, 2026 (best recorded rank)" width="480">
+      <img src="assets/badge-light.svg" alt="TOP 0.2% of Pi coding agent extensions: #6 of 3,177 by downloads · Oct 2, 2026 (best recorded rank)" width="480">
     </picture>
   </a>
 </div>
 
 # pi-goal-x
 
-Adds `/goal` functionality to [pi](https://github.com/earendil-works/pi-coding-agent). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
+Adds `/goal` functionality to [pi](https://pi.dev). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
 
 The extension saves goal objectives, tasks, and progress across sessions. You can pause, resume, revise, or switch goals as your work changes.
 
@@ -34,6 +34,16 @@ The agent discusses the goal with you, asks focused questions where needed, and 
 You can specify completion requirements, such as passing the test suite or producing a report with every required section. The agent tracks tasks and subtasks, records evidence, and works toward those requirements. If it gets blocked and needs your input, you can resolve the issue and resume.
 
 If you already have a complete objective, use `/goal-direct <objective>` to create the goal and start immediately without drafting.
+
+### Project setup check
+
+goal-x never adds Pi configuration to a repository on its own. When a goal is created in a git repository, it reports any existing `.pi/settings.json` subagent settings and `.pi/agents/*.md` files. It also checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. Untracked runtime state blocks subagent worktree isolation, which needs a clean working tree. It also clutters `git status`, and cleanup commands such as `git clean` can delete the active goal. If rules are missing, goal-x explains this and asks where to add them: `.git/info/exclude` (this machine only), `.gitignore` (shared), or nowhere. It asks once per repository per session. Without a UI, it only reports.
+
+While a goal is active, the first command that would commit everything (`git add -A`, `git commit -a`) is blocked when it would include paths that were already modified or untracked when the goal started. The block names those paths so the agent asks you what to do with your own work. After you answer, the next run may proceed; commits that name their own paths are never blocked.
+
+While a goal is active, `subagent` launches that run an implementation `worker` (or its aliases) default to `worktree: true` when the working tree is clean, so parallel workers do not share the parent's worktree. This needs no project files. An explicit `worktree` value is always kept. Their patches land through [worker patch integration](#integrating-worker-patches).
+
+Background (async) worker runs keep their worktree only with pi-subagents 0.69.0 or later. On older versions the child runs in the parent repo, so its edits and commits land in your main checkout ([pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)).
 
 ## Goal types
 
@@ -74,13 +84,93 @@ As work progresses, the agent marks the current task, records completed work, an
 
 Tasks can also have their own completion requirements—for example, “The download contains only rows matching the active filters.” The agent records evidence against those requirements, and the completion auditor uses that evidence when reviewing the overall result.
 
+### Per-task code review gate
+
+When a task is declared code-changing (`code_change: true` in `set_goal_tasks`),
+`update_goal_task(status="complete")` runs a separate read-only code review first. The task
+remains pending when the reviewer finds an issue, so the executor must resolve the findings and
+retry completion. Set `code_change: false` for documentation, research, report, and planning
+tasks. Tasks without the label are reviewed when their changed files include source code, and
+also when their changes cannot be determined (no git repository), so the gate fails closed.
+Completion evidence and prose filenames are never used for classification.
+
+The review sees only the task's own changes: tracked, staged, and untracked files changed since
+the task first started, or since the task list was set if it was never started. Restarting a
+rejected task keeps its original baseline. An oversized diff is marked as truncated and lists every
+changed file. Goal and subagent runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`,
+`.pi-subagents/`) is left out of the diff. Completion checks such as missing evidence run before
+the review, so an invalid completion never starts one.
+
+Code tasks run one at a time: a code task cannot start while another started code task is still
+open, because both would share one worktree and each review would include the other's changes.
+Tasks done by isolated workers are the exception (see below).
+A retry review checks the previous review's findings against the task's verification contract. If
+the same task is rejected three times in a row, the goal is blocked until you resume it with
+`/goal-resume`, for example after narrowing the task, fixing the build environment, or revising the
+contract.
+
+Every decision is recorded in the ledger as a `task_review` event: approved (written with the
+completion), rejected, failed, or skipped with its reason. The review uses the configured auditor
+provider/model. Set `disableTaskReviews: true` in settings to skip this gate, or set
+`taskReviewExcludedTypes` to a list of `review_type` values to skip selectively. These controls are
+independent of the goal-level completion auditor unless the auditor itself is disabled, in which
+case task reviews are skipped too.
+
+### Checks goal-x runs itself
+
+A task can name the commands that prove it is done. goal-x runs them when the task is completed, and the task stays pending until they pass:
+
+```json
+{ "id": "export", "title": "Implement CSV export", "code_change": true,
+  "checks": [{ "command": "npm", "args": ["test", "--", "export"] }, { "command": "npm", "args": ["run", "lint"] }] }
+```
+
+Checks run in the project directory, in order, and stop at the first failure. There is no shell, so pipes, globs, `&&` and `$VARS` do not work; use `{ "command": "bash", "args": ["-lc", "…"] }` when you need one. Each check times out after 600 seconds unless `timeout_seconds` says otherwise (at most 3600). On Windows, `npm`, `npx` and other `.cmd` tools work.
+
+A failure keeps the task pending and shows the failing command, its exit code, and the end of its output. No code review starts. A pass is stored with the task and given to the code reviewer and the completion auditor as facts, so they do not have to trust the executor's evidence. Both outcomes appear in the activity feed and the goal report.
+
+### Integrating worker patches
+
+An implementation worker in its own worktree hands back a patch (the `patch.path` in its pi-subagents handoff manifest). Land it with:
+
+```text
+update_goal_task({ task_id: "api", status: "integrate", patch_path: "<patch>", commit_message: "Add export API" })
+```
+
+goal-x applies the patch on top of the current branch with a three-way merge, so a patch made on an older base lands the way a rebase would. It then runs the task's checks and commits. If the patch conflicts, a check fails, or a commit hook rejects the commit, goal-x restores exactly the files the patch touched and explains what went wrong. The branch is left as it was. Integration needs a started task, an attached branch, and a clean working tree (goal and subagent runtime state excepted).
+
+Mark tasks done by isolated workers `isolated: true`. Their changes arrive only through integration, so two isolated tasks may run at once, and each task's code review sees only its own integration commits. An isolated task cannot be completed before something is integrated; skip it with a reason if no change is needed. Completing it runs its checks again, because other tasks may have landed since.
+
 Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
+
+## Goal report
+
+Each goal keeps one Markdown report under `.pi/goals/reports/`, rewritten once per turn that changes the goal. It holds the plan as a Mermaid DAG, the same graph again coloured by current status, a task table with timings and attempt counts, reviews and completion evidence quoted as claims rather than re-run, every block, pause and wait with how long it lasted, subagent artifacts observed during the goal, a timeline, and recommendations derived from that data — a task rejected three times, two code tasks running at once, changes outside a task's declared scope, a wait that expired, or a completion that names no verification command.
+
+Run `/goal-report` to write it immediately and see its path. Set `disableGoalReport: true` to turn it off. The report is derived state: deleting it loses nothing, and it is never added to the model's prompt. Per-task tokens and cost are not recorded yet, so the table reports time only.
 
 ## Completion auditor
 
 When enabled, a separate agent reviews the work before the goal is accepted as complete. It checks the objective, tasks, recorded evidence, completion requirements, and workspace.
 
 If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. You can choose the auditor model in `/goal-settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
+
+If the work spans more than the project directory, such as a second repository, or is verified somewhere the auditor cannot run commands directly, such as WSL, tell the auditor in the settings file. `auditorWorkspaces` lists extra directories it may inspect, and `auditorEnvironment` describes how to run verification:
+
+```json
+{
+  "auditorWorkspaces": ["C:/Users/me/repos/second-repo"],
+  "auditorEnvironment": "Builds and tests run in WSL: wsl -e bash -lc 'cd /mnt/c/Users/me/repos/project && ctest --test-dir build'"
+}
+```
+
+The auditor treats both as guidance for where to look, never as evidence.
+
+### Evidence pre-check (experimental, log-only)
+
+When the auditor starts, goal-x can also ask [TypeSafe](https://docs.typesafe.ai)'s Jev model, for each complete task with a completion requirement, whether the task's recorded evidence says the requirement was met. The answer is written to the goal ledger (`.pi/goals/goal_events.jsonl`) as a `precheck_result` event next to the auditor's verdict. It never changes the outcome and is not shown in the conversation. The aim is to learn whether it would reliably catch completion claims made before any evidence was recorded, so a later release can reject those without starting an audit.
+
+It is off by default. Turn it on with `precheck enabled` in `/goal-settings`, and set `TYPESAFE_API_KEY` in the environment; the key is never read from a settings file. Enabling it sends the objective, task titles, requirements, evidence, and completion summary to `api.typesafe.ai`. `precheck.model` (default `jev-1.13.0`) and `precheck.rejectBelow` (default `0.15`) can be changed in the settings file.
 
 ## Progress and goal controls
 
@@ -106,6 +196,9 @@ A project can have several open goals, with one focused goal per session. Switch
 | `/goal-clear` | Archive the focused goal after confirmation. |
 | `/goal-cancel` | Cancel an unconfirmed draft. |
 | `/goal-settings` | Configure goal behaviour and the auditor. |
+| `/loop <interval> [deadline] [prompt]` | Repeat a prompt on an interval until `/loop stop`. |
+
+`/loop` needs no goal. `/loop 5m check the deploy` asks that every five minutes, `/loop 30s --until 10m` adds a deadline, and `/loop 5m` on its own repeats your last message. The next run is timed from the moment the agent finishes the previous one, so runs never overlap.
 
 For troubleshooting, use `/goal-status verbose` for more detail, `/goal-status health` or `/goal-recovery` to check for problems, and `/goal-refresh` to reload saved goals and settings after external changes. `/goal-recovery repair` offers repairs after confirmation.
 
@@ -117,12 +210,72 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 | --- | --- |
 | Explicit execution contracts (`strictExecutionContract`) | Opt-in ready/wait protocol with one missing-decision repair, then pause. Defaults to `false`: successful executions continue automatically. |
 | Autonomous run allowance (`maxAutonomousRuns`) | Positive whole number of extension-started runs per creation or `/goal-resume` period. **Unset means unlimited; zero disables automatic continuation.** Settings edits change the limit without resetting usage. |
+| Autonomous runs line (`showAutonomousRuns`) | Controls the `Autonomous runs: N/limit` line that appears for a finite allowance. Defaults to `true`. |
 | Task tracking (`disableTasks`) | Turn task lists on or off. Set to `true` to disable them. |
 | Subtask depth (`subtaskDepth`) | Limit how many levels of subtasks the agent can create. |
 | Completion requirements (`disableContracts`) | Turn explicit goal and task completion requirements on or off. Set to `true` to disable them. |
 | Unfocused reminder (`hideUnfocusedPrompt`) | When a session has no focused goal but open goals exist in the selected pool, the agent receives a `[PI GOAL UNFOCUSED]` reminder on every request. Set to `true` to stop that reminder. Defaults to `false`. This is independent of `hideUnfocusedBanner`, which hides only the unfocused widget and status hint. Neither setting selects or resumes a goal; the separate `autoSelectSingleGoal` setting still applies. |
 | Auditor disabled | Turn off independent completion review. |
 | Auditor provider, model, and thinking level | Choose which model reviews completed work and its reasoning effort. |
+| Auditor workspaces and environment (`auditorWorkspaces`, `auditorEnvironment`) | Point the auditor at extra directories and explain how to run verification. Set in the settings file. |
+| Evidence pre-check (`precheck`) | Experimental, log-only [evidence pre-check](#evidence-pre-check-experimental-log-only). Off by default; needs `TYPESAFE_API_KEY`. |
+
+
+### Automatic continuation and optional execution contracts
+
+Active goals continue automatically after successful executions, including reasoning-only responses and final-task verification. No tool call, task update, scheduling declaration, or cooldown is required. Unproductive loops remain possible; optional run limits and token budgets still apply.
+
+Enable `strictExecutionContract: true` in `/goal-settings` or your global/project settings to require explicit ready/wait decisions. In that mode, a missing decision permits one repair prompt within the remaining allowance, then pauses. This is a user preference; agents should not enable it merely to continue.
+
+When a goal blocks, you are notified immediately with why it stopped, what the agent already tried, and what you can do about it, followed by `/goal-resume`, `/goal-tweak` and `/goal-clear`. The same details appear in the dashboard, and a blocked goal is restated when a session starts, so it cannot go unnoticed. Blocking therefore requires the agent to supply `suggested_action` addressed to you.
+
+A new wait must say what it depends on. `depends_on: "producer"` is an external condition that resolves on its own, such as a remote build. `depends_on: "user"` is rejected: anything only you can do, such as installing a tool, supplying credentials, or making a decision, is a blocker, so the goal is blocked and asks you instead of parking itself until a deadline.
+
+Waits are announced when declared, and one lasting longer than 30 minutes reminds you every 30 minutes with the time left and any remaining checks. The reminders only notify: no model turn runs and no autonomous allowance is spent. If the deadline passes without the expected signal, the goal pauses with the reason and the next step.
+
+Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.json`:
+
+```json
+{ "maxAutonomousRuns": 20 }
+```
+
+Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/goal-resume` renews the period and continues now, including from a waiting goal. No configured allowance is required unless the effective limit is zero, which disables resume. Tool calls within a run are not separate runs. Existing token budgets still apply.
+
+Explicit `ready` is optional in default mode. New `wait` declarations require strict mode; otherwise they return a non-terminating error. Previously saved waits retain their deadline, checks, and repair rules when upgrading or disabling strict mode, and may be re-declared with the same identity. Mode changes never resume a paused goal or renew consumed runs.
+
+```js
+update_goal({ continuation: { kind: "ready", next_action: "Verify the build artifacts" } })
+update_goal({ continuation: {
+  kind: "wait", depends_on: "producer", reason: "Await the remote build",
+  deadline: "2026-09-15T12:00:00Z",
+  polling: { interval_seconds: 60, max_checks: 3 }
+} })
+```
+
+Use a future deadline appropriate to the task. Omit `polling` for an event-only wait. Successful declarations terminate the execution segment. On a scheduled check, reuse the returned `wait_id` and original deadline, omitting `polling`; remaining checks cannot be reset. A ready decision ends the wait. Time spent waiting is not active execution time.
+
+The dashboard, `/goal-status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
+
+### Background producer integration
+
+Budget-controlled producers emit a scheduler signal instead of starting their own model turn:
+
+```js
+pi.events.emit("pi-goal:wake", { goalId, waitToken });
+```
+
+`waitToken` is returned in the wait declaration's tool-result details. Register it before the producer completes, or retain the completion until registration (for example, observe the `update_goal` tool result in the host adapter). The token changes after consumption and re-declaration. A matching signal received before agent settlement is retained; duplicate, stale and wrong-goal tokens are ignored. A signal and timer can claim only one wake.
+
+Existing producers that directly send `triggerTurn`/`followUp` messages still run as ordinary host work and supersede old pending decisions. Those independently started turns are **outside this extension's allowance**; use `pi-goal:wake` to put them through its spending gate. The allowance also does not limit Pi's own within-run tool loop or native retries. It bounds the goal extension's kickoff, continuation, check, signal, repair and recovery dispatches.
+
+## Observability
+
+For troubleshooting long-running goals, set `PI_GOAL_X_OBSERVABILITY=1` before
+starting Pi. The extension then appends privacy-conscious JSONL events for
+continuation scheduling, retries, focus changes, and auditor decisions to
+`.pi/goals/debug/observability.jsonl`. Objectives, prompts, tool arguments, and
+model output are intentionally excluded; telemetry failures never affect goal
+execution.
 
 ## License
 

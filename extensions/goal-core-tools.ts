@@ -1,3 +1,4 @@
+import { combineAbortSignals } from "./goal-cancellation.ts";
 import { schedulerSummary, type GoalContinuation } from "./goal-scheduler-state.ts";
 import { goalDetailPage, type GoalDetailSection } from "./goal-detail.ts";
 import { taskIndex } from "./goal-task-index.ts";
@@ -42,7 +43,7 @@ function conciseTaskPointers(goal: GoalRecord): { findCurrentTask?: GoalTask; fi
 export function registerCoreTools(
 	core: GoalCore,
 	deps: {
-		runGoalCompletionFlow: (core: GoalCore, ctx: ExtensionContext, completionSummary?: string) => Promise<AgentToolResult<unknown>>;
+		runGoalCompletionFlow: (core: GoalCore, ctx: ExtensionContext, completionSummary?: string, signal?: AbortSignal) => Promise<AgentToolResult<unknown>>;
 	},
 ): void {
 	const { pi } = core;
@@ -88,7 +89,7 @@ pi.registerTool(defineTool({
   }
   if (params.cursor || params.task_id) return {content: [{type: "text", text: "Use section=objective, tasks, or history for detail retrieval; task_id requires tasks."}], details: goalDetails(view)};
 		if (verbose && !params.section) {
-			const lines: string[] = [`Goal ${view.id}: ${statusLabel(view)}, ${view.sisyphus ? "sisyphus" : "regular"}`, schedulerSummary(view.scheduler, loadGoalSettings(ctx.cwd).maxAutonomousRuns)];
+			const lines: string[] = [`Goal ${view.id}: ${statusLabel(view)}, ${view.sisyphus ? "sisyphus" : "regular"}`, schedulerSummary(view.scheduler, loadGoalSettings(ctx.cwd).maxAutonomousRuns, loadGoalSettings(ctx.cwd).showAutonomousRuns)];
 			lines.push(`Objective: ${view.objective}`, "");
 			lines.push(`Status: ${statusLabel(view)}`);
 			lines.push(`Mode: ${view.sisyphus ? "sisyphus" : "regular"}`);
@@ -131,7 +132,7 @@ pi.registerTool(defineTool({
 		}
 
 		// Compact state read; full requirements remain available through detail pages.
-		const lines: string[] = [`Goal ${view.id}: ${statusLabel(view)}, ${view.sisyphus ? "sisyphus" : "regular"}`, schedulerSummary(view.scheduler, loadGoalSettings(ctx.cwd).maxAutonomousRuns)];
+		const lines: string[] = [`Goal ${view.id}: ${statusLabel(view)}, ${view.sisyphus ? "sisyphus" : "regular"}`, schedulerSummary(view.scheduler, loadGoalSettings(ctx.cwd).maxAutonomousRuns, loadGoalSettings(ctx.cwd).showAutonomousRuns)];
 		lines.push(`Objective: ${truncateText(view.objective, 180)}${view.objective.length > 180 ? " (full: get_goal section=objective)" : ""}`);
 		if (view.taskList) {
 			const { findCurrentTask, firstPendingTask } = conciseTaskPointers(view);
@@ -242,7 +243,7 @@ pi.registerTool(defineTool({
 // complete → the independent auditor verifies from actual evidence (no
 // paperwork field); blocked → a distinct agent-blocked state that stops
 // continuation. The three-consecutive-turn blocker rule is prompt policy.
-	async function runGoalBlockedFlow(ctx: ExtensionContext, reasonInput?: string, attemptedActions: string[] = [], suggestedActionInput?: string): Promise<AgentToolResult<unknown>> {
+	async function runGoalBlockedFlow(ctx: ExtensionContext, reasonInput?: string, attemptedActions: string[] = [], suggestedActionInput?: string, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
 	core.reconcileFocusedGoalFromDisk(ctx);
 	const gate = validateGoalBlock({ goal: core.state.goal, runningGoalId: core.runningGoalId });
 	if (!gate.ok) {
@@ -386,7 +387,9 @@ pi.registerTool(defineTool({
 		attemptedActions: attemptedActions.slice(0, 8),
 		settings: oracleSettings as ResolvedGoalOracleSettings,
 		recentEvidence: "",
+		signal,
 	});
+	signal?.throwIfAborted();
 
 	if (!core.isFocusedOperationCurrent(focusToken)) {
 		return core.focusedOperationCancelledResult("Blocker Oracle", focusToken);
@@ -530,7 +533,7 @@ pi.registerTool(defineTool({
 	parameters: Type.Object({
 		status: Type.Optional(StringEnum(["complete", "blocked", "paused"] as const, { description: "Exclusive with continuation." })),
 		continuation: Type.Optional(Type.Union([
-			Type.Object({ kind: Type.Literal("ready"), next_action: Type.String({ minLength: 1, maxLength: 2000 }) }, { additionalProperties: false }),
+			Type.Object({ kind: Type.Literal("ready") }, { additionalProperties: false }),
 			Type.Object({ kind: Type.Literal("wait"), reason: Type.String({ minLength: 1, maxLength: 2000 }), deadline: Type.String(), depends_on: Type.Optional(StringEnum(["producer", "user"] as const, { description: "Required for a new wait: 'producer' for an external condition that resolves itself; 'user' is rejected, block instead." })), wait_id: Type.Optional(Type.String()), polling: Type.Optional(Type.Object({ interval_seconds: Type.Integer({ minimum: 1, maximum: 2147483 }), max_checks: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }, { additionalProperties: false })) }, { additionalProperties: false }),
 		])),
 		reason: Type.Optional(Type.String({ description: "Required when status is paused or blocked: describe the concrete blocker." })),
@@ -539,7 +542,9 @@ pi.registerTool(defineTool({
 		completion_summary: Type.Optional(Type.String({ description: "Untrusted completion claim; never evidence." })),
 	}, { additionalProperties: false }),
 	executionMode: "sequential",
-	async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+	async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		signal = combineAbortSignals(signal, ctx.signal, core.sessionAbortController.signal);
+		signal?.throwIfAborted();
 		// P1-3: persist any buffered in-turn mutations now so the auditor and
 		// status transitions observe the current task/state, not the stale disk.
 		core.flushGoalTransaction(ctx);
@@ -551,12 +556,12 @@ pi.registerTool(defineTool({
 			const attempted = Array.isArray((params as { attempted_actions?: unknown }).attempted_actions)
 				? ((params as { attempted_actions: unknown[] }).attempted_actions.filter((a): a is string => typeof a === "string"))
 				: [];
-			return runGoalBlockedFlow(ctx, params.reason, attempted, params.suggested_action);
+			return runGoalBlockedFlow(ctx, params.reason, attempted, params.suggested_action, signal);
 		}
 		if (params.status === "paused") {
 			return runGoalAgentPauseFlow(ctx, params.reason, params.suggested_action);
 		}
-		return deps.runGoalCompletionFlow(core, ctx, params.completion_summary);
+		return deps.runGoalCompletionFlow(core, ctx, params.completion_summary, signal);
 	},
 	renderCall(args, theme) {
 		return new Text(theme.fg("toolTitle", "update_goal ") + theme.fg("muted", args?.status ?? ""), 0, 0);
