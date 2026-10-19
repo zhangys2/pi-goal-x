@@ -46,7 +46,7 @@ function harness(cwd: string, sessionEntries: unknown[], reviews: string[]) {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, { runTaskReview: async (args: any) => { reviews.push(args.completionSummary); return { approved: true, disapproved: false, output: "<approved/>" }; } });
+	goalExtension(pi as any);
 	return { handlers, tools, ctx };
 }
 
@@ -88,7 +88,7 @@ async function setup(tasks: Array<Record<string, unknown>>, workers: Record<stri
 	return { cwd, call, reviews, patches, goalOnDisk, events, cleanup };
 }
 
-test("isolated tasks run in parallel, integrate their patches, and are reviewed as their own commits", async () => {
+test("isolated tasks run in parallel and integrate their patches without a review gate", async () => {
 	const f = await setup(
 		[{ id: "api", title: "API", status: "pending", codeChange: true, isolated: true }, { id: "ui", title: "UI", status: "pending", codeChange: true, isolated: true }],
 		{ api: ["api.ts", "export const API_WORK = 1;\n"], ui: ["ui.ts", "export const UI_WORK = 1;\n"] },
@@ -106,8 +106,7 @@ test("isolated tasks run in parallel, integrate their patches, and are reviewed 
 		assert.equal(api.integrations![0]!.commit, git(f.cwd, "rev-parse", "HEAD~1").trim());
 
 		assert.match(await f.call({ task_id: "api", status: "complete" }), /api complete/);
-		assert.match(f.reviews[0]!, /API_WORK/);
-		assert.doesNotMatch(f.reviews[0]!, /UI_WORK/, "another task's integration is not in this review");
+		assert.equal(f.reviews.length, 0, "worker integration does not invoke a per-task review");
 		const outcomes = f.events().filter((e) => e.type === "task_integration").map((e) => e.outcome);
 		assert.deepEqual(outcomes, ["integrated", "integrated"]);
 	} finally { f.cleanup(); }

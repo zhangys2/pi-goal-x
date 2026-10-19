@@ -36,7 +36,6 @@ interface HarnessOptions {
 	cwd: string;
 	sessionEntries: unknown[];
 	runCompletionAuditor?: (...args: any[]) => Promise<any>;
-	runTaskReview?: (...args: any[]) => Promise<any>;
 	hasUI?: boolean;
 	select?: (prompt: string, options: string[]) => Promise<string | undefined>;
 	input?: (prompt: string, fallback: string) => Promise<string | undefined>;
@@ -89,10 +88,7 @@ function createHarness(options: HarnessOptions): Harness {
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, {
-		runCompletionAuditor: options.runCompletionAuditor,
-		runTaskReview: options.runTaskReview ?? (async () => ({ approved: true, disapproved: false, output: "<approved/>" })),
-	});
+	goalExtension(pi as any, options.runCompletionAuditor ? { runCompletionAuditor: options.runCompletionAuditor } : {});
 	return {
 		handlers, tools, commands, ctx, notifies, activeToolsHistory,
 		statusCalls, widgetCalls,
@@ -452,8 +448,7 @@ describe("five-tool handler integration", () => {
 				await start(h);
 				await h.commands.get("goal-settings").handler("", h.ctx);
 				const lines = firstOptions.filter((o) => o.startsWith("  ") && !o.startsWith("  ───"));
-				assert.equal(lines.length, 22, `all twenty-two rows rendered, got: ${lines.join(" | ")}`);
-				assert.ok(lines.some((l) => l === "  show autonomous runs line: true (default)"), "the runs-line setting is listed and defaults to on");
+				assert.equal(lines.length, 21, `all twenty-one rows rendered, got: ${lines.join(" | ")}`);
 				assert.ok(lines.some((l) => l === "  auditor disabled: true (project override)"));
 				assert.ok(lines.some((l) => l === "  provider: anthropic (project override)"));
 				assert.ok(lines.some((l) => l === "  model: (default) (default)"));
@@ -480,6 +475,7 @@ describe("five-tool handler integration", () => {
 					"  disableContracts: false (default)", "Set project override to true",
 					"  auditor disabled: false (default)", "Set project override to true",
 					"  autoSelectSingleGoal: false (default)", "Set project override to true",
+					"  hideUnfocusedPrompt: false (default)", "Set project override to true",
 					"Done",
 				];
 				const h = createHarness({
@@ -493,9 +489,10 @@ describe("five-tool handler integration", () => {
 				assert.equal(saved.disableContracts, true);
 				assert.equal(saved.disabled, true);
 				assert.equal(saved.autoSelectSingleGoal, true);
+				assert.equal(saved.hideUnfocusedPrompt, true);
 				// Second pass removes the local overrides via the action menu's
 				// inherit choice; the file then omits both keys.
-				const selects2 = ["  disableTasks: true (project override)", "Use inherited value", "  autoSelectSingleGoal: true (project override)", "Use inherited value", "Done"];
+				const selects2 = ["  disableTasks: true (project override)", "Use inherited value", "  autoSelectSingleGoal: true (project override)", "Use inherited value", "  hideUnfocusedPrompt: true (project override)", "Use inherited value", "Done"];
 				const h2 = createHarness({
 					cwd: f.cwd, sessionEntries: f.sessionEntries, hasUI: true,
 					select: async () => selects2.shift(),
@@ -505,6 +502,7 @@ describe("five-tool handler integration", () => {
 				const saved2 = readSettings(f.cwd);
 				assert.equal(saved2.disableTasks, undefined, "disableTasks toggled back off clears the key");
 				assert.equal(saved2.autoSelectSingleGoal, undefined, "autoSelectSingleGoal toggled back off clears the key");
+				assert.equal(saved2.hideUnfocusedPrompt, undefined, "hideUnfocusedPrompt inherited value clears the key");
 				assert.equal(saved2.disableContracts, true, "untouched boolean preserved");
 				assert.equal(saved2.disabled, true, "untouched boolean preserved");
 			} finally {
@@ -885,16 +883,10 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 });
 
 describe("completion transaction hardening (follow-up Stage 3)", () => {
-	it("completion commit write failure never reports success and never clears focus", async (t) => {
+	it("completion commit write failure never reports success and never clears focus", { skip: process.platform === "win32" }, async () => {
 		const f = fixture();
 		const goalsDir = path.join(f.cwd, ".pi", "goals");
 		try {
-			// Windows does not enforce chmod-based directory write restrictions,
-			// so this filesystem-failure simulation is not portable there.
-			if (process.platform === "win32") {
-				t.skip("Windows does not enforce chmod-based directory write restrictions");
-				return;
-			}
 			// Pre-create the ledger file so its fallback append path works even
 			// when the goals directory is read-only (append needs write on the
 			// file, not the directory; the atomic goal write needs a writable

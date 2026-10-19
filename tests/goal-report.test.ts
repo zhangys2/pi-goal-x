@@ -27,8 +27,8 @@ function fixture(over: Partial<GoalRecord> = {}, events: GoalLedgerEvent[] = [])
 		updatedAt: at(5),
 		usage: { tokensUsed: 120_000, activeSeconds: 3_600 },
 		taskList: { tasks: [
-			task("w1", { status: "complete", reviewBaseline: { revision: "r", untracked: {} }, evidence: "cargo test --workspace passes", subtasks: [task("w1a", { status: "complete" })] }),
-			task("w2", { reviewBaseline: { revision: "r", untracked: {} }, verificationContract: "Bound the market channel." }),
+			task("w1", { status: "complete", workBaseline: { revision: "r", untracked: {} }, evidence: "cargo test --workspace passes", subtasks: [task("w1a", { status: "complete" })] }),
+			task("w2", { workBaseline: { revision: "r", untracked: {} }, verificationContract: "Bound the market channel." }),
 		], blockCompletion: true, proposedAt: at(500) },
 		...over,
 	} as GoalRecord;

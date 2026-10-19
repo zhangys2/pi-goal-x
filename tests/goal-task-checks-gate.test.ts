@@ -1,7 +1,7 @@
 /**
- * Executed task checks at the update_goal_task boundary: checks run before the
- * code review, a failure keeps the task pending without a review, and a pass is
- * stored on the task and written to the ledger with the completion.
+ * Executed task checks at the update_goal_task boundary: a failure keeps the
+ * task pending, and a pass is stored and written with completion without a
+ * separate per-task review gate.
  */
 
 import assert from "node:assert/strict";
@@ -21,7 +21,7 @@ const node = process.execPath;
 const pass = { command: node, args: ["-e", "process.exit(0)"] };
 const fail = { command: node, args: ["-e", "console.error('CHECK_BROKE'); process.exit(2)"] };
 
-function harness(cwd: string, sessionEntries: unknown[], reviews: string[], reviewer?: (args: any) => Promise<any>) {
+function harness(cwd: string, sessionEntries: unknown[]) {
 	const handlers = new Map<string, Function>();
 	const tools = new Map<string, ToolDefinition>();
 	let activeTools = ["read", "bash", "edit", "write"];
@@ -46,47 +46,29 @@ function harness(cwd: string, sessionEntries: unknown[], reviews: string[], revi
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, { runTaskReview: async (args: any) => { reviews.push(args.completionSummary); return reviewer ? reviewer(args) : { approved: true, disapproved: false, output: "<approved/>" }; } });
+	goalExtension(pi as any);
 	return { handlers, tools, ctx };
 }
 
-async function setup(tasks: Array<Record<string, unknown>>, reviewer?: (args: any) => Promise<any>) {
+async function setup(tasks: Array<Record<string, unknown>>) {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-checks-gate-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const goal = createGoal({ objective: "Checks goal", autoContinue: false, sisyphus: false }, Date.UTC(2026, 8, 19));
 	goal.taskList = { tasks: tasks as any, blockCompletion: false, proposedAt: new Date().toISOString() };
 	writeActiveGoalFile({ cwd }, goal);
-	const reviews: string[] = [];
-	const h = harness(cwd, [{ type: "custom", customType: "pi-goal-focus", data: goalFocusDetails(goal.id, "created") }], reviews, reviewer);
+	const h = harness(cwd, [{ type: "custom", customType: "pi-goal-focus", data: goalFocusDetails(goal.id, "created") }]);
 	await h.handlers.get("session_start")?.({ reason: "start" }, h.ctx);
 	await h.handlers.get("before_agent_start")?.({ systemPrompt: "base", prompt: "go", systemPromptOptions: {} }, h.ctx);
-	const call = async (params: Record<string, unknown>, signal?: AbortSignal) => (h.tools.get("update_goal_task")!.execute as any)("call", params, signal, undefined, h.ctx);
+	const call = async (params: Record<string, unknown>) => (h.tools.get("update_goal_task")!.execute as any)("call", params, undefined, undefined, h.ctx);
 	const goalOnDisk = (): GoalRecord => {
 		const file = readdirSync(path.join(cwd, ".pi", "goals")).find((n) => n.startsWith("active_goal_"))!;
 		return parseGoalFile(path.join(cwd, ".pi", "goals", file))!;
 	};
 	const events = () => readFileSync(goalLedgerPath({ cwd }), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
-	return { cwd, call, reviews, goalOnDisk, events, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+	return { cwd, call, goalOnDisk, events, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
-test("task review receives cancellation and cannot complete a task after abort", async () => {
-	for (const batch of [false, true]) {
-		const controller = new AbortController();
-		const f = await setup([{ id: "code", title: "Implement", status: "pending", codeChange: true }], async (args) => {
-			assert.ok(args.signal, "review must receive the operation signal");
-			controller.abort();
-			assert.equal(args.signal.aborted, true);
-			return { approved: true, output: "<approved/>" };
-		});
-		try {
-			const update = { task_id: "code", status: "complete", evidence: "done" };
-			await assert.rejects(f.call(batch ? { updates: [update] } : update, controller.signal), { name: "AbortError" });
-			assert.equal(f.goalOnDisk().taskList!.tasks[0]!.status, "pending");
-		} finally { f.cleanup(); }
-	}
-});
-
-test("passing checks complete the task and reach the reviewer as facts", async () => {
+test("passing checks complete the task without a per-task review", async () => {
 	const f = await setup([{ id: "code", title: "Implement", status: "pending", codeChange: true, checks: [pass] }]);
 	try {
 		const result = await f.call({ task_id: "code", status: "complete", evidence: "done" });
@@ -94,13 +76,12 @@ test("passing checks complete the task and reach the reviewer as facts", async (
 		const task = f.goalOnDisk().taskList!.tasks[0]!;
 		assert.equal(task.status, "complete");
 		assert.equal(task.checkRun?.passed, true);
-		assert.match(f.reviews[0] ?? "", /Checks goal-x ran/);
 		const types = f.events().filter((e) => e.taskId === "code").map((e) => e.type);
-		assert.deepEqual(types.slice(-3), ["task_checks", "task_review", "task_complete"], "the pass is written with the completion");
+		assert.deepEqual(types.slice(-2), ["task_checks", "task_complete"], "the pass is written with the completion");
 	} finally { f.cleanup(); }
 });
 
-test("a failing check keeps the task pending and starts no review", async () => {
+test("a failing check keeps the task pending", async () => {
 	const f = await setup([{ id: "code", title: "Implement", status: "pending", codeChange: true, checks: [pass, fail] }]);
 	try {
 		const result = await f.call({ task_id: "code", status: "complete", evidence: "done" });
@@ -108,7 +89,6 @@ test("a failing check keeps the task pending and starts no review", async () => 
 		assert.match(result.content[0].text, /exit 2/);
 		assert.match(result.content[0].text, /CHECK_BROKE/);
 		assert.equal(f.goalOnDisk().taskList!.tasks[0]!.status, "pending");
-		assert.equal(f.reviews.length, 0);
 		const checks = f.events().filter((e) => e.type === "task_checks");
 		assert.equal(checks.length, 1);
 		assert.equal(checks[0].passed, false);
@@ -129,7 +109,7 @@ test("a failing check in a batch rejects the whole batch", async () => {
 	} finally { f.cleanup(); }
 });
 
-test("checks run even when the task needs no review", async () => {
+test("checks run regardless of task review policy", async () => {
 	const f = await setup([{ id: "docs", title: "Docs", status: "pending", codeChange: false, checks: [fail] }]);
 	try {
 		const result = await f.call({ task_id: "docs", status: "complete" });

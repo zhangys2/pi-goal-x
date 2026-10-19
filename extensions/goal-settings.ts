@@ -93,12 +93,8 @@ export function formatGoalKeybinding(key: string): string {
 export interface GoalSettingsResolvedShape {
 	disableTasks?: boolean;
 	disableContracts?: boolean;
-	/** Disable the per-task code review gate without disabling goal auditing. */
-	disableTaskReviews?: boolean;
 	/** Turn off the per-goal Markdown report. */
 	disableGoalReport?: boolean;
-	/** Task categories (review_type) that skip the per-task review gate. */
-	taskReviewExcludedTypes?: string[];
 	subtaskDepth?: number;
 	provider?: string;
 	model?: string;
@@ -132,8 +128,9 @@ export interface GoalSettingsResolvedShape {
 	keybindings?: GoalKeybindings;
 	/** PR #29: suppress the unfocused goal widget + status hint (default false). */
 	hideUnfocusedBanner?: boolean;
-	/** Issue #72: suppress the model-facing [PI GOAL UNFOCUSED] prompt (default false). */
+	/** Issue #72: suppress the model-facing unfocused reminder (default false). */
 	hideUnfocusedPrompt?: boolean;
+	/** Absolute shared goal pool root; unset keeps the cwd-local default. */
 	goalsRoot?: string;
 	/** Issue #26: opt-in read-only blocker Oracle configuration (sparse). */
 	oracle?: GoalOracleSettingsLayer;
@@ -358,9 +355,7 @@ function asThinkingLevel(value: unknown): ThinkingLevel | undefined {
 const ALLOWED_SETTINGS_KEYS = new Set([
 	"disableTasks",
 	"disableContracts",
-	"disableTaskReviews",
 	"disableGoalReport",
-	"taskReviewExcludedTypes",
 	"subtaskDepth",
 	"provider",
 	"model",
@@ -432,7 +427,6 @@ export function parseSettingsLayer(
 			case "strictExecutionContract":
 			case "disableTasks":
 			case "disableContracts":
-			case "disableTaskReviews":
 			case "disableGoalReport":
 			case "disabled":
 			case "autoSelectSingleGoal":
@@ -448,15 +442,10 @@ export function parseSettingsLayer(
 				}
 				break;
 			}
-			case "taskReviewExcludedTypes": {
-				const entries = Array.isArray(value) ? value.map(asNonEmptyString) : undefined;
-				if (!entries || entries.length === 0 || entries.some((entry) => entry === undefined)) {
-					diagnostics.push(diagnostic("invalid_value", `${key} must be a non-empty list of non-empty strings`, key));
-				} else {
-					layer.taskReviewExcludedTypes = entries as string[];
-				}
+			case "disableTaskReviews":
+			case "taskReviewExcludedTypes":
+				// Removed settings are accepted for compatibility and have no effect.
 				break;
-			}
 			case "subtaskDepth": {
 				const parsed = asPositiveInt(value);
 				if (parsed === undefined) diagnostics.push(diagnostic("invalid_value", `${key} must be an integer >= 1`, key));
@@ -819,20 +808,10 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		defaultValue: false,
 		envVar: "PI_GOAL_DISABLE_TASKS",
 	}));
-	const disableTaskReviews = track("disableTaskReviews", resolveLeaf<boolean>({
-		projectValue: project.layer.disableTaskReviews,
-		globalValue: global.layer.disableTaskReviews,
-		defaultValue: false,
-	}));
 	const disableGoalReport = track("disableGoalReport", resolveLeaf<boolean>({
 		projectValue: project.layer.disableGoalReport,
 		globalValue: global.layer.disableGoalReport,
 		defaultValue: false,
-	}));
-	const taskReviewExcludedTypes = track("taskReviewExcludedTypes", resolveLeaf<string[]>({
-		projectValue: project.layer.taskReviewExcludedTypes,
-		globalValue: global.layer.taskReviewExcludedTypes,
-		defaultValue: undefined as unknown as string[],
 	}));
 	const disableContracts = track("disableContracts", resolveLeaf<boolean>({
 		envValue: envBool("PI_GOAL_DISABLE_CONTRACTS"),
@@ -1011,9 +990,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 	const value: ResolvedGoalSettings = {
 		disableTasks,
 		disableContracts,
-		disableTaskReviews,
 		disableGoalReport,
-		...(taskReviewExcludedTypes ? { taskReviewExcludedTypes } : {}),
 		subtaskDepth,
 		...(provider ? { provider } : {}),
 		...(model ? { model } : {}),
@@ -1360,9 +1337,7 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 	if (settings.disabled !== undefined) persisted.disabled = settings.disabled;
 	if (settings.disableTasks !== undefined) persisted.disableTasks = settings.disableTasks;
 	if (settings.disableContracts !== undefined) persisted.disableContracts = settings.disableContracts;
-	if (settings.disableTaskReviews !== undefined) persisted.disableTaskReviews = settings.disableTaskReviews;
 	if (settings.disableGoalReport !== undefined) persisted.disableGoalReport = settings.disableGoalReport;
-	if (settings.taskReviewExcludedTypes) persisted.taskReviewExcludedTypes = [...settings.taskReviewExcludedTypes];
 	if (settings.subtaskDepth !== undefined) persisted.subtaskDepth = settings.subtaskDepth;
 	if (settings.autoSelectSingleGoal !== undefined) persisted.autoSelectSingleGoal = settings.autoSelectSingleGoal;
 	if (settings.auditorProjectResources !== undefined) persisted.auditorProjectResources = settings.auditorProjectResources;
@@ -1444,8 +1419,8 @@ export function effectiveSettingsReport(cwd: string, env: NodeJS.ProcessEnv = pr
 		{ key: "auditorProjectResources", label: "auditor project resources", format: () => String(snapshot.value.auditorProjectResources) },
 		{ key: "hideUnfocusedBanner", label: "hide unfocused banner", format: () => String(snapshot.value.hideUnfocusedBanner) },
 		{ key: "showAutonomousRuns", label: "show autonomous runs line", format: () => String(snapshot.value.showAutonomousRuns) },
-		{ key: "goalsRoot", label: "goals root (reload to change)", format: () => snapshot.value.goalsRoot ?? ".pi/goals" },
 		{ key: "hideUnfocusedPrompt", label: "hide unfocused prompt", format: () => String(snapshot.value.hideUnfocusedPrompt) },
+		{ key: "goalsRoot", label: "goals root (reload to change)", format: () => snapshot.value.goalsRoot ?? ".pi/goals" },
 		{ key: "strictExecutionContract", label: "explicit execution contracts (opt-in)", format: () => String(snapshot.value.strictExecutionContract) },
 		{ key: "maxAutonomousRuns", label: "autonomous run allowance", format: () => snapshot.value.maxAutonomousRuns === 0 ? "0 (disabled)" : String(snapshot.value.maxAutonomousRuns ?? "unlimited (default)") },
 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", format: () => String(snapshot.value.stallTimeoutMinutes) },

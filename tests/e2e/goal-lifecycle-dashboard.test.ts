@@ -9,8 +9,7 @@
  * reflect real persisted state (§2.2).
  */
 
-import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -37,7 +36,7 @@ interface StageRecord {
 	percentage: number;
 }
 
-function createHarness(cwd: string, opts: { runCompletionAuditor?: (...args: any[]) => Promise<any>; runTaskReview?: (...args: any[]) => Promise<any> } = {}) {
+function createHarness(cwd: string, opts: { runCompletionAuditor?: (...args: any[]) => Promise<any> } = {}) {
 	const handlers = new Map<string, Function>();
 	const commands = new Map<string, any>();
 	const tools = new Map<string, any>();
@@ -80,7 +79,7 @@ function createHarness(cwd: string, opts: { runCompletionAuditor?: (...args: any
 		hasPendingMessages: () => false,
 		abort: () => {},
 	} as unknown as ExtensionContext;
-	goalExtension(pi as any, { runCompletionAuditor: opts.runCompletionAuditor, runTaskReview: opts.runTaskReview });
+	goalExtension(pi as any, { runCompletionAuditor: opts.runCompletionAuditor });
 	return {
 		ctx,
 		commands,
@@ -138,443 +137,11 @@ function dashboardText(goal: GoalRecord, expanded: boolean, cwd: string): string
 	return lines.join("\n");
 }
 
-test("per-task review controls skip the auditor and record the decision", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-controls-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ disableTaskReviews: true }), "utf8");
-	let invocations = 0;
-	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Review control test", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		const result = await callTool(h, "update_goal_task", "controls-1", { task_id: "code", status: "complete", evidence: "verified" });
-		assert.match(result.content[0].text, /complete/i);
-		assert.equal(invocations, 0, "disabled task reviews must not invoke the auditor");
-		assert.equal(ledgerEvents(cwd).some((event) => event.type === "task_review" && event.verdict === "skipped"), true);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("excluded review types and auditor settings prevent task-review invocation", async () => {
-	for (const [settings, skipAuditor] of [[{ taskReviewExcludedTypes: ["generated"] }, false], [{ disabled: true }, false], [{}, true]] as const) {
-		const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-policy-"));
-		mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-		if (Object.keys(settings).length) writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify(settings), "utf8");
-		let invocations = 0;
-		const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
-		try {
-			await h.sessionStart();
-			h.core.replaceGoal({ objective: "Review policy test", autoContinue: false, sisyphus: false, skipAuditor, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true, reviewType: "generated" }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-			await callTool(h, "update_goal_task", "policy-1", { task_id: "code", status: "complete", evidence: "verified" });
-			assert.equal(invocations, 0);
-			assert.ok(ledgerEvents(cwd).some((event) => event.type === "task_review" && event.verdict === "skipped"));
-		} finally { rmSync(cwd, { recursive: true, force: true }); }
-	}
-});
-
-test("rejected and failed task reviews keep tasks pending and record outcomes", async () => {
-	for (const review of [{ approved: false, disapproved: true, output: "Issue found" }, { approved: false, disapproved: false, output: "", error: "provider failed" }]) {
-		const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-rejection-"));
-		mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-		const h = createHarness(cwd, { runTaskReview: async () => review });
-		try {
-			await h.sessionStart();
-			h.core.replaceGoal({ objective: "Review rejection test", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-			const result = await callTool(h, "update_goal_task", "reject-1", { task_id: "code", status: "complete", evidence: "verified" });
-			assert.match(result.content[0].text, /remains pending/i);
-			assert.equal(currentGoal(cwd)!.taskList!.tasks[0]!.status, "pending");
-			const reloadedEvents = ledgerEvents(cwd);
-			assert.ok(reloadedEvents.some((event) => event.type === "task_review" && event.verdict === (review.error ? "error" : "disapproved")));
-			const dashboard = deriveGoalDashboardModel(currentGoal(cwd), { focused: true, otherOpenGoals: 0, ledgerEvents: reloadedEvents });
-			assert.ok(dashboard?.recentActivity.some((item) => item.text.includes(review.error ? "failed" : "rejected")), "reloaded dashboard shows the review result");
-		} finally { rmSync(cwd, { recursive: true, force: true }); }
-	}
-});
-
-test("an unlabelled task is reviewed when git cannot report its changes", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-unknown-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	let invocations = 0;
-	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Unknown changes", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "parser", title: "Implement parser", status: "pending" }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		await callTool(h, "update_goal_task", "unknown-start", { task_id: "parser", status: "start" });
-		await callTool(h, "update_goal_task", "unknown-complete", { task_id: "parser", status: "complete", evidence: "done" });
-		assert.equal(invocations, 1, "unclassifiable tasks fail closed into a review");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-function initGitRepo(cwd: string): void {
-	const git = (...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
-	git("init", "-q");
-	git("config", "user.email", "test@example.invalid");
-	git("config", "user.name", "Test");
-	writeFileSync(path.join(cwd, ".gitignore"), ".pi/\n");
-	writeFileSync(path.join(cwd, "src.ts"), "v0\n");
-	git("add", ".");
-	git("commit", "-qm", "baseline");
-}
-
-test("restarting a rejected task keeps its review baseline", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-restart-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const summaries: string[] = [];
-	const h = createHarness(cwd, { runTaskReview: async (args: any) => {
-		summaries.push(args.completionSummary);
-		return summaries.length === 1
-			? { approved: false, disapproved: true, output: "needs work\n<disapproved/>" }
-			: { approved: true, disapproved: false, output: "<approved/>" };
-	} });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Restart review", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		await callTool(h, "update_goal_task", "restart-start-1", { task_id: "code", status: "start" });
-		appendFileSync(path.join(cwd, "src.ts"), "REJECTED_CHANGE\n");
-		await callTool(h, "update_goal_task", "restart-complete-1", { task_id: "code", status: "complete", evidence: "first try" });
-		await callTool(h, "update_goal_task", "restart-start-2", { task_id: "code", status: "start" });
-		appendFileSync(path.join(cwd, "src.ts"), "FIXUP\n");
-		await callTool(h, "update_goal_task", "restart-complete-2", { task_id: "code", status: "complete", evidence: "fixed" });
-		assert.equal(summaries.length, 2);
-		assert.match(summaries[1]!, /^\+REJECTED_CHANGE/m, "the retry review still sees the rejected change as part of the task");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("a task added by set_goal_tasks and completed without start is reviewed against the list baseline", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-unstarted-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const summaries: string[] = [];
-	const h = createHarness(cwd, { runTaskReview: async (args: any) => { summaries.push(args.completionSummary); return { approved: true, disapproved: false, output: "<approved/>" }; } });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Unstarted review", autoContinue: false, sisyphus: false }, h.ctx);
-		const pending = callTool(h, "set_goal_tasks", "unstarted-set", { tasks: [{ id: "code", title: "Implement code", code_change: true }] });
-		h.dialogResult({ decision: "confirm" });
-		await pending;
-		appendFileSync(path.join(cwd, "src.ts"), "UNSTARTED_CHANGE\n");
-		await callTool(h, "update_goal_task", "unstarted-complete", { task_id: "code", status: "complete", evidence: "done" });
-		assert.equal(summaries.length, 1);
-		assert.match(summaries[0]!, /^\+UNSTARTED_CHANGE/m, "the review is scoped to changes since the task list was set");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("a rejected batch records no approval for tasks it did not complete", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-batch-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const h = createHarness(cwd, { runTaskReview: async (args: any) => args.goal.taskList.tasks[0].id === "first"
-		? { approved: true, disapproved: false, output: "<approved/>" }
-		: { approved: false, disapproved: true, output: "broken\n<disapproved/>" } });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Batch review", autoContinue: false, sisyphus: false, taskList: { tasks: [
-			{ id: "first", title: "Implement first", status: "pending", codeChange: true },
-			{ id: "second", title: "Implement second", status: "pending", codeChange: true },
-		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		await callTool(h, "update_goal_task", "batch-1", { updates: [
-			{ task_id: "first", status: "complete", evidence: "done" },
-			{ task_id: "second", status: "complete", evidence: "done" },
-		] });
-		const goal = currentGoal(cwd)!;
-		assert.deepEqual(goal.taskList!.tasks.map((task) => task.status), ["pending", "pending"], "a rejected batch applies nothing");
-		const reviews = ledgerEvents(cwd).filter((event) => event.type === "task_review");
-		assert.equal(reviews.some((event) => event.taskId === "first" && event.verdict === "approved"), false, "no approval is recorded for a task that stayed pending");
-		assert.ok(reviews.some((event) => event.taskId === "second" && event.verdict === "disapproved"), "the rejection stays traceable");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("an invalid completion is rejected before any review runs", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-validate-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	let invocations = 0;
-	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Validate first", autoContinue: false, sisyphus: false, taskList: { tasks: [
-			{ id: "single", title: "Implement single", status: "pending", codeChange: true, verificationContract: "Tests pass" },
-			{ id: "batched", title: "Implement batched", status: "pending", codeChange: true, verificationContract: "Tests pass" },
-		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		const single = await callTool(h, "update_goal_task", "validate-single", { task_id: "single", status: "complete" });
-		assert.match(single.content[0].text, /provide evidence/);
-		const batch = await callTool(h, "update_goal_task", "validate-batch", { updates: [{ task_id: "batched", status: "complete" }] });
-		assert.match(batch.content[0].text, /provide evidence/);
-		assert.equal(invocations, 0, "no paid review runs for a completion that validation rejects");
-		assert.equal(ledgerEvents(cwd).some((event) => event.type === "task_review"), false, "no misleading review trace");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("a task that is not reviewed records why", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-not-code-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	let invocations = 0;
-	const h = createHarness(cwd, { runTaskReview: async () => { invocations++; return { approved: true, disapproved: false, output: "<approved/>" }; } });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Not code", autoContinue: false, sisyphus: false, taskList: { tasks: [
-			{ id: "docs", title: "Write docs", status: "pending", codeChange: false },
-			{ id: "notes", title: "Update notes", status: "pending" },
-		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		await callTool(h, "update_goal_task", "not-code-complete-docs", { task_id: "docs", status: "complete", evidence: "written" });
-		await callTool(h, "update_goal_task", "not-code-start-notes", { task_id: "notes", status: "start" });
-		writeFileSync(path.join(cwd, "notes.md"), "notes\n");
-		await callTool(h, "update_goal_task", "not-code-complete-notes", { task_id: "notes", status: "complete", evidence: "updated" });
-		assert.equal(invocations, 0);
-		const skipped = ledgerEvents(cwd).filter((event) => event.type === "task_review" && event.verdict === "skipped");
-		assert.deepEqual(skipped.map((event) => event.taskId).sort(), ["docs", "notes"], "each unreviewed task leaves a skipped trace");
-		assert.ok(skipped.every((event) => /code/i.test(event.report)), "the reason says the task does not change code");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("a turn that changes goal state writes one report; an unchanged turn writes none", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-report-e2e-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const h = createHarness(cwd, { runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
-	const reportPath = () => {
-		try { return readdirSync(path.join(cwd, ".pi", "goals", "reports")).filter((n) => n.endsWith(".md")); } catch { return []; }
-	};
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Ship the report", autoContinue: false, sisyphus: false, taskList: { tasks: [
-			{ id: "w1", title: "Implement it", status: "pending", codeChange: true, verificationContract: "Run the tests. Do not modify README.md." },
-		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		assert.deepEqual(reportPath(), [], "no report before a turn ends");
-
-		await callTool(h, "update_goal_task", "report-start", { task_id: "w1", status: "start" });
-		await h.turnEnd();
-		const files = reportPath();
-		assert.equal(files.length, 1, "one report per goal");
-		const first = readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8");
-		assert.match(first, /# Goal report: Ship the report/);
-		assert.match(first, /class t_w1 in_progress/);
-
-		const before = readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8");
-		await h.turnEnd();
-		assert.equal(readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8"), before, "a turn that changed nothing rewrites nothing");
-
-		await callTool(h, "update_goal_task", "report-complete", { task_id: "w1", status: "complete", evidence: "npm test passes" });
-		await h.turnEnd();
-		const after = readFileSync(path.join(cwd, ".pi", "goals", "reports", files[0]!), "utf8");
-		assert.match(after, /class t_w1 complete/);
-		assert.match(after, /Evidence \(quoted, not re-run\): npm test passes/);
-		assert.equal(reportPath().length, 1, "the same goal keeps one report file");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("the rejection cap counts the rejection it just recorded, even inside a turn transaction", async () => {
-	// Regression: appendEvents buffers inside a turn, so counting after the
-	// append saw one rejection too few and a real goal never blocked.
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-cap-buffered-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	const h = createHarness(cwd, { runTaskReview: async () => ({ approved: false, disapproved: true, output: "still wrong\n<disapproved/>" }) });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Buffered cap", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "w1", title: "Implement", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		const complete = (n: number) => callTool(h, "update_goal_task", `buffered-${n}`, { task_id: "w1", status: "complete", evidence: "tests pass" });
-		for (const attempt of [1, 2, 3]) {
-			// Each attempt runs inside its own turn transaction, as a real turn does.
-			h.core.goalService.beginTurn(h.ctx, h.core.state.goal!.id);
-			const result = await complete(attempt);
-			h.core.goalService.flushTurn(h.ctx);
-			if (attempt < 3) {
-				assert.match(result.content[0].text, /remains pending/, `attempt ${attempt} keeps the goal active`);
-				assert.equal(currentGoal(cwd)!.status, "active");
-			} else {
-				assert.match(result.content[0].text, /3 consecutive code reviews/, "the third rejection blocks");
-				assert.equal(result.terminate, true);
-			}
-		}
-		assert.equal(currentGoal(cwd)!.status, "blocked");
-		assert.ok(ledgerEvents(cwd).some((event) => event.type === "goal_blocked" && event.source === "system"));
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("goal reports can be turned off, and /goal-report writes on demand", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-report-off-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ disableGoalReport: true }), "utf8");
-	const h = createHarness(cwd);
-	const reports = () => { try { return readdirSync(path.join(cwd, ".pi", "goals", "reports")); } catch { return []; } };
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Quiet goal", autoContinue: false, sisyphus: false }, h.ctx);
-		await h.turnEnd();
-		assert.deepEqual(reports(), [], "disabled reports write nothing");
-		await h.commands.get("goal-report")!.handler("", h.ctx);
-		assert.deepEqual(reports(), [], "and the command respects the setting");
-		assert.match(h.notifications.at(-1)!, /disabled/);
-
-		rmSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"));
-		const live = createHarness(cwd);
-		await live.sessionStart();
-		live.core.replaceGoal({ objective: "Loud goal", autoContinue: false, sisyphus: false }, live.ctx);
-		await live.commands.get("goal-report")!.handler("", live.ctx);
-		assert.equal(reports().length, 1);
-		assert.match(live.notifications.at(-1)!, /Goal report written: \.pi\/goals\/reports\/report_/);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("a resolved blocker's tried steps do not reappear on a later block", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-block-attempts-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	const h = createHarness(cwd);
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Finish the roadmap", autoContinue: false, sisyphus: false }, h.ctx);
-		await callTool(h, "update_goal", "block-1", { status: "blocked", reason: "linker missing", suggested_action: "Install it, then /goal-resume", attempted_actions: ["unset CC only"] });
-		assert.deepEqual(currentGoal(cwd)!.blockedAttempts, ["unset CC only"]);
-		await h.commands.get("goal-resume")!.handler("", h.ctx);
-		assert.equal(currentGoal(cwd)!.status, "active");
-		assert.equal(currentGoal(cwd)!.blockedAttempts, undefined, "resuming resolves the blocker");
-		await callTool(h, "update_goal", "block-2", { status: "blocked", reason: "API key missing", suggested_action: "Set the key, then /goal-resume" });
-		assert.equal(currentGoal(cwd)!.blockedAttempts, undefined);
-		assert.doesNotMatch(h.notifications.at(-1)!, /Already tried/);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("blocking notifies the user with the fix, and a restart restates it", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-block-notify-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	const h = createHarness(cwd);
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Finish the roadmap", autoContinue: false, sisyphus: false }, h.ctx);
-		const before = h.notifications.length;
-
-		const refused = await callTool(h, "update_goal", "block-no-action", { status: "blocked", reason: "cargo cannot link with MinGW CC/AR" });
-		assert.match(refused.content[0].text, /requires a "suggested_action"/);
-		assert.equal(currentGoal(cwd)!.status, "active", "a block without a fix suggestion changes nothing");
-		assert.equal(h.notifications.length, before, "and notifies nothing");
-
-		const blocked = await callTool(h, "update_goal", "block-1", {
-			status: "blocked",
-			reason: "cargo cannot link with MinGW CC/AR",
-			suggested_action: "Unset CC and AR, then /goal-resume",
-			attempted_actions: ["unset CC only", "clang-cl override"],
-		});
-		assert.equal(blocked.terminate, true);
-		const goal = currentGoal(cwd)!;
-		assert.equal(goal.status, "blocked");
-		assert.equal(goal.pauseSuggestedAction, "Unset CC and AR, then /goal-resume");
-		assert.deepEqual(goal.blockedAttempts, ["unset CC only", "clang-cl override"]);
-		const notice = h.notifications.at(-1)!;
-		assert.match(notice, /⛔ Goal blocked: Finish the roadmap/);
-		assert.match(notice, /Why: cargo cannot link/);
-		assert.match(notice, /Already tried: unset CC only; clang-cl override/);
-		assert.match(notice, /To fix: Unset CC and AR/);
-
-		// Blocked details render in the compact dashboard.
-		const dashboard = dashboardText(goal, false, cwd);
-		assert.match(dashboard, /Blocker\s+cargo cannot link/);
-		assert.match(dashboard, /Tried\s+unset CC only; clang-cl override/);
-		assert.match(dashboard, /Action\s+Unset CC and AR/);
-
-		const beforeRestart = h.notifications.length;
-		await h.sessionStart();
-		assert.match(h.notifications.slice(beforeRestart).join("\n"), /⛔ Goal blocked: Finish the roadmap[\s\S]*To fix: Unset CC and AR/, "a session start restates the blocked goal instead of hiding it");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("a code task cannot start while another started code task is unresolved", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-overlap-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const h = createHarness(cwd, { runTaskReview: async () => ({ approved: true, disapproved: false, output: "<approved/>" }) });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "One code task at a time", autoContinue: false, sisyphus: false, taskList: { tasks: [
-			{ id: "w1", title: "Implement w1", status: "pending", codeChange: true },
-			{ id: "w2", title: "Implement w2", status: "pending", codeChange: true },
-			{ id: "docs", title: "Write docs", status: "pending", codeChange: false },
-		], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		await callTool(h, "update_goal_task", "overlap-start-w1", { task_id: "w1", status: "start" });
-		const single = await callTool(h, "update_goal_task", "overlap-start-w2", { task_id: "w2", status: "start" });
-		assert.match(single.content[0].text, /cannot start while code task "w1"/);
-		const batch = await callTool(h, "update_goal_task", "overlap-batch-w2", { updates: [{ task_id: "w2", status: "start" }] });
-		assert.match(batch.content[0].text, /cannot start while code task "w1"/);
-		const docs = await callTool(h, "update_goal_task", "overlap-start-docs", { task_id: "docs", status: "start" });
-		assert.match(docs.content[0].text, /^Started docs/, "a task that changes no code may start");
-		const sequential = await callTool(h, "update_goal_task", "overlap-batch-sequential", { updates: [
-			{ task_id: "w1", status: "complete", evidence: "done" },
-			{ task_id: "w2", status: "start" },
-		] });
-		assert.doesNotMatch(sequential.content[0].text, /cannot start/, "completing the open task in the same batch frees the next start");
-		assert.equal(currentGoal(cwd)!.taskList!.tasks[1]!.reviewBaseline !== undefined, true);
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("goal creation offers project setup first, and an active goal isolates worker launches", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-project-setup-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const h = createHarness(cwd);
-	const prompts: string[] = [];
-	(h.ctx.ui as any).select = async (title: string) => { prompts.push(title); return undefined; };
-	try {
-		await h.sessionStart();
-		const launch = () => ({ toolName: "subagent", toolCallId: "sub-1", input: { workflowScript: "return runs.run('impl', {agent:'worker', task:'build'})" } as Record<string, unknown> });
-		const beforeGoal = launch();
-		await h.handlers.get("tool_call")!(beforeGoal, h.ctx);
-		assert.equal(beforeGoal.input.worktree, undefined, "without an active goal, subagent launches are untouched");
-
-		await h.commands.get("goal-direct")!.handler("Ship the feature", h.ctx);
-		assert.equal(prompts.length, 1, "the unignored .pi-subagents/ path is proposed before the goal starts");
-		assert.match(prompts[0]!, /\.pi-subagents\//);
-		assert.equal(currentGoal(cwd)!.status, "active", "skipping the proposal still creates the goal");
-		assert.doesNotMatch(readFileSync(path.join(cwd, ".gitignore"), "utf8"), /pi-subagents/, "a skipped proposal writes nothing");
-
-		const duringGoal = launch();
-		await h.handlers.get("tool_call")!(duringGoal, h.ctx);
-		assert.equal(duringGoal.input.worktree, true);
-		assert.equal(duringGoal.input.async, undefined, "async is left to pi-subagents, which isolates background runs since 0.69.0 (#2316)");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
-test("consecutive task review rejections converge, then block the goal until the user resumes", async () => {
-	const cwd = mkdtempSync(path.join(tmpdir(), "goal-task-review-cap-"));
-	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
-	initGitRepo(cwd);
-	const previousReports: Array<string | null | undefined> = [];
-	const h = createHarness(cwd, { runTaskReview: async (args: any) => {
-		previousReports.push(/PREVIOUS REVIEW FINDINGS TO RECHECK:\n([\s\S]*?)\n\nTASK DIFF:/.exec(args.completionSummary)?.[1]);
-		return { approved: false, disapproved: true, output: `finding ${previousReports.length}\n<disapproved/>` };
-	} });
-	try {
-		await h.sessionStart();
-		h.core.replaceGoal({ objective: "Rejection cap", autoContinue: false, sisyphus: false, taskList: { tasks: [{ id: "code", title: "Implement code", status: "pending", codeChange: true }], blockCompletion: false, proposedAt: new Date().toISOString() } }, h.ctx);
-		const complete = (n: number) => callTool(h, "update_goal_task", `cap-complete-${n}`, { task_id: "code", status: "complete", evidence: "tests pass" });
-		const first = await complete(1);
-		assert.match(first.content[0].text, /remains pending/);
-		assert.equal(first.terminate, undefined);
-		await complete(2);
-		assert.equal(previousReports[0], undefined, "the first review has no previous findings");
-		assert.match(previousReports[1]!, /finding 1/, "a retry review re-checks the previous findings");
-		const third = await complete(3);
-		assert.match(third.content[0].text, /3 consecutive code reviews/);
-		assert.equal(third.terminate, true, "the blocking rejection stops the turn");
-		assert.equal(currentGoal(cwd)!.status, "blocked");
-		assert.ok(ledgerEvents(cwd).some((event) => event.type === "goal_blocked" && event.source === "system"));
-		const refused = await complete(4);
-		assert.match(refused.content[0].text, /applies only to an active goal/);
-		assert.equal(previousReports.length, 3, "a blocked goal runs no further reviews");
-
-		await h.commands.get("goal-resume")!.handler("", h.ctx);
-		assert.equal(currentGoal(cwd)!.status, "active");
-		const afterResume = await complete(5);
-		assert.match(afterResume.content[0].text, /remains pending/, "the user's resume resets the rejection count");
-		assert.equal(previousReports[3], undefined, "findings from before the resume are not carried over");
-	} finally { rmSync(cwd, { recursive: true, force: true }); }
-});
-
 test("full guided lifecycle: create → focus → tasks → audit → archive (§19.9)", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-lifecycle-e2e-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const staged: StageRecord[] = [];
 	const h = createHarness(cwd, {
-		runTaskReview: async () => ({ approved: true, disapproved: false, output: "ok", model: "mock/task-review" }),
 		runCompletionAuditor: async (args: any) => {
 			// §19.9 step 12: report all five audit stages through onProgress.
 			const stages: StageRecord[] = [
@@ -659,7 +226,6 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 		await callTool(h, "update_goal_task", "comp-1", { task_id: "t1", status: "complete", evidence: "Source reviewed" });
 		await callTool(h, "update_goal_task", "start-2", { task_id: "t2", status: "start" });
 		await callTool(h, "update_goal_task", "comp-2", { task_id: "t2", status: "complete", evidence: "Export implemented" });
-		assert.ok(ledgerEvents(cwd).some((e) => e.type === "task_review" && e.taskId === "t2" && e.verdict === "approved"), "approved task review is traceable");
 		await callTool(h, "update_goal_task", "start-3", { task_id: "t3", status: "start" });
 		await callTool(h, "update_goal_task", "comp-3", { task_id: "t3.1", status: "complete", evidence: "Loading state" });
 		await callTool(h, "update_goal_task", "comp-4", { task_id: "t3.2", status: "complete", evidence: "Filename" });
@@ -739,11 +305,7 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 	}
 });
 
-test("archive failure never reports success; the complete record stays recoverable (§16.6)", async (t) => {
-	if (process.platform === "win32") {
-		t.skip("directory mode bits do not reliably block writes on Windows");
-		return;
-	}
+test("archive failure never reports success; the complete record stays recoverable (§16.6)", { skip: process.platform === "win32" }, async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-archive-fail-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const h = createHarness(cwd, {

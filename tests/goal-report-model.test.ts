@@ -33,8 +33,8 @@ test("the plan keeps the confirmed shape while current state reflects progress",
 		now: NOW,
 		goal: goal({
 			taskList: { tasks: [
-				task("w1", { status: "complete", reviewBaseline: baseline, subtasks: [task("w1a", { status: "complete" })] }),
-				task("w2", { reviewBaseline: baseline }),
+				task("w1", { status: "complete", workBaseline: baseline, subtasks: [task("w1a", { status: "complete" })] }),
+				task("w2", { workBaseline: baseline }),
 				task("w3"),
 				task("w4", { status: "skipped", skipReason: "user asked" }),
 			], blockCompletion: true, proposedAt: at(500) },
@@ -68,7 +68,7 @@ test("rejections count per task, reset on approval, and drive the only numeric r
 	];
 	const model = buildGoalReportModel({
 		now: NOW,
-		goal: goal({ taskList: { tasks: [task("w5", { reviewBaseline: baseline }), task("w6", { status: "complete", evidence: "cargo test passes" })], blockCompletion: false, proposedAt: at(400) } }),
+		goal: goal({ taskList: { tasks: [task("w5", { workBaseline: baseline }), task("w6", { status: "complete", evidence: "cargo test passes" })], blockCompletion: false, proposedAt: at(400) } }),
 		events,
 	});
 	const w5 = model.tasks.find((t) => t.id === "w5")!;

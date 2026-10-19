@@ -72,6 +72,13 @@ test("parseGoalSettings: autoSelectSingleGoal accepted as bool or string; explic
 	assert.deepEqual(parseGoalSettings({ autoSelectSingleGoal: "false" }), { autoSelectSingleGoal: false });
 });
 
+test("parseSettingsLayer silently ignores removed per-task review settings", () => {
+	const result = parseSettingsLayer({ disableTaskReviews: true, taskReviewExcludedTypes: ["code"] }, "project", "settings.json");
+	assert.deepEqual(result.layer, {});
+	assert.deepEqual(result.diagnostics, []);
+	assert.deepEqual(parseGoalSettings({ disableTaskReviews: true, taskReviewExcludedTypes: ["code"] }), {});
+});
+
 test("parseGoalSettings: unknown keys rejected", () => {
 	assert.throws(
 		() => parseGoalSettings({ disableTasks: true, disableContracts: false, foo: "bar" }),
@@ -118,8 +125,7 @@ test("parseGoalSettings: multiple unknown keys rejected with the full list", () 
 
 test("goalSettingsPath: resolves under .pi/ with new filename", () => {
 	const p = goalSettingsPath("/tmp/project");
-	assert.ok(p.endsWith(path.join(".pi", "pi-goal-x-settings.json")));
-	assert.ok(p.startsWith("/tmp/project"));
+	assert.equal(p, path.join("/tmp/project", ".pi", "pi-goal-x-settings.json"));
 });
 
 test("goalSettingsPath: respects PI_GOAL_SETTINGS_FILE env var", () => {

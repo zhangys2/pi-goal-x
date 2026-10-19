@@ -10,6 +10,7 @@ import {
 	type GoalCreationConfig,
 	type GoalTaskList,
 } from "../extensions/goal-record.ts";
+import { parseGoalContentCached, serializeGoalFile } from "../extensions/storage/goal-files.ts";
 
 const baseConfig: GoalCreationConfig = {
 	objective: "=== Goal ===\nObjective: ship the refactor",
@@ -61,6 +62,21 @@ test("normalizeGoalRecord preserves known fields while sanitizing unsafe or miss
 	assert.equal(normalized.archivedPath, ".pi/goals/archived/old.md");
 	assert.equal(normalized.createdAt, "2026-02-03T04:05:06.000Z");
 	assert.equal(normalized.updatedAt, "2026-02-03T04:06:06.000Z");
+});
+
+test("legacy review baselines migrate to the neutral work baseline field", () => {
+	const normalized = normalizeGoalRecord({
+		id: "goal-baseline", objective: "Work", status: "active", autoContinue: true,
+		usage: { tokensUsed: 0, activeSeconds: 0 }, sisyphus: false,
+		taskList: { tasks: [{ id: "t1", title: "Task", status: "pending", reviewBaseline: { revision: "abc", untracked: { "new.ts": "hash" } } }], blockCompletion: false, proposedAt: "now", reviewBaseline: { revision: "list", untracked: {} } },
+	});
+	assert.deepEqual(normalized?.taskList?.tasks[0]?.workBaseline, { revision: "abc", untracked: { "new.ts": "hash" } });
+	assert.deepEqual(normalized?.taskList?.workBaseline, { revision: "list", untracked: {} });
+	assert.equal(JSON.stringify(normalized).includes("reviewBaseline"), false, "writes use the review-agnostic persisted field");
+	const serialized = serializeGoalFile(normalized!);
+	const roundTripped = parseGoalContentCached("legacy-baseline-roundtrip.md", 1, serialized.length, serialized);
+	assert.deepEqual(roundTripped?.taskList?.tasks[0]?.workBaseline, { revision: "abc", untracked: { "new.ts": "hash" } });
+	assert.deepEqual(roundTripped?.taskList?.workBaseline, { revision: "list", untracked: {} });
 });
 
 test("cloneGoal returns a detached usage object", () => {

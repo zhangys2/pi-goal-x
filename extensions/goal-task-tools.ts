@@ -16,13 +16,13 @@ import { goalDetails, renderGoalResult } from "./goal-format.ts";
 import { statusLabel, truncateText } from "./goal-core.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
 import { buildTaskSummary, checkSubtasksComplete, findSubtaskDepthViolation, findTaskInTree, skipAllSubtasks } from "./goal-policy.ts";
-import { checkTaskBeforeCompletion, gitBaseline, openCodeTaskConflict, openCodeTaskConflictMessage, reviewTaskBeforeCompletion } from "./goal-task-review.ts";
+import { checkTaskBeforeCompletion, gitBaseline, openCodeTaskConflict, openCodeTaskConflictMessage } from "./goal-task-runtime.ts";
 import { showTaskConfirmation, type TaskConfirmationResult } from "./goal-task-confirmation.ts";
 import {
 	SET_GOAL_TASKS_TOOL_NAME,
 	UPDATE_GOAL_TASK_TOOL_NAME,
 } from "./goal-tool-names.ts";
-import { nowIso, currentTaskIdIsPending, type GoalTask, type GoalTaskList, type ReviewBaseline } from "./goal-record.ts";
+import { nowIso, currentTaskIdIsPending, type GoalTask, type GoalTaskList, type GoalWorkBaseline } from "./goal-record.ts";
 import type { GoalLedgerEvent } from "./goal-ledger.ts";
 import { integratePatch } from "./goal-worker-integration.ts";
 import { combineAbortSignals } from "./goal-cancellation.ts";
@@ -35,8 +35,9 @@ export interface FlatTaskInput {
 	title: string;
 	parent_id?: string;
 	verification_contract?: string;
-	code_change?: boolean;
+	/** Accepted for compatibility with older clients; ignored. */
 	review_type?: string;
+	code_change?: boolean;
 	checks?: TaskCheckInput[];
 	isolated?: boolean;
 	lightweight_subtasks?: boolean;
@@ -134,7 +135,6 @@ export function convertFlatTasks(flat: FlatTaskInput[], opts: { maxSubtaskDepth?
 				? item.verification_contract.trim()
 				: undefined,
 			codeChange: typeof item.code_change === "boolean" ? item.code_change : undefined,
-			reviewType: typeof item.review_type === "string" && item.review_type.trim() ? item.review_type.trim() : undefined,
 			...(checksOf(item) ? { checks: checksOf(item) } : {}),
 			...(item.isolated === true ? { isolated: true } : {}),
 			lightweightSubtasks: item.lightweight_subtasks === true ? true : undefined,
@@ -200,10 +200,9 @@ export function mergeTasksWithExisting(existing: GoalTask[] | undefined, incomin
 			// Structural fields are authoritative; undefined (omitted) clears.
 			...(input.verificationContract ? { verificationContract: input.verificationContract } : {}),
 			...(input.codeChange !== undefined ? { codeChange: input.codeChange } : {}),
-			...(input.reviewType ? { reviewType: input.reviewType } : {}),
 			...(input.checks ? { checks: input.checks } : {}),
 			...(input.isolated ? { isolated: true } : {}),
-			...(prior?.reviewBaseline ? { reviewBaseline: prior.reviewBaseline } : {}),
+			...(prior?.workBaseline ? { workBaseline: prior.workBaseline } : {}),
 			...(input.lightweightSubtasks ? { lightweightSubtasks: input.lightweightSubtasks } : {}),
 			...progress,
 		};
@@ -243,6 +242,7 @@ export interface TaskProgressInput {
  evidence?: string;
  reason?: string;
 }
+
 /** Dry-runs a batch in order, so a batch that validation would reject never starts a paid review. */
 function batchValidationFailure(tasks: GoalTask[], specs: GoalTaskUpdateSpec[]): string | undefined {
  const tree = structuredClone(tasks);
@@ -260,7 +260,7 @@ function batchValidationFailure(tasks: GoalTask[], specs: GoalTaskUpdateSpec[]):
  return undefined;
 }
 
-function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, startBaseline?: ReviewBaseline): GoalTaskUpdateSpec {
+function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").GoalCore, ctx: ExtensionContext, startBaseline?: GoalWorkBaseline): GoalTaskUpdateSpec {
  const settings = loadGoalSettings(ctx.cwd);
  const now = nowIso();
  const evidence = input.evidence?.trim().slice(0, 200) || undefined;
@@ -284,7 +284,7 @@ function progressSpec(input: TaskProgressInput, core: import("./goal-state.ts").
    return {ok: true};
   },
   update: task => {
-   if (input.status === "start") return { ...task, reviewBaseline: task.reviewBaseline ?? startBaseline };
+   if (input.status === "start") return { ...task, workBaseline: task.workBaseline ?? startBaseline };
    if (input.status === "complete") return {...task, status: "complete", completedAt: now, evidence};
    if (input.status === "skipped") {
     const next: GoalTask = {...task, status: "skipped", skippedAt: now, skipReason: reason};
@@ -309,7 +309,7 @@ async function integrateWorkerPatch(core: import("./goal-state.ts").GoalCore, ct
 	const task = findTaskInTree(goal.taskList?.tasks ?? [], input.taskId);
 	if (!task) return reply(`Task "${input.taskId}" not found.`);
 	if (task.status !== "pending") return reply(`Task "${task.id}" is ${task.status}; only pending tasks take integrations.`);
-	if (!task.reviewBaseline) return reply(`Start task "${task.id}" before integrating its work.`);
+	if (!task.workBaseline) return reply(`Start task "${task.id}" before integrating its work.`);
 	const patchPath = input.patchPath?.trim();
 	const commitMessage = input.commitMessage?.trim();
 	if (!patchPath || !commitMessage) return reply("status=integrate requires patch_path and commit_message.");
@@ -362,8 +362,8 @@ pi.registerTool(defineTool({
 			title: Type.String({ description: "Human-readable task title" }),
 			parent_id: Type.Optional(Type.String({ description: "Parent id; omit for roots." })),
 			verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
-			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires a per-task review." })),
-			review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
+			review_type: Type.Optional(Type.String({ description: "Legacy compatibility field; ignored." })),
+			code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code; used for shared-worktree task sequencing and reporting." })),
 			checks: taskChecksSchema(),
 			isolated: Type.Optional(Type.Boolean({ description: ISOLATED_TASK_DESCRIPTION })),
 			lightweight_subtasks: Type.Optional(Type.Boolean({ description: "Children do not gate parent completion." })),
@@ -441,7 +441,7 @@ pi.registerTool(defineTool({
 				details: goalDetails(core.state.goal),
 			};
 		}
-		const reviewBaseline = gitBaseline(ctx.cwd);
+		const workBaseline = gitBaseline(ctx.cwd);
 		const applyResult = core.goalService.apply(ctx, {
 			reconcile: false,
 			focusToken: taskListFocus,
@@ -455,7 +455,7 @@ pi.registerTool(defineTool({
 				// otherwise clear it. Dashboard state recomputes on the next render.
 				const currentTaskId =
 					g.currentTaskId && currentTaskIdIsPending(merged, g.currentTaskId) ? g.currentTaskId : undefined;
-				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now, ...(reviewBaseline ? { reviewBaseline } : {}) }, updatedAt: now };
+				return { ...g, currentTaskId, taskList: { tasks: merged, blockCompletion, proposedAt: now, ...(workBaseline ? { workBaseline } : {}) }, updatedAt: now };
 			},
 			ledger: (written) => [{
 				type: "task_list_set",
@@ -521,7 +521,7 @@ pi.registerTool(defineTool({
    if (loadGoalSettings(ctx.cwd).disableTasks) return fail("update_goal_task is disabled by settings (disableTasks: true).");
    if (!core.state.goal) return fail("No goal is focused.");
    if (core.state.goal.status !== "active") return fail(`update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).`);
-   const needsStartBaseline = updates.some(u => u.status === "start" && !findTaskInTree(core.state.goal!.taskList?.tasks ?? [], u.task_id)?.reviewBaseline);
+   const needsStartBaseline = updates.some(u => u.status === "start" && !findTaskInTree(core.state.goal!.taskList?.tasks ?? [], u.task_id)?.workBaseline);
    // Outside the specs: GoalService may re-run update closures, and batch validation dry-runs them.
    const startBaseline = needsStartBaseline ? gitBaseline(ctx.cwd) : undefined;
    const specs = updates.map(u => progressSpec(u, core, ctx, startBaseline));
@@ -534,9 +534,7 @@ pi.registerTool(defineTool({
     if (!task) continue; // Let GoalService return its typed stale-task failure.
     const checks = await checkTaskBeforeCompletion(core, ctx, task, signal);
     if (checks.failure) return fail(checks.failure);
-    const review = await reviewTaskBeforeCompletion(core, ctx, task, update.evidence, checks.run, signal);
-    if (review.failure) return {...fail(review.failure), ...(review.blocked ? {terminate: true} : {})};
-    verified.set(update.task_id, {events: [...(checks.event ? [checks.event] : []), ...(review.approval ? [review.approval] : [])], checkRun: checks.run});
+    verified.set(update.task_id, {events: checks.event ? [checks.event] : [], checkRun: checks.run});
    }
    signal?.throwIfAborted();
    const result = core.goalService.updateTasks(ctx, specs.map((spec): GoalTaskUpdateSpec => {
@@ -589,13 +587,31 @@ pi.registerTool(defineTool({
 		const taskFocus = core.focusedOperationToken(core.state.goal.id);
 
 		if (params.status === "start") {
-			const task = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
-			if (!task) return { content: [{ type: "text", text: `Task "${params.task_id}" not found.` }], details: goalDetails(core.state.goal) };
-			if (task.status !== "pending") return { content: [{ type: "text", text: `Task "${params.task_id}" is ${task.status}; only pending tasks can be started.` }], details: goalDetails(core.state.goal) };
-			const conflict = openCodeTaskConflict(core.state.goal.taskList.tasks, params.task_id);
-			if (conflict) return { content: [{ type: "text", text: openCodeTaskConflictMessage(conflict, params.task_id) }], details: goalDetails(core.state.goal) };
-			const baseline = task.reviewBaseline ?? gitBaseline(ctx.cwd);
-			const result = core.goalService.updateTask(ctx, progressSpec({ task_id: params.task_id, status: "start" }, core, ctx, baseline));
+			// Outside the update closure: GoalService retries it once on a conflicting write.
+			const target = findTaskInTree(core.state.goal.taskList.tasks, params.task_id);
+			const open = target?.status === "pending" ? openCodeTaskConflict(core.state.goal.taskList.tasks, params.task_id) : undefined;
+			if (open) return { content: [{ type: "text", text: openCodeTaskConflictMessage(open, params.task_id) }], details: goalDetails(core.state.goal) };
+			const startBaseline = target?.workBaseline ? undefined : gitBaseline(ctx.cwd);
+			const result = core.goalService.updateTask(ctx, {
+				focusToken: taskFocus,
+				taskId: params.task_id,
+				validate: (task) => {
+					if (task.status !== "pending") {
+						return { ok: false, message: `Task "${params.task_id}" is ${task.status}; only pending tasks can be started.` };
+					}
+					return { ok: true };
+				},
+				update: (task) => ({ ...task, workBaseline: task.workBaseline ?? startBaseline }),
+				// §8.1: set explicit execution focus; a later start replaces it, and
+				// completing/skipping this task clears it.
+				setCurrentTaskId: params.task_id,
+				ledger: (written) => [{
+					type: "task_started",
+					goalId: written.id,
+					taskId: params.task_id,
+					at: written.updatedAt,
+				}],
+			});
 			if (!result.ok) {
 				return { content: [{ type: "text", text: result.message }], details: goalDetails(core.state.goal) };
 			}
@@ -634,9 +650,6 @@ pi.registerTool(defineTool({
 				if (checks.failure) return { content: [{ type: "text", text: checks.failure }], details: goalDetails(core.state.goal) };
 				if (checks.event) verification.push(checks.event);
 				checkRun = checks.run;
-				const review = await reviewTaskBeforeCompletion(core, ctx, task, evidence, checkRun, signal);
-				if (review.failure) return { content: [{ type: "text", text: review.failure }], details: goalDetails(core.state.goal), ...(review.blocked ? { terminate: true } : {}) };
-				if (review.approval) verification.push(review.approval);
 			}
 			signal?.throwIfAborted();
 			const result = core.goalService.updateTask(ctx, {

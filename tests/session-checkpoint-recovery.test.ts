@@ -13,8 +13,9 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const CLI = new URL("../scripts/recover-session-checkpoints.mjs", import.meta.url).pathname;
+const CLI = fileURLToPath(new URL("../scripts/recover-session-checkpoints.mjs", import.meta.url));
 
 function entry(overrides: Record<string, unknown>): Record<string, unknown> {
 	return {
@@ -147,10 +148,19 @@ describe("pi-goal-x-recover", () => {
 		assert.equal(readFileSync(fx.file, "utf8"), before, "refused apply must not modify the file");
 	});
 
-	it("refuses a symlink target", () => {
+	it("refuses a symlink target", (t) => {
 		const fx = makeSessionFixture();
 		const link = path.join(fx.dir, "linked.jsonl");
-		symlinkSync(fx.file, link);
+		try {
+			symlinkSync(fx.file, link);
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP") {
+				t.skip(`symlinks are unavailable in this environment (${code})`);
+				return;
+			}
+			throw error;
+		}
 		const out = runCli(["--session", link], { expectFailure: true });
 		assert.match(out, /__exit_1__/);
 		assert.match(out, /symbolic link/);

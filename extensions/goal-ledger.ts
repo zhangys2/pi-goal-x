@@ -1,9 +1,9 @@
-import { goalStoragePath, ensureGoalStorageDirectory, isExternalGoalStorage, type GoalStorageContext } from "./storage/goal-root.ts";
 import { indexedActivityEvents } from "./goal-activity.ts";
 import { buildLedgerIndex, indexLedgerEvent, type GoalLedgerIndex } from "./goal-ledger-index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TaskCheckResult } from "./goal-task-checks.ts";
+import { goalStoragePath } from "./storage/goal-root.ts";
 import { normalizeRelPath, nowIso, safeIdPart, type GoalRecord } from "./goal-record.ts";
 
 export const GOAL_LEDGER_FILE = ".pi/goals/goal_events.jsonl";
@@ -30,10 +30,10 @@ export type GoalLedgerEvent =
   | { type: "task_skipped"; goalId: string; taskId: string; reason: string; at: string }
   | { type: "task_reopened"; goalId: string; taskId: string; at: string }
   | { type: "task_started"; goalId: string; taskId: string; at: string }
+  | { type: "goal_budget_changed"; goalId: string; oldBudget: number | null; newBudget: number | null; tokensUsed: number; at: string }
   | { type: "task_review"; goalId: string; taskId: string; verdict: "approved" | "disapproved" | "error" | "skipped"; report?: string; baseline?: string; at: string }
   | { type: "task_checks"; goalId: string; taskId: string; passed: boolean; trigger: "completion" | "integration"; results: TaskCheckResult[]; at: string }
   | { type: "task_integration"; goalId: string; taskId: string; outcome: "integrated" | "conflict" | "checks_failed" | "commit_failed" | "rejected" | "cancelled"; patchPath: string; commit?: string; files?: string[]; message?: string; at: string }
-  | { type: "goal_budget_changed"; goalId: string; oldBudget: number | null; newBudget: number | null; tokensUsed: number; at: string }
   | { type: "goal_budget_limited"; goalId: string; budget: number; tokensUsed: number; at: string }
   | { type: "goal_budget_warning"; goalId: string; budget: number; tokensUsed: number; pct: number; at: string }
   | { type: "goal_stalled"; goalId: string; reason: string; at: string }
@@ -43,7 +43,9 @@ export type GoalLedgerEvent =
   | { type: "oracle_failed"; goalId: string; fingerprint: string; attempt: number; errorCode: "config" | "provider" | "aborted" | "invalid_output"; message: string; at: string }
   | { type: "oracle_followup_attempted"; goalId: string; fingerprint: string; adviceId: string; firstToolName: string; at: string };
 
-export type GoalLedgerContext = GoalStorageContext;
+export interface GoalLedgerContext {
+  cwd: string;
+}
 
 export interface GoalLedgerReadResult {
   events: GoalLedgerEvent[];
@@ -79,7 +81,7 @@ function safeGoalId(value: string): string {
 }
 
 export function goalLedgerPath(ctx: GoalLedgerContext): string {
-  return goalStoragePath(ctx, GOAL_LEDGER_FILE);
+  return goalStoragePath(ctx, normalizeRelPath(GOAL_LEDGER_FILE));
 }
 
 export type GoalLedgerAppendResult = { ok: true } | { ok: false; error: unknown };
@@ -117,7 +119,7 @@ function appendLedgerLines(ctx: GoalLedgerContext, events: GoalLedgerEvent[]): G
   // appends skip it entirely (0 ops for the dir).
   if (!ledgerDirsKnown.has(dir)) {
     try {
-      ensureGoalStorageDirectory(ctx, ".pi/goals", false);
+      fs.mkdirSync(dir, { recursive: true });
       ledgerDirsKnown.add(dir);
     } catch (err) {
       return { ok: false, error: err };
@@ -129,11 +131,6 @@ function appendLedgerLines(ctx: GoalLedgerContext, events: GoalLedgerEvent[]): G
   // dance — a single JSONL line (or one batched block) is appended atomically
   // by the OS; torn-line handling lives in the reader, not here.
   try {
-    if (isExternalGoalStorage(ctx)) {
-      ensureGoalStorageDirectory(ctx, ".pi/goals");
-      try { if (fs.lstatSync(filePath).isSymbolicLink()) throw new Error(`Goal ledger is a symlink: ${filePath}`); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    }
     fs.appendFileSync(filePath, lines, "utf8");
   } catch (err) {
     return { ok: false, error: err };
@@ -735,6 +732,7 @@ function isValidLedgerEvent(value: unknown): value is GoalLedgerEvent {
       return typeof obj.goalId === "string" && typeof obj.taskId === "string";
     case "task_started":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string";
+
     case "task_review":
       return typeof obj.goalId === "string" && typeof obj.taskId === "string" &&
         (obj.verdict === "approved" || obj.verdict === "disapproved" || obj.verdict === "error" || obj.verdict === "skipped") &&

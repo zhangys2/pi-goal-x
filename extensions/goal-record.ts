@@ -19,9 +19,8 @@ export interface GoalTask {
   skipReason?: string;
   verificationContract?: string;
   codeChange?: boolean;
-  reviewType?: string;
-  /** Git state at the task's first start; kept across restarts so a retry review still covers rejected work. */
-  reviewBaseline?: ReviewBaseline;
+  /** Repository state at the task's first start, used to delimit its work and integrate worker patches. */
+  workBaseline?: GoalWorkBaseline;
   /** Commands goal-x runs itself on completion; the task stays pending until they pass. */
   checks?: TaskCheck[];
   /** The passing run recorded with the completion. */
@@ -37,8 +36,8 @@ export interface GoalTaskList {
   tasks: GoalTask[];
   blockCompletion: boolean;
   proposedAt: string;
-  /** Git state when the list was set; reviews tasks completed without a start. */
-  reviewBaseline?: ReviewBaseline;
+  /** Repository state when the list was set, for reporting work completed without an explicit start. */
+  workBaseline?: GoalWorkBaseline;
 }
 
 export interface TaskIntegration {
@@ -47,7 +46,7 @@ export interface TaskIntegration {
   at: string;
 }
 
-export interface ReviewBaseline {
+export interface GoalWorkBaseline {
   revision: string;
   /** Blob hash per path untracked at capture, so later edits to those files still count as task changes. */
   untracked: Record<string, string>;
@@ -107,6 +106,7 @@ export interface GoalStateEntry {
 
 export interface GoalFocusEntry {
 	version: 1;
+	/** Pool identity pinned when this focus entry was written. */
 	storageRoot?: string;
 	focusedGoalId: string | null;
 	reason: GoalFocusReason;
@@ -271,7 +271,7 @@ export function normalizeUsage(value: unknown): GoalUsage {
 	return { tokensUsed, activeSeconds };
 }
 
-function normalizeReviewBaseline(value: unknown): ReviewBaseline | undefined {
+function normalizeWorkBaseline(value: unknown): GoalWorkBaseline | undefined {
 	const raw = asRecord(value);
 	const untracked = asRecord(raw?.untracked);
 	if (!raw || typeof raw.revision !== "string" || !raw.revision || !untracked) return undefined;
@@ -311,8 +311,7 @@ export function normalizeTaskItem(raw: Record<string, unknown>): GoalTask | unde
 		skipReason: typeof raw.skipReason === "string" ? raw.skipReason : undefined,
 		verificationContract: typeof raw.verificationContract === "string" ? raw.verificationContract : undefined,
 		...(typeof raw.codeChange === "boolean" ? { codeChange: raw.codeChange } : {}),
-		...(typeof raw.reviewType === "string" && raw.reviewType.trim() ? { reviewType: raw.reviewType.trim() } : {}),
-		...(normalizeReviewBaseline(raw.reviewBaseline) ? { reviewBaseline: normalizeReviewBaseline(raw.reviewBaseline) } : {}),
+		...(normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) ? { workBaseline: normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) } : {}),
 		...(normalizeTaskChecks(raw.checks) ? { checks: normalizeTaskChecks(raw.checks) } : {}),
 		...(normalizeTaskCheckRun(raw.checkRun) ? { checkRun: normalizeTaskCheckRun(raw.checkRun) } : {}),
 		...(raw.isolated === true ? { isolated: true } : {}),
@@ -335,6 +334,7 @@ export function normalizeTaskList(value: unknown): GoalTaskList | undefined {
 		tasks,
 		blockCompletion: raw.blockCompletion === true,
 		proposedAt: typeof raw.proposedAt === "string" ? raw.proposedAt : nowIso(),
+		...(normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) ? { workBaseline: normalizeWorkBaseline(raw.workBaseline ?? raw.reviewBaseline) } : {}),
 	};
 }
 

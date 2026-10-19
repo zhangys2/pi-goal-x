@@ -9,8 +9,8 @@ import { execFileSync } from "node:child_process";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { GoalCore } from "./goal-state.ts";
-import { BASELINE_STASH_MESSAGE, RUNTIME_STATE_PATHSPECS } from "./goal-task-review.ts";
-import type { ReviewBaseline } from "./goal-record.ts";
+import { BASELINE_STASH_MESSAGE, RUNTIME_STATE_PATHSPECS } from "./goal-task-runtime.ts";
+import type { GoalWorkBaseline } from "./goal-record.ts";
 
 const MAX_LISTED_PATHS = 12;
 
@@ -37,14 +37,14 @@ export function commandCommitsEverything(command: string): boolean {
  * baseline carries that state against its first parent, the HEAD of the time; a
  * plain HEAD baseline means the tracked tree was clean.
  */
-function dirtyAtBaseline(cwd: string, baseline: ReviewBaseline): string[] {
+function dirtyAtBaseline(cwd: string, baseline: GoalWorkBaseline): string[] {
 	const [parents = "", subject = ""] = git(cwd, ["log", "-1", "--format=%P%n%s", baseline.revision]).split(/\r?\n/);
 	if (parents.split(" ").length !== 2 || !subject.endsWith(`: ${BASELINE_STASH_MESSAGE}`)) return [];
 	return lines(git(cwd, ["diff", "--name-only", `${baseline.revision}^1`, baseline.revision, "--", ...RUNTIME_STATE_PATHSPECS]));
 }
 
 /** Paths that were already modified or untracked when the baseline was taken and still are. */
-export function preexistingDirtyPaths(cwd: string, baseline: ReviewBaseline): string[] {
+export function preexistingDirtyPaths(cwd: string, baseline: GoalWorkBaseline): string[] {
 	try {
 		const atBaseline = new Set([...dirtyAtBaseline(cwd, baseline), ...Object.keys(baseline.untracked)]);
 		if (atBaseline.size === 0) return [];
@@ -69,7 +69,7 @@ export function commitGuardBlockReason(core: GoalCore, ctx: ExtensionContext, co
 	const goal = core.state.goal;
 	if (!goal || goal.status !== "active" || answeredGoalIds.has(goal.id)) return undefined;
 	if (!commandCommitsEverything(command)) return undefined;
-	const baseline = goal.taskList?.reviewBaseline;
+	const baseline = goal.taskList?.workBaseline;
 	if (!baseline) return undefined;
 	const preexisting = preexistingDirtyPaths(ctx.cwd, baseline);
 	if (preexisting.length === 0) return undefined;

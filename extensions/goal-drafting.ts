@@ -14,7 +14,6 @@ import { DIALOG_UNAVAILABLE_HINT, proposalDialogFailureMessage, formatQuestionna
 import { currentTaskIdIsPending, nowIso, validateTokenBudgetInput, type GoalRecord, type GoalTaskList } from "./goal-record.ts";
 import type { GoalCore } from "./goal-state.ts";
 import { convertFlatTasks, countTasks, mergeTasksWithExisting, taskChecksSchema, ISOLATED_TASK_DESCRIPTION, type FlatTaskInput } from "./goal-task-tools.ts";
-import { gitBaseline } from "./goal-task-review.ts";
 import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 import { PROPOSE_DRAFT_TOOL_NAME, QUESTIONNAIRE_TOOL_NAME, QUESTION_TOOL_NAME } from "./goal-tool-names.ts";
 
@@ -234,8 +233,6 @@ function flatTaskSchema() {
 		title: Type.String({ description: "Human-readable task title." }),
 		parent_id: Type.Optional(Type.String({ description: "Optional parent task id in this proposal." })),
 		verification_contract: Type.Optional(Type.String({ description: "Acceptance checklist: tests to add, exact verification commands, files out of scope." })),
-		code_change: Type.Optional(Type.Boolean({ description: "Whether this task changes code and requires review." })),
-		review_type: Type.Optional(Type.String({ description: "Optional category for review exclusions." })),
 		checks: taskChecksSchema(),
 		isolated: Type.Optional(Type.Boolean({ description: ISOLATED_TASK_DESCRIPTION })),
 		lightweight_subtasks: Type.Optional(Type.Boolean({ description: "True only for a task with lightweight children." })),
@@ -409,7 +406,7 @@ export function registerDraftingTools(core: GoalCore): void {
 					return derived && derived.length > 0 ? { tasks: derived, blockCompletion: false, proposedAt: nowIso() } : undefined;
 				})();
 				await offerProjectOrchestrationSetup(core, ctx);
-				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract, params.token_budget ?? undefined);
+				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract, proposedBudget);
 				clearGoalDrafting(core, ctx);
 				const created = core.state.goal;
 				return { content: [{ type: "text", text: `${summary}\n\n${buildGoalCreatedReport({

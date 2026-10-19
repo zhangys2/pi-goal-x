@@ -156,3 +156,18 @@ Storage implementation preserves the cwd-only low-level zero-settings-I/O contra
 CI performance comparisons must measure the PR base and candidate on the same runner with the same SDK installation and corrected B10 fixture. Keep historical campaign headroom targets for their original local before/after gate; use existing no-regression timing/operation tolerances for a current-base comparison.
 
 Follow-up verification targets: a delayed tool result invalidating only a later retained counter anchor must reset all live tails, not duplicate an earlier policy block. Removing optional counters must discard obsolete observations. Extend the existing real-SDK sequence through retries, delayed/error results, audit filtering, policy edits, compaction and retention eviction; benchmark text, tool-output and image-bearing histories. Reuse existing test files for model/session identity, widget replacement and shared-root stale-revision checks.
+
+## Fork feature reconciliation — 2026-09-23
+
+Use the fork's current default-branch tree as the integration base, not the old common ancestor of the upstream-import PR. Preserve independent features listed in PRODUCT.md. The PR's deletion of `goal-task-review.ts` is intentional; do not resolve conflicts by restoring the per-task review workflow wholesale.
+
+Port task checks and worker integration without review coupling:
+
+- Keep `TaskCheck`/`TaskCheckRun` normalization, `TaskIntegration`, and review-agnostic `GoalWorkBaseline` persistence in `goal-record.ts`; retain check and integration ledger events and report rendering. Remove the review invocation, review-only `reviewType` classification, settings and callbacks. Keep legacy `reviewBaseline` input normalization and historical `task_review` ledger display read-only; never emit new review verdict events.
+- Completion continues to execute declared checks and gates completion on their successful result. Integration continues to apply worker patches through the existing clean-tree, validation, commit/restore protocol. Neither path invokes an LLM reviewer.
+- Preserve pre-existing-work commit protection only if it can capture and validate its baseline independently of task review. Otherwise omit that guard with an explicit milestone note; do not recreate review state solely to satisfy its old dependency.
+- Preserve `/loop`, project orchestration settings, shared-root identity, goal reports and blocked-goal notifications. Resolve collisions in favor of equivalent newer upstream behavior, and port only missing fork behavior—not duplicate implementations.
+- Keep budget mutation in the upstream `/goal-tweak` path and merge new check/integration ledger variants additively with budget events. Preserve storage-root identity on focus records and avoid changing execution cwd.
+- Update the test manifest after reconciling tests; validate with the repository's manifest self-check on supported Linux CI. Local Windows path-format failures are not evidence that manifest contents are wrong; use the supported runner for that gate.
+
+Verification order: typecheck after foundational record/settings/ledger merge; focused task-check and worker-integration tests; focused storage, loop, report, and budget tests; full test manifest and suite; lint; context/provider gates; same-runner performance gate; package dry-run. Record omitted or deferred protections in MILESTONES.md rather than hiding them in conflict resolution.

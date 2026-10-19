@@ -71,11 +71,19 @@ test("invalid roots and symlinked managed directories fail instead of falling ba
 	goalStorageRoot(a);
 	assert.throws(() => goalStoragePath(a, ".pi/goals/../../escape"), /escapes/);
 	const outside = path.join(f.dir, "outside"); fs.mkdirSync(outside);
-	fs.symlinkSync(outside, path.join(f.root, "archived"));
+	const symlink = (target: string, link: string): boolean => {
+		try { fs.symlinkSync(target, link); return true; }
+		catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "EPERM" || code === "EACCES") { t.skip(`symbolic links unavailable: ${code}`); return false; }
+			throw error;
+		}
+	};
+	if (!symlink(outside, path.join(f.root, "archived"))) return;
 	const goal = createGoal({ objective: "No escape", autoContinue: true, sisyphus: false });
 	assert.throws(() => archiveGoalFile(a, goal), /symlink/);
 	assert.deepEqual(fs.readdirSync(outside), []);
-	fs.symlinkSync(outside, path.join(f.dir, "linked-root"));
+	if (!symlink(outside, path.join(f.dir, "linked-root"))) return;
 	assert.throws(() => goalStorageRoot(f.context("linked", path.join(f.dir, "linked-root"))), /symlink/);
 });
 

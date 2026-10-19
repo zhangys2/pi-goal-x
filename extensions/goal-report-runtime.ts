@@ -9,7 +9,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { GoalCore } from "./goal-state.ts";
 import { goalActivityEvents } from "./goal-ledger.ts";
 import { loadGoalSettings } from "./goal-settings.ts";
-import { gitTaskChangedFiles } from "./goal-task-review.ts";
+import { gitTaskChangedFiles } from "./goal-task-runtime.ts";
 import { findTaskInTree } from "./goal-policy.ts";
 import { buildGoalReportModel } from "./goal-report-model.ts";
 import { goalSubagentArtifacts, tasksNeedingChangedFiles, writeGoalReport } from "./goal-report.ts";
@@ -31,7 +31,7 @@ export function regenerateGoalReport(core: GoalCore, ctx: ExtensionContext): str
 	const changedFiles: Record<string, readonly string[]> = {};
 	for (const taskId of tasksNeedingChangedFiles(base)) {
 		const task = findTaskInTree(goal.taskList?.tasks ?? [], taskId);
-		const files = task?.reviewBaseline ? gitTaskChangedFiles(ctx.cwd, task.reviewBaseline) : undefined;
+		const files = task?.workBaseline ? gitTaskChangedFiles(ctx.cwd, task.workBaseline) : undefined;
 		if (files) changedFiles[taskId] = files;
 	}
 	const model = Object.keys(changedFiles).length ? buildGoalReportModel({ goal, events, now, changedFiles }) : base;

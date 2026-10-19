@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { clearCommitGuardAsk, commandCommitsEverything, commitGuardBlockReason, preexistingDirtyPaths } from "../extensions/goal-commit-guard.ts";
-import { gitBaseline } from "../extensions/goal-task-review.ts";
+import { gitBaseline } from "../extensions/goal-task-runtime.ts";
 
 function repo(): string {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-commit-guard-"));
@@ -71,7 +71,7 @@ test("a sweeping commit is blocked until the user answers, then proceeds", () =>
 		writeFileSync(path.join(cwd, "user-work.rs"), "user edit\n");
 		const baseline = gitBaseline(cwd)!;
 		writeFileSync(path.join(cwd, "goal-work.rs"), "goal edit\n");
-		const goal = { id: "g1", status: "active", taskList: { tasks: [], blockCompletion: false, proposedAt: "now", reviewBaseline: baseline } };
+		const goal = { id: "g1", status: "active", taskList: { tasks: [], blockCompletion: false, proposedAt: "now", workBaseline: baseline } };
 		const ctx = { cwd } as never;
 		clearCommitGuardAsk("g1");
 		const blocked = commitGuardBlockReason(core(cwd, goal), ctx, "git add -A && git commit -m 'checkpoint'");
@@ -95,7 +95,7 @@ test("a clean start leaves sweeping commits alone", () => {
 	try {
 		const baseline = gitBaseline(cwd)!;
 		writeFileSync(path.join(cwd, "goal-work.rs"), "goal edit\n");
-		const goal = { id: "g2", status: "active", taskList: { tasks: [], blockCompletion: false, proposedAt: "now", reviewBaseline: baseline } };
+		const goal = { id: "g2", status: "active", taskList: { tasks: [], blockCompletion: false, proposedAt: "now", workBaseline: baseline } };
 		assert.equal(commitGuardBlockReason(core(cwd, goal), { cwd } as never, "git add -A && git commit -m 'goal work'"), undefined);
 	} finally { clearCommitGuardAsk(null); rmSync(cwd, { recursive: true, force: true }); }
 });

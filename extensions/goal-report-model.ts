@@ -118,7 +118,7 @@ function taskState(task: GoalTask, attempts: number): ReportTaskState {
 	if (task.status === "skipped") return "skipped";
 	if (attempts > 0) return "retrying";
 	// A started task keeps its review baseline, which is how "in progress" is observable.
-	return task.reviewBaseline ? "in_progress" : "pending";
+	return task.workBaseline ? "in_progress" : "pending";
 }
 
 function seconds(from: string, to: string): number {

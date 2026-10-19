@@ -20,6 +20,23 @@ import { showTaskConfirmation } from "../extensions/goal-task-confirmation.ts";
 
 // ── Flat conversion unit tests ───────────────────────────────────────────────
 
+test("legacy review_type input is accepted by the tool and ignored", () => {
+	const f = fixtureWithTasks([]);
+	try {
+		const h = createHarness(f.cwd, f.sessionEntries);
+		const schema = (h.tools.get("set_goal_tasks")!.parameters as any).properties.tasks.items.properties;
+		assert.ok(schema.review_type, "legacy field remains accepted by the strict tool schema");
+		assert.match(schema.code_change.description, /shared-worktree task sequencing and reporting/);
+		assert.doesNotMatch(schema.code_change.description, /per-task review/i);
+		const result = convertFlatTasks([{ id: "a", title: "A", review_type: "code" }]);
+		assert.ok(result.ok);
+		if (!result.ok) return;
+		assert.equal(result.tasks[0]?.codeChange, undefined);
+	} finally {
+		f.cleanup();
+	}
+});
+
 test("flat input converts to the same recursive tree", () => {
 	const result = convertFlatTasks([
 		{ id: "a", title: "A" },

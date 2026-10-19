@@ -83,19 +83,14 @@ export function buildWaitNotice(wait: GoalWait, kind: "declared" | "heartbeat", 
 }
 
 export function schedulerSummaryParts(s: GoalSchedulerState | undefined, limit?: number, showRuns = true): { runs: string; instructions: string } {
-	// An unlimited allowance has no limit to report, so the runs line is left
-	// empty rather than rendered as "used/unlimited". A finite allowance is
-	// reported unless showAutonomousRuns is off. Enforcement reads the limit
-	// elsewhere; this is display only.
+	// An unlimited allowance has no limit to report. This is display only.
 	const runs = limit !== undefined && showRuns ? `Autonomous runs: ${s?.used ?? 0}/${limit}${limit === 0 ? " (automatic continuation disabled)" : ""}.` : "";
 	const lines: string[] = [];
-	if (s) {
-		if (s.wait) {
-			lines.push(`Waiting: ${s.wait.reason}; wait_id=${s.wait.id}; deadline=${new Date(s.wait.deadline).toISOString()}.`);
-			if (s.wait.nextCheckAt !== undefined) lines.push(`Next check: ${new Date(s.wait.nextCheckAt).toISOString()}; ${s.wait.remainingChecks} checks remaining.`);
-		}
-		if (s.phase === "interrupted" || s.phase === "claimed") lines.push("Execution requires dispatch admission or explicit /goal-resume after interruption.");
+	if (s?.wait) {
+		lines.push(`Waiting: ${s.wait.reason}; wait_id=${s.wait.id}; deadline=${new Date(s.wait.deadline).toISOString()}.`);
+		if (s.wait.nextCheckAt !== undefined) lines.push(`Next check: ${new Date(s.wait.nextCheckAt).toISOString()}; ${s.wait.remainingChecks} checks remaining.`);
 	}
+	if (s?.phase === "interrupted" || s?.phase === "claimed") lines.push("Execution requires dispatch admission or explicit /goal-resume after interruption.");
 	return { runs, instructions: lines.join("\n") };
 }
 
