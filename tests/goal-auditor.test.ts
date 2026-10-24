@@ -63,12 +63,10 @@ test("resolveAuditorSessionModelOptions shares parent ModelRuntime when availabl
 	const modelRegistry = { runtime, find: () => undefined };
 	const withRuntime = resolveAuditorSessionModelOptions({ modelRegistry } as any);
 	assert.equal(withRuntime.modelRuntime, runtime);
-	assert.equal(withRuntime.modelRegistry, modelRegistry);
+	assert.equal(withRuntime.modelRegistry, modelRegistry, "parent registry remains available for compatibility");
 
-	const legacyRegistry = { find: () => undefined };
-	const legacy = resolveAuditorSessionModelOptions({ modelRegistry: legacyRegistry } as any);
-	assert.equal(legacy.modelRuntime, undefined);
-	assert.equal(legacy.modelRegistry, legacyRegistry);
+	const withoutRuntime = resolveAuditorSessionModelOptions({ modelRegistry: undefined } as any);
+	assert.equal(withoutRuntime.modelRuntime, undefined);
 });
 
 test("runGoalCompletionAuditor passes parent modelRuntime into createSession", async () => {
@@ -94,15 +92,18 @@ test("runGoalCompletionAuditor passes parent modelRuntime into createSession", a
 		});
 
 		assert.equal(captured?.modelRuntime, runtime);
+
 		assert.equal(captured?.modelRegistry, modelRegistry);
 		assert.equal(captured?.cwd, cwd, "audit keeps the current workspace");
 		assert.deepEqual(captured?.tools, ["read", "grep", "find", "ls", "bash"], "inspection and verification tools remain unchanged");
+
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
 
 test("parseGoalSettings supports provider/model and thinking_level aliases", () => {
+	assert.deepEqual(parseGoalSettings({ thinking_level: "max", oracle: { thinking_level: "max" } }), { thinkingLevel: "max", oracle: { thinkingLevel: "max" } });
 	assert.deepEqual(parseGoalSettings({ provider: "fireworks", model: "accounts/fireworks/routers/kimi", thinking_level: "high" }), {
 		provider: "fireworks",
 		model: "accounts/fireworks/routers/kimi",

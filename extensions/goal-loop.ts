@@ -194,7 +194,10 @@ export function registerLoopCommand(pi: ExtensionAPI): void {
 	};
 	let active: ActiveLoop | undefined;
 
-	const owns = (ctx: ExtensionContext): boolean => active?.session === ctx.sessionManager;
+	const owns = (ctx: ExtensionContext): boolean => {
+		try { return active?.session === ctx.sessionManager; }
+		catch { return false; } // Session replacement invalidates the old context getters.
+	};
 	const clearStatus = (ctx: ExtensionContext): void => ctx.ui.setStatus(LOOP_STATUS_KEY, undefined);
 	const stopActive = (reason: LoopStopReason, notify = false): void => {
 		const current = active;

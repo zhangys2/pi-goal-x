@@ -56,6 +56,11 @@ test('unavailable metadata has a bounded timeout and no second publish', async (
  assert.equal(r.publishes, 1);
  assert.equal(r.receipts, 0);
 });
+test('release verifies the test suite separately from the manifest self-check', () => {
+ assert.match(workflow, /- run: npm run test:all\n\s+- run: npm run test:selfcheck/);
+ assert.doesNotMatch(workflow, /npm run test:all -- --selfcheck/);
+});
+
 test('failed-job retries use the successful ranking artifact output', () => {
  assert.match(workflow, /artifact-ids: \$\{\{ needs\.ranking\.outputs\.artifact_id \}\}/);
  assert.match(workflow, /artifact_id: \$\{\{ steps\.ranking_artifact\.outputs\.artifact-id \}\}/);

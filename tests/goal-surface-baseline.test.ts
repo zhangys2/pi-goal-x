@@ -82,6 +82,7 @@ const EXPECTED_REGISTERED_TOOLS = [
  * from goal-loop.ts, and is independent of the goal lifecycle.
  */
 const EXPECTED_REGISTERED_COMMANDS = [
+	"goal-report",
 	"goal",
 	"sisyphus",
 	"goal-cancel",
@@ -97,7 +98,6 @@ const EXPECTED_REGISTERED_COMMANDS = [
 	"goal-tweak",
 	"goal-clear",
 	"goal-pause",
-	"goal-report",
 	"goal-resume",
 	"loop",
 ] as const;

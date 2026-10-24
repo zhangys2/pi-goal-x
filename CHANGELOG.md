@@ -4,6 +4,7 @@ All notable changes to pi-goal-x are documented here.
 
 ## [Unreleased]
 
+
 ### Fixed
 
 - **The default goal prompt no longer describes a wait it rejects** — with `strictExecutionContract` off, new waits are refused, but the blocker rule still told the agent that new waits declare `depends_on`. That clause now appears only in strict mode (or while a saved wait exists).
@@ -41,6 +42,45 @@ All notable changes to pi-goal-x are documented here.
 
 - **Project setup check** — when a goal is created in a git repository, goal-x reports existing `.pi/settings.json` subagent settings and `.pi/agents/*.md`, and checks whether its runtime state (`.pi/goals/`, `.pi/.goals-pool-snapshot.json`, `.pi-subagents/`) is git-ignored. If rules are missing, it explains why and asks whether to add them to `.git/info/exclude`, `.gitignore`, or nowhere. It asks once per repository per session, and never writes without a choice or without a UI. It never creates agent or settings files.
 - **Isolated implementation workers** — while a goal is active, a `subagent` launch that runs `worker` (or its aliases) without a `worktree` value gets `worktree: true` when the working tree is clean. An explicit `worktree` is kept, and nothing is written to the project.
+
+## [0.34.0] — 2026-10-24
+
+Includes #107.
+
+### Changed
+
+- Require Pi 1.4 or newer (1.x) and Node 22.19 or newer. Use native prompt preparation and remove older-host compatibility checks.
+
+### Fixed
+
+- Reject stale goal checkpoints without pausing or changing the replacement goal; valid saved work can continue after rejection (#104).
+- Preserve Pi's system prompt and tool deltas from the first request, including across goal context filtering, model changes and compaction (#97).
+- Accept matching redundant task arguments and empty optional task IDs; reject conflicting fields and malformed batches without partial changes (#91, #92).
+- Retry brief Windows sharing failures during atomic file replacement, with bounded delays and cleanup of failed temporary writes (#94).
+
+## [0.33.0] — 2026-10-24
+
+Includes #105 and #106.
+
+### Added
+
+- A Controls screen in `/goal-settings` for command names and aliases, every public goal shortcut, goal-dialog keys and project/global inheritance. Commands can use subcommands such as `/goal edit`; `/goal-settings` stays available for recovery.
+- Configurable pause order: stop goal and turn together (the default), pause the goal first, or stop the turn first and wait for the user. Moving the pause key keeps Pi's interrupt available as a turn-only stop.
+
+### Changed
+
+- Controls keep the saved pause choice selected, show inheritance on narrow screens, and support paging through long lists. Questionnaire hints follow remapped keys while answer editing keeps Pi's text controls.
+- CI uses three jobs for the same seven Pi versions, combines duplicate checks, runs isolated workflows concurrently, and skips runtime work for prose/assets-only changes.
+- Develop and test against Pi 1.4.0. Use its native custom-turn prompt preparation while retaining the fallback for older hosts, honor startup cancellation, and run CLI checks against the repository's SDK.
+- Accept `max` thinking for the completion auditor and blocker Oracle in settings and the selector.
+
+### Fixed
+
+- Skip audit-message settlement callbacks whose Pi context was invalidated by session replacement or reload, preserving replacement-session messages and scheduling intent (#90).
+- Goal execution requests use the current Pi prompt and tool profile from their first request, including direct creation, draft confirmation, resume and reload. This fixes stale or missing prompt guidance on structured-transcript hosts without changing host internals.
+- Restore immediate continuation by default. Enable **slow repeated idle replies (opt-in)** in `/goal-settings` → **Advanced execution** (`idleContinuationBackoff: true`) to slow repeated idle replies (#100). Delays persist and can be disabled live. Set a finite `maxAutonomousRuns` for a hard stop; pacing alone does not guarantee loop termination.
+- Expose the project/global settings scope switch and keep delay timing and resume controls visible in the compact widget.
+
 
 ## [0.32.3] — 2026-10-02
 
