@@ -1,6 +1,6 @@
 
 
-import { GOAL_COMMANDS, commandHint, commandPaths, commandProblems, commandRoutes, matchCommandRoute, type GoalCommandId } from "./goal-controls.ts";
+import { GOAL_COMMANDS, commandHint, commandPaths, commandProblems, commandRoutes, getRememberedGoalSessionCwd, matchCommandRoute, rememberGoalSessionCwd, type GoalCommandId } from "./goal-controls.ts";
 import { showGoalControls } from "./widgets/goal-controls-dialog.ts";
 import { goalStoragePath, goalStorageRoot } from "./storage/goal-root.ts";
 
@@ -901,7 +901,10 @@ export function registerGoalCommands(core: GoalCore): void {
 			registeredRoots.add(root);
 		}
 	};
-	core.refreshGoalCommands = ctx => installRoutes(ctx.cwd);
-	installRoutes(process.cwd());
+	core.refreshGoalCommands = ctx => {
+		rememberGoalSessionCwd(ctx.cwd);
+		installRoutes(ctx.cwd);
+	};
+	installRoutes(getRememberedGoalSessionCwd() ?? process.cwd());
 
 }

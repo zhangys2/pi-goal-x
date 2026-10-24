@@ -66,7 +66,7 @@ function fixture(settings: unknown = {}) {
 	const emit = (event: string, payload: unknown = {}) => handlers.get(event)?.(payload, ctx);
 	const mutate = (scope: "global" | "project", op: "set" | "unset", key: string[], value?: unknown) => mutateSettingsLayer({ scope, cwd, mutation: { op, path: key, value } });
 	return {
-		cwd, file, core, ctx, commands, notifications, messages, statuses, emit, mutate,
+		cwd, file, core, ctx, pi, commands, notifications, messages, statuses, emit, mutate,
 		press: (data: string) => terminal?.(data), aborts: () => aborts, idle: () => { busy = false; },
 		start: async () => { await core.invokeGoalCommand!("goal-direct", "Create result.txt and verify its contents.", ctx); syncTerminalInputPause(core, ctx); },
 		close: () => {
@@ -153,6 +153,11 @@ test("session project cwd controls command aliases and fixed command collisions 
 		await h.emit("session_start");
 		assert.deepEqual(h.core.loadedCommands?.["goal-status"], ["project-progress"]);
 		assert.equal(h.commands.has("project-progress"), true);
+		goalExtension(h.pi as never);
+		const reloadedCore = (h.pi as unknown as { _goalCore: GoalCore })._goalCore;
+		assert.deepEqual(reloadedCore.loadedCommands?.["goal-status"], ["project-progress"], "extension reload reuses the active session cwd");
+		reloadedCore.scheduler.shutdown();
+		reloadedCore.runtime.clearContinuationState();
 		assert.equal(h.commands.has("goal"), true);
 		await h.commands.get("goal-status").handler("", h.ctx);
 		assert.match(h.notifications.at(-1) ?? "", /not configured as a goal command in this project/);

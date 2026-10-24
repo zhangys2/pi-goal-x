@@ -85,10 +85,11 @@ test('full-suite checks permit only explicitly named platform skips',async()=>{
  const directory=mkdtempSync(path.join(tmpdir(),'pi-ci-platform-skips-'));
  try {
   const allowed=await runChecks([
-   {name:'windows-only',args:['-e','console.log("﹣ a real .cmd receives its arguments unchanged (0.1ms) # requires Windows cmd.exe\\nℹ skipped 1")'],noSkippedTests:true,allowedSkips:[/﹣\s+a real \.cmd receives its arguments unchanged .*# requires Windows cmd\.exe/i]},
-   {name:'unexpected',args:['-e','console.log("﹣ another test (0.1ms) # SKIP\\nℹ skipped 1")'],noSkippedTests:true,allowedSkips:[/﹣\s+a real \.cmd receives its arguments unchanged .*# requires Windows cmd\.exe/i]},
+   {name:'windows-spec',args:['-e','console.log("﹣ a real .cmd receives its arguments unchanged (0.1ms) # requires Windows cmd.exe\\nℹ skipped 1")'],noSkippedTests:true,allowedSkips:[/a real \.cmd receives its arguments unchanged.*#(?:\s*SKIP)? requires Windows cmd\.exe/i]},
+   {name:'windows-tap',args:['-e','console.log("ok 1 - a real .cmd receives its arguments unchanged # SKIP requires Windows cmd.exe\\n# skipped 1")'],noSkippedTests:true,allowedSkips:[/a real \.cmd receives its arguments unchanged.*#(?:\s*SKIP)? requires Windows cmd\.exe/i]},
+   {name:'unexpected',args:['-e','console.log("﹣ another test (0.1ms) # SKIP\\nℹ skipped 1")'],noSkippedTests:true,allowedSkips:[/a real \.cmd receives its arguments unchanged.*#(?:\s*SKIP)? requires Windows cmd\.exe/i]},
   ],{directory,quiet:true});
-  assert.deepEqual(allowed.map(result=>result.passed),[true,false]);
-  assert.match(allowed[1].error,/only 0 explicitly allowed platform skips/);
+  assert.deepEqual(allowed.map(result=>result.passed),[true,true,false]);
+  assert.match(allowed[2].error,/only 0 explicitly allowed platform skips/);
  }finally{rmSync(directory,{recursive:true,force:true});}
 });

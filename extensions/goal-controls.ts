@@ -1,5 +1,11 @@
 import type { KeyId } from "@earendil-works/pi-tui";
 
+// Pi can reload extensions while the host process cwd differs from the active
+// SDK session cwd. Keep the last session directory across module reloads.
+const goalRuntime = globalThis as typeof globalThis & { __piGoalXSessionCwd?: string };
+export function rememberGoalSessionCwd(cwd: string): void { goalRuntime.__piGoalXSessionCwd = cwd; }
+export function getRememberedGoalSessionCwd(): string | undefined { return goalRuntime.__piGoalXSessionCwd; }
+
 /** Stable action IDs; invocation names are preferences, not lifecycle logic. */
 export const GOAL_COMMANDS = [
 	["goal", "Draft a goal", "Start a guided goal with confirmation."],
