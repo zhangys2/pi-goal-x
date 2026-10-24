@@ -18,6 +18,8 @@ import { loadGoalSettings } from "./goal-settings.ts";
 import { buildTaskSummary, checkSubtasksComplete, findSubtaskDepthViolation, findTaskInTree, skipAllSubtasks } from "./goal-policy.ts";
 import { checkTaskBeforeCompletion, gitBaseline, openCodeTaskConflict, openCodeTaskConflictMessage } from "./goal-task-runtime.ts";
 import { showTaskConfirmation, type TaskConfirmationResult } from "./goal-task-confirmation.ts";
+import { normalizeTaskProgress, type TaskProgressInput } from "./goal-tool-inputs.ts";
+export type { TaskProgressInput } from "./goal-tool-inputs.ts";
 import {
 	SET_GOAL_TASKS_TOOL_NAME,
 	UPDATE_GOAL_TASK_TOOL_NAME,
@@ -234,13 +236,6 @@ export function countTasks(tasks: readonly GoalTask[] | undefined): number {
 function isolatedCompletionGate(task: GoalTask): string | undefined {
 	if (!task.isolated || task.codeChange === false || task.integrations?.length) return undefined;
 	return `Task "${task.id}" is isolated but has no integrated worker patch. Integrate one with status=integrate, or skip the task with a reason.`;
-}
-
-export interface TaskProgressInput {
- task_id: string;
- status: "start" | "complete" | "skipped" | "pending";
- evidence?: string;
- reason?: string;
 }
 
 /** Dry-runs a batch in order, so a batch that validation would reject never starts a paid review. */
@@ -501,8 +496,8 @@ pi.registerTool(defineTool({
 	promptGuidelines: ["start requires pending and sets current task; a code task cannot start while another started code task is unresolved. complete runs declared checks first and requires evidence naming the exact verification commands run, including environment overrides, for contracted tasks and completed/skipped non-lightweight children. skipped requires a reason and explicit user direction or a hard contradiction; never skip to avoid work. pending reopens skipped tasks only; completed tasks are immutable. Completing/skipping the current task clears focus. integrate (single-task only) needs a started task, clean tree, patch_path and commit_message; never apply worker patches by hand."],
 	parameters: Type.Object({
 		task_id: Type.Optional(Type.String({ description: "Single-task form; omit with updates." })),
-		status: Type.Optional(StringEnum(["start", "complete", "skipped", "pending", "integrate"] as const)),
- updates: Type.Optional(Type.Array(Type.Object({task_id: Type.String(), status: StringEnum(["start", "complete", "skipped", "pending"] as const), evidence: Type.Optional(Type.String()), reason: Type.Optional(Type.String())}, {additionalProperties: false}), {minItems: 1, maxItems: 100, description: "Ordered atomic batch; omit all single-task fields."})),
+		status: Type.Optional(StringEnum(["start", "complete", "skipped", "pending", "integrate", ""] as const)),
+ updates: Type.Optional(Type.Array(Type.Object({task_id: Type.String(), status: StringEnum(["start", "complete", "skipped", "pending"] as const), evidence: Type.Optional(Type.String()), reason: Type.Optional(Type.String())}, {additionalProperties: false}), {maxItems: 100, description: "Ordered atomic batch; may be empty only when valid single-task fields are also supplied."})),
 		evidence: Type.Optional(Type.String({ description: "Completion evidence; max 200 chars." })),
 		reason: Type.Optional(Type.String({ description: "Required for skipped." })),
 		patch_path: Type.Optional(Type.String({ description: "Worker patch file (integrate)." })),
@@ -512,11 +507,22 @@ pi.registerTool(defineTool({
 	async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
   signal = combineAbortSignals(signal, ctx.signal, core.sessionAbortController.signal);
   signal?.throwIfAborted();
-  if (rawParams.updates !== undefined) {
-   const fail = (text: string) => ({content: [{type: "text" as const, text}], details: goalDetails(core.state.goal)});
-   if ([rawParams.task_id, rawParams.status, rawParams.evidence, rawParams.reason, rawParams.patch_path, rawParams.commit_message].some(v => v !== undefined)) return fail("Use either updates or single-task fields, never both; integrate is single-task only.");
-   const updates = rawParams.updates;
-   if (!Array.isArray(updates) || updates.length < 1 || updates.length > 100 || updates.some(u => !u || typeof u.task_id !== "string" || !u.task_id.trim() || !["start", "complete", "skipped", "pending"].includes(u.status) || (u.evidence !== undefined && typeof u.evidence !== "string") || (u.reason !== undefined && typeof u.reason !== "string"))) return fail("updates must contain 1–100 valid task updates.");
+  const fail = (text: string) => ({content: [{type: "text" as const, text}], details: goalDetails(core.state.goal)});
+  if (rawParams.updates !== undefined && (rawParams.patch_path !== undefined || rawParams.commit_message !== undefined)) return fail("integrate is single-task only; patch_path and commit_message cannot accompany updates.");
+  if ((rawParams.patch_path !== undefined || rawParams.commit_message !== undefined) && rawParams.status !== "integrate") return fail("patch_path and commit_message apply only to status=integrate.");
+  if (rawParams.status === "integrate") {
+   if (!rawParams.task_id) return fail("status=integrate requires task_id.");
+   core.reconcileFocusedGoalFromDisk(ctx);
+   if (loadGoalSettings(ctx.cwd).disableTasks) return fail("update_goal_task is disabled by settings (disableTasks: true).");
+   if (!core.state.goal) return fail("No goal is focused.");
+   if (core.state.goal.status !== "active") return fail(`update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).`);
+   return integrateWorkerPatch(core, ctx, {taskId: rawParams.task_id, patchPath: rawParams.patch_path, commitMessage: rawParams.commit_message}, signal);
+  }
+  if (rawParams.patch_path !== undefined || rawParams.commit_message !== undefined) return fail("patch_path and commit_message apply only to status=integrate.");
+  const normalized = normalizeTaskProgress(rawParams);
+  if (!normalized.ok) return fail(normalized.message);
+  if (normalized.batch) {
+   const updates = normalized.updates;
    core.reconcileFocusedGoalFromDisk(ctx);
    if (loadGoalSettings(ctx.cwd).disableTasks) return fail("update_goal_task is disabled by settings (disableTasks: true).");
    if (!core.state.goal) return fail("No goal is focused.");
@@ -550,17 +556,7 @@ pi.registerTool(defineTool({
    core.updateUI(ctx);
    return fail(`${updates.map(u => `${u.task_id} ${u.status}`).join("; ")}. ${buildTaskSummary(result.goal.taskList!)}.`);
   }
-  if (!rawParams.task_id || !rawParams.status) return {content: [{type: "text", text: "Provide task_id and status, or an updates batch."}], details: goalDetails(core.state.goal)};
-  if ((rawParams.patch_path !== undefined || rawParams.commit_message !== undefined) && rawParams.status !== "integrate") return {content: [{type: "text", text: "patch_path and commit_message apply only to status=integrate."}], details: goalDetails(core.state.goal)};
-  if (rawParams.status === "integrate") {
-   core.reconcileFocusedGoalFromDisk(ctx);
-   const reply = (text: string) => ({content: [{type: "text" as const, text}], details: goalDetails(core.state.goal)});
-   if (loadGoalSettings(ctx.cwd).disableTasks) return reply("update_goal_task is disabled by settings (disableTasks: true).");
-   if (!core.state.goal) return reply("No goal is focused.");
-   if (core.state.goal.status !== "active") return reply(`update_goal_task applies only to an active goal (current status: ${core.state.goal.status}).`);
-   return integrateWorkerPatch(core, ctx, {taskId: rawParams.task_id, patchPath: rawParams.patch_path, commitMessage: rawParams.commit_message}, signal);
-  }
-  const params = rawParams as TaskProgressInput;
+  const params = normalized.updates[0]!;
 		core.reconcileFocusedGoalFromDisk(ctx);
 		if (loadGoalSettings(ctx.cwd).disableTasks) {
 			return {
