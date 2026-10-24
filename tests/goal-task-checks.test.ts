@@ -86,7 +86,7 @@ test("Windows .cmd files run through cmd.exe with escaped arguments", () => {
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("a real .cmd receives its arguments unchanged", { skip: process.platform !== "win32" }, async () => {
+test("a real .cmd receives its arguments unchanged", { skip: process.platform !== "win32" ? "requires Windows cmd.exe" : false }, async () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "goal-check-cmd-real-"));
 	try {
 		writeFileSync(path.join(dir, "echo-args.cmd"), `@"${node}" -e "process.exit(JSON.stringify(process.argv.slice(1)) === JSON.stringify(['a b', 'x&y', 'q%%PATH%%']) ? 0 : 7)" %*\r\n`);

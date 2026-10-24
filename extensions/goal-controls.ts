@@ -164,9 +164,10 @@ export function commandRoutes(commands: GoalCommands | undefined): GoalCommandRo
 export function commandProblems(commands: GoalCommands | undefined, occupiedRoots: readonly string[] = []): string[] {
 	const problems: string[] = [];
 	const owners = new Map<string, GoalCommandId>();
+	const reservedRoots = new Set(["loop", "goal-report", ...occupiedRoots]);
 	for (const [id] of GOAL_COMMANDS) for (const route of commandPaths(commands, id)) {
 		const root = route.split(" ")[0]!;
-		if (PI_COMMAND_ROOTS.has(root) || occupiedRoots.includes(root)) problems.push(`/${root} belongs to Pi or another command.`);
+		if (PI_COMMAND_ROOTS.has(root) || reservedRoots.has(root)) problems.push(`/${root} belongs to Pi or another command.`);
 		if (root === "goal-settings" && id !== "goal-settings") problems.push("/goal-settings is reserved for settings recovery.");
 		const owner = owners.get(route);
 		if (owner && owner !== id) problems.push(`/${route} is already assigned to ${owner}.`);

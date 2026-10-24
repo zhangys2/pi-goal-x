@@ -866,11 +866,8 @@ export function registerGoalCommands(core: GoalCore): void {
 			await handleGoalResume(ctx);
 		},
 	});
-	const configured = loadGoalSettings(process.cwd()).commands;
-	const problems = commandProblems(configured);
-	core.loadedCommands = problems.length ? undefined : configured;
-	core.controlWarnings = problems;
-	const routes = commandRoutes(core.loadedCommands);
+	let routes = commandRoutes(undefined);
+	const registeredRoots = new Set<string>();
 	core.invokeGoalCommand = async (id, args, ctx) => {
 		const action = actions.get(id);
 		if (!action) return;
@@ -878,19 +875,33 @@ export function registerGoalCommands(core: GoalCore): void {
 		try { await action.handler(args, ctx); }
 		finally { core.exitGoalModal(); }
 	};
-	const roots = [...actions.keys()].flatMap(id => commandPaths(core.loadedCommands, id).map(route => route.split(" ")[0]!));
-	for (const root of new Set([...roots, "goal-settings"])) {
-		const rootRoutes = routes.filter(route => route.path.split(" ")[0] === root);
-		const direct = rootRoutes.find(route => route.path === root);
-		pi.registerCommand(root, {
-			description: direct ? actions.get(direct.id)!.description : `Goal actions: ${rootRoutes.map(route => route.path.slice(root.length + 1)).join(", ")}`,
-			getArgumentCompletions: prefix => rootRoutes.filter(route => route.path !== root && route.path.slice(root.length + 1).startsWith(prefix)).map(route => ({ value: route.path.slice(root.length + 1), label: route.path.slice(root.length + 1), description: GOAL_COMMANDS.find(([id]) => id === route.id)![1] })),
-			handler: async (args, ctx) => {
-				const match = matchCommandRoute(routes, root, args);
-				if (match) await core.invokeGoalCommand!(match.id, match.args, ctx);
-				else ctx.ui.notify(`Choose a goal command: ${rootRoutes.map(route => `/${route.path}`).join(", ")}`, "info");
-			},
-		});
-	}
+	const installRoutes = (cwd: string): void => {
+		const configured = loadGoalSettings(cwd).commands;
+		// These fixed commands are registered by goal-loop.ts and the report
+		// handler above, outside this configurable action registry.
+		const problems = commandProblems(configured, ["loop", "goal-report"]);
+		core.loadedCommands = problems.length ? undefined : configured;
+		core.controlWarnings = problems;
+		routes = commandRoutes(core.loadedCommands);
+		const roots = [...actions.keys()].flatMap(id => commandPaths(core.loadedCommands, id).map(route => route.split(" ")[0]!));
+		for (const root of new Set([...registeredRoots, ...roots, "goal-settings"])) {
+			const rootRoutes = routes.filter(route => route.path.split(" ")[0] === root);
+			const direct = rootRoutes.find(route => route.path === root);
+			pi.registerCommand(root, {
+				description: direct ? actions.get(direct.id)?.description ?? `Goal action: ${direct.id}` : rootRoutes.length ? `Goal actions: ${rootRoutes.map(route => route.path.slice(root.length + 1)).join(", ")}` : `No goal action is configured for /${root}.`,
+				getArgumentCompletions: prefix => routes.filter(route => route.path.split(" ")[0] === root && route.path !== root && route.path.slice(root.length + 1).startsWith(prefix)).map(route => ({ value: route.path.slice(root.length + 1), label: route.path.slice(root.length + 1), description: GOAL_COMMANDS.find(([id]) => id === route.id)![1] })),
+				handler: async (args, ctx) => {
+					const currentRoutes = routes.filter(route => route.path.split(" ")[0] === root);
+					const match = matchCommandRoute(routes, root, args);
+					if (match) await core.invokeGoalCommand!(match.id, match.args, ctx);
+					else if (currentRoutes.length) ctx.ui.notify(`Choose a goal command: ${currentRoutes.map(route => `/${route.path}`).join(", ")}`, "info");
+					else ctx.ui.notify(`/${root} is not configured as a goal command in this project.`, "info");
+				},
+			});
+			registeredRoots.add(root);
+		}
+	};
+	core.refreshGoalCommands = ctx => installRoutes(ctx.cwd);
+	installRoutes(process.cwd());
 
 }

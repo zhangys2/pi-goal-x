@@ -108,6 +108,8 @@ test("routes match whole words, prefer subcommands and preserve objective whites
 	assert.ok(commandProblems({ "goal-tweak": ["goal"] }).length);
 	assert.ok(commandProblems({ goal: ["goal-settings"] }).length);
 	assert.ok(commandProblems({ goal: ["team goal"] }, ["team"]).length);
+	assert.ok(commandProblems({ goal: ["loop"] }).some(problem => problem.includes("/loop")));
+	assert.ok(commandProblems({ "goal-status": ["goal-report"] }).some(problem => problem.includes("/goal-report")));
 });
 
 test("controls inherit per leaf, explicit empty lists override and resolved arrays are caller-owned", () => {
@@ -138,6 +140,34 @@ test("controls inherit per leaf, explicit empty lists override and resolved arra
 	} finally { h.close(); }
 });
 
+test("session project cwd controls command aliases and fixed command collisions are rejected", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-controls-project-cwd-"));
+	mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+	writeFileSync(path.join(cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ commands: { "goal-status": ["project-progress"], "goal-list": [] } }));
+	const h = fixture({});
+	try {
+		// The extension is loaded from this test process, but the Pi session is in cwd.
+		delete process.env.PI_GOAL_SETTINGS_FILE;
+		invalidateGoalSettingsCache();
+		Object.defineProperty(h.ctx, "cwd", { value: cwd, configurable: true });
+		await h.emit("session_start");
+		assert.deepEqual(h.core.loadedCommands?.["goal-status"], ["project-progress"]);
+		assert.equal(h.commands.has("project-progress"), true);
+		assert.equal(h.commands.has("goal"), true);
+		await h.commands.get("goal-status").handler("", h.ctx);
+		assert.match(h.notifications.at(-1) ?? "", /not configured as a goal command in this project/);
+	} finally { h.close(); rmSync(cwd, { recursive: true, force: true }); }
+
+	for (const commands of [{ goal: ["loop"] }, { "goal-status": ["goal-report"] }]) {
+		const collision = fixture({ commands });
+		try {
+			await collision.emit("session_start");
+			assert.equal(collision.core.loadedCommands, undefined, "unsafe aliases fall back to the built-in command set");
+			assert.ok(collision.core.controlWarnings?.some(warning => /belongs to Pi or another command/.test(warning)));
+		} finally { collision.close(); }
+	}
+});
+
 test("shortcut conflicts use overlapping contexts, preserving Escape view priority", () => {
 	assert.deepEqual(keybindingProblems({}), []);
 	assert.ok(keybindingProblems({ keybindings: { pause: "ctrl+shift+a" } }).length);
@@ -148,6 +178,7 @@ test("shortcut conflicts use overlapping contexts, preserving Escape view priori
 test("custom command roots register once, complete subcommands and keep settings recovery", async () => {
 	const h = fixture({ commands: { goal: ["work new"], "goal-tweak": ["work edit"], "goal-status": ["work status", "progress"], "goal-pause": [], "goal-settings": ["preferences"] } });
 	try {
+		await h.emit("session_start");
 		assert.equal(h.commands.has("goal"), false);
 		assert.equal(h.commands.has("goal-tweak"), false);
 		assert.equal(h.commands.has("goal-pause"), false);

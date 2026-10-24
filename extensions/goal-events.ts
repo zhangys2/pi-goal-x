@@ -291,7 +291,6 @@ export function registerGoalEvents(core: GoalCore): void {
 		core.interruption.settled();
 		core.interruption.reset();
 		if (ctx.hasUI) ctx.ui.setStatus("goal-interrupt", undefined);
-		if (core.controlWarnings?.length) ctx.ui.notify(`Goal command settings were not applied: ${core.controlWarnings.join(" ")} Open /goal-settings controls to correct them.`, "warning");
 		core.auditMessages.clear();
 		continuationAfterSettleFor = null;
 		networkErrorRecoveryAfterSettleFor = null;
@@ -301,6 +300,8 @@ export function registerGoalEvents(core: GoalCore): void {
 		invalidateGoalSettingsCache();
 		invalidateGoalPoolCache();
 		invalidateGoalLedgerCache();
+		core.refreshGoalCommands?.(ctx);
+		if (core.controlWarnings?.length) ctx.ui.notify(`Goal command settings were not applied: ${core.controlWarnings.join(" ")} Open /goal-settings controls to correct them.`, "warning");
 		core.goalService.flushTurn(ctx); // P1-3: persist any buffered transaction before reload
 		await core.loadState(ctx);
 		core.installGoalToolProfile(!loadGoalSettings(ctx.cwd).disableTasks);

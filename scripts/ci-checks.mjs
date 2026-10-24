@@ -25,8 +25,12 @@ export async function runChecks(checks, {directory, cwd=process.cwd(), concurren
    await new Promise(resolve=>stream.end(resolve));
    const content=readFileSync(log,'utf8').trimEnd();
    if(check.noSkippedTests && code===0) {
-    const summary=/^(?:ℹ|#)\s+skipped\s+(\d+)\s*$/m.exec(stripVTControlCharacters(content));
-    if(!summary || Number(summary[1])!==0) error=summary?`Full suite skipped ${summary[1]} tests.`:'Full suite did not report its skip count.';
+    const normalized=stripVTControlCharacters(content);
+    const summary=/^(?:ℹ|#)\s+skipped\s+(\d+)\s*$/m.exec(normalized);
+    const skipLines=normalized.split(/\r?\n/).filter(line=>/^\s*(?:﹣|#\s*SKIP\b)/u.test(line));
+    const allowedSkips=skipLines.filter(line=>(check.allowedSkips??[]).some(pattern=>pattern.test(line))).length;
+    if(!summary) error='Full suite did not report its skip count.';
+    else if(Number(summary[1])!==allowedSkips || skipLines.length!==allowedSkips) error=`Full suite skipped ${summary[1]} tests; only ${allowedSkips} explicitly allowed platform skips were accounted for.`;
    }
    const result={name:check.name,passed:code===0&&!error,code,error,elapsedMs:Date.now()-started,log};
    results[index]=result;
@@ -45,7 +49,8 @@ if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const directory=process.env.PI_GOAL_CI_LOG_DIR??mkdtempSync(path.join(tmpdir(),'pi-goal-ci-'));
  console.log(`Validation logs: ${directory}`);
  const results=await runChecks([
-  {name:'tests',args:['scripts/run-unit-tests.mjs','all','--selfcheck'],noSkippedTests:true},
+  {name:'tests',args:['scripts/run-unit-tests.mjs','all'],noSkippedTests:true,allowedSkips:[/﹣\s+a real \.cmd receives its arguments unchanged .*# requires Windows cmd\.exe/i]},
+  {name:'manifest-selfcheck',args:['scripts/run-unit-tests.mjs','all','--selfcheck']},
   {name:'controls-cli',args:['experiments/controls/cli-walkthrough.mjs']},
   {name:'lifecycle-cli',args:['scripts/live-session-check.mjs']},
  ],{directory});

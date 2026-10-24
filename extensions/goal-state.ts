@@ -93,6 +93,7 @@ export interface GoalCore {
 	invokeGoalCommand?: (id: GoalCommandId, args: string, ctx: ExtensionContext) => Promise<void>;
 	loadedCommands?: GoalCommands;
 	controlWarnings?: string[];
+	refreshGoalCommands?(ctx: ExtensionContext): void;
 	auditMessages: GoalAuditMessages;
 	readonly auditRuntime: GoalAuditRuntime;
 	accounting: GoalAccounting;
