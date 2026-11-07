@@ -54,3 +54,10 @@
 - `node scripts/ci-checks.mjs` passed: manifest self-check, controls CLI, live Pi lifecycle, tests (1,365 passed, 1 skipped), and installed-package smoke.
 - `npm run check`, `npm run lint`, and both focused command-control regressions passed.
 - `git diff --check` passed after this entry.
+
+
+### Remote CI follow-up
+
+- GitHub `validate` on `0fb0d08` fails at `npm run context:gate`. The same gate fails at base commit `284eaa8` on `current-contracted-task` and `get-goal-default-and-verbose` semantic/breakdown invariants, so those failures predate this PR.
+- The current branch also reports per-fixture breakdown drift after the `/gx` command-path changes. No baseline was regenerated: the context harness requires an active-campaign rationale, and the inherited semantic failures remain unresolved.
+- `git diff --check` passed after this update.
