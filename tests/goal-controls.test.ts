@@ -181,6 +181,18 @@ test("session project cwd controls command aliases and fixed command collisions 
 	}
 });
 
+test("partial command overrides retain /gx defaults for unconfigured actions", async () => {
+	const h = fixture({ commands: { "goal-tweak": ["gx tweak", "goal edit"] } });
+	try {
+		await h.emit("session_start");
+		assert.equal(h.commands.has("goal-direct"), false);
+		const completions = h.commands.get("gx")!.getArgumentCompletions("").map((item: { value: string }) => item.value);
+		assert.ok(completions.includes("direct"));
+		await h.commands.get("gx")!.handler("direct Create a small verified artifact.", h.ctx);
+		assert.equal(h.core.state.goal?.objective, "Create a small verified artifact.");
+	} finally { h.close(); }
+});
+
 test("former report and onboarding roots remain available as explicit aliases", async () => {
 	const h = fixture({ commands: { "goal-report": ["goal-report"], "goal-onboarding": ["goal-onboarding"] } });
 	try {

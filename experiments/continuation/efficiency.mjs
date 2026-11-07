@@ -105,7 +105,7 @@ async function run(policy,scenario,{optIn=false,guard,cap}={}){
    async select(title,options){const answer=options.find(o=>/confirm.*create/i.test(o))??options.find(o=>/^Enabled\b/i.test(o))??options[0];choices.push({title:title.split('\n')[0],answer});return answer;},
    async confirm(){return true;},async input(){return 'Use the stated objective.';}};
   await session.bindExtensions({mode:'rpc',uiContext:ui,onError:event=>errors.push(event.error)});
-  await session.prompt('/goal Produce result.txt containing exactly verified result followed by a newline. Verify it and complete the goal.');
+  await session.prompt('/gx Produce result.txt containing exactly verified result followed by a newline. Verify it and complete the goal.');
   const deadline=Date.now()+12000;while(!done&&Date.now()<deadline)await delay(5);
   assert.ok(done,`timeout: ${id}`);assert.deepEqual(errors,[]);
   const count=requests.length;await delay(100);assert.equal(requests.length,count,'no request while paced/wait complete/harness stopped');

@@ -40,3 +40,17 @@
 - `npm run check` and `npm run lint` passed.
 - Headless extension smoke: `/gx status page redesign` started guided drafting.
 - Full `npm run test:all`: 1,364 passed, 1 skipped, 0 failed (1,365 total; 103 test files discovered).
+
+
+## 2026-11-08 — Restored CI after the /gx command rename
+
+- Moved active controls, lifecycle, and continuation workflows from removed legacy command roots to `/gx`; retained `/goal edit` only as explicit-alias coverage.
+- CI exposed partial command settings resolving unconfigured actions to legacy roots. Unset actions now keep canonical `/gx` paths, with regression coverage that a partial override still exposes `/gx direct`.
+- A full-suite regression showed that a recognized default subcommand whose action was remapped could fall through to goal drafting. Such forms now show configured command choices; invalid trailing objective text remains draftable.
+- Updated the product/technical contract and changelog for partial command overrides and remapped subcommands.
+
+### Validation
+
+- `node scripts/ci-checks.mjs` passed: manifest self-check, controls CLI, live Pi lifecycle, tests (1,365 passed, 1 skipped), and installed-package smoke.
+- `npm run check`, `npm run lint`, and both focused command-control regressions passed.
+- `git diff --check` passed after this entry.

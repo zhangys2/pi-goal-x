@@ -24,7 +24,7 @@ const model=runtime.getModel(provider,modelId);
 if(!model||!runtime.hasConfiguredAuth(provider))throw new Error('Configured evaluation model unavailable; no model request sent');
 const budget=new EvaluationBudget({limit:2,maxTokens:4096});
 budget.caseLimit=40;budget.install(runtime);
-const result={evidence:'real model, actual SDK, ordinary /goal confirmation choices; agent-operated RPC walkthrough',sdk:piVersion,production,policy,provider,model:modelId,fixtureCwd:cwd,ordinaryWording,thinking:'medium',dialogs:[],commands:[],tools:[],executions:[],errors:[],requests:budget.requests};
+const result={evidence:'real model, actual SDK, ordinary /gx confirmation choices; agent-operated RPC walkthrough',sdk:piVersion,production,policy,provider,model:modelId,fixtureCwd:cwd,ordinaryWording,thinking:'medium',dialogs:[],commands:[],tools:[],executions:[],errors:[],requests:budget.requests};
 const started=Date.now();
 let core,session;
 const save=()=>fs.writeFileSync(path.join(output,`live-${caseId}.json`),JSON.stringify({...result,elapsedMs:Date.now()-started,chargedOrReservedUSD:budget.spent,reservedUSD:budget.reserved},null,2)+'\n');
@@ -53,7 +53,7 @@ const ui={...session.extensionRunner.createContext().ui,
 const timeout=setTimeout(()=>{result.errors.push('Walkthrough reached the 150-second harness ceiling');core?.auditAbortController?.abort();core?.clearContinuationState();void session.abort();save();},150_000);
 try {
  await session.bindExtensions({mode:'rpc',uiContext:ui,onError:event=>result.errors.push(event.error)});
- const command=ordinaryWording?'/goal Fix normalizeName so it trims outer whitespace and collapses internal whitespace to one space. Add tests for tabs/newlines and unchanged ordinary names, and run all tests. Keep the change focused and add no dependencies.':'/goal Fix normalizeName so it trims outer whitespace and collapses internal whitespace to one space. Add tests for tabs/newlines and unchanged ordinary names, run all tests, and finish with the completion auditor. Keep the change focused and add no dependencies.';
+ const command=ordinaryWording?'/gx Fix normalizeName so it trims outer whitespace and collapses internal whitespace to one space. Add tests for tabs/newlines and unchanged ordinary names, and run all tests. Keep the change focused and add no dependencies.':'/gx Fix normalizeName so it trims outer whitespace and collapses internal whitespace to one space. Add tests for tabs/newlines and unchanged ordinary names, run all tests, and finish with the completion auditor. Keep the change focused and add no dependencies.';
  result.commands.push(command);save();
  await session.prompt(command);
  const deadline=Date.now()+140_000;

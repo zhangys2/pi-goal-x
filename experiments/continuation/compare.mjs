@@ -84,7 +84,7 @@ async function run(policy,scenario,optIn=false) {
   await loader.reload();
   ({session}=await createAgentSession({cwd,agentDir:path.join(cwd,'agent'),modelRuntime:runtime,model:runtime.getModel('fixture','fixture'),resourceLoader:loader,sessionManager:SessionManager.create(cwd,path.join(cwd,'sessions')),settingsManager:SettingsManager.inMemory({retry:{enabled:false},compaction:{enabled:false}})}));
   await session.bindExtensions({onError:event=>errors.push(event.error)});
-  const command='/goal-direct Produce result.txt containing exactly verified result followed by a newline. Verify it and complete the goal.';
+  const command='/gx direct Produce result.txt containing exactly verified result followed by a newline. Verify it and complete the goal.';
   commands.push(command);await session.prompt(command);
   const deadline=Date.now()+10_000;
   while(!done&&Date.now()<deadline)await delay(10);

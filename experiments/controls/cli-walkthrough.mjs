@@ -65,15 +65,15 @@ async function boot(label,settings={},scenario='normal'){
 async function controlsWalkthrough(){
  const h=await boot('controls-ui');
  try{
-  await h.send('/goal-settings\r');await h.keys(DOWN,DOWN,ENTER);await h.expect('Goal controls');
+  await h.send('/gx settings\r');await h.keys(DOWN,DOWN,ENTER);await h.expect('Goal controls');
   await h.capture('01-controls-wide');
   await h.keys('Revise',ENTER,DOWN,ENTER,'/goal edit',ENTER);
-  assert.deepEqual(h.config().commands['goal-tweak'],['goal-tweak','goal edit']);
+  assert.deepEqual(h.config().commands['goal-tweak'],['gx tweak','goal edit']);
   await h.capture('02-alias-saved');
   await h.send('\x12');await h.expect('Reloaded keybindings');
   await h.send('/goal edit Change the greeting\r');await h.expect('No goal is set');
   assert.equal(h.requests().length,0,'the alias reached the command handler without a model request');
-  await h.send('/goal-settings controls\r');await h.keys(TAB,'Pause /',ENTER,ENTER,F6,ENTER);
+  await h.send('/gx settings controls\r');await h.keys(TAB,'Pause /',ENTER,ENTER,F6,ENTER);
   assert.deepEqual(h.config().keybindings.pause,['f6']);
   await h.keys(ENTER,ENTER,'\x1b[65;6u',ENTER);await h.expect('also assigned');
   await h.capture('03-conflict');assert.deepEqual(h.config().keybindings.pause,['f6']);
@@ -89,7 +89,7 @@ async function controlsWalkthrough(){
   await h.keys(TAB,'Resume',ENTER,ENTER,'\x15','work continue',ENTER);
   assert.deepEqual(h.config().commands['goal-resume'],['work continue']);
   await h.send('\x12');await h.expect('Reloaded keybindings');
-  await h.send('/goal-direct Create greeting.txt containing exactly Hello from goal followed by a newline. Verify it.\r');
+  await h.send('/gx direct Create greeting.txt containing exactly Hello from goal followed by a newline. Verify it.\r');
   await until(()=>h.requests().length===1,'first running request');await h.send(F6);
   await until(()=>h.goals()[0]?.scheduler?.phase==='interrupted','turn-only hold persisted');
   await h.expect('waiting for you');await h.capture('06-turn-stopped');
@@ -100,7 +100,7 @@ async function controlsWalkthrough(){
   await h.send(F6);await until(()=>h.goals()[0]?.status==='paused','second press pauses goal');
   await h.capture('07-goal-paused');
   // Escape leaves settings without pausing/resuming the goal or writing cancelled text.
-  await h.send('/goal-settings controls\r');await h.keys('Revise',ENTER,ENTER,'\x15','/discard-me');
+  await h.send('/gx settings controls\r');await h.keys('Revise',ENTER,ENTER,'\x15','/discard-me');
   const before=JSON.stringify(h.config());await h.keys(ESC,ESC,ESC,ESC);
   assert.equal(JSON.stringify(h.config()),before);assert.equal(h.goals()[0].status,'paused');
   await h.send('/work continue\r');
@@ -114,7 +114,7 @@ async function controlsWalkthrough(){
 async function pauseWalkthrough(order,finish=false){
  const h=await boot(finish?'goal-first-finish':order,{pauseOrder:order});
  try{
-  await h.send('/goal-direct Create greeting.txt containing exactly Hello from goal followed by a newline. Verify it.\r');
+  await h.send('/gx direct Create greeting.txt containing exactly Hello from goal followed by a newline. Verify it.\r');
   await until(()=>h.requests().length===1,'visible work');await h.send(ESC);
   await until(()=>h.goals()[0]?.status==='paused',`${order} first press pauses goal`);
   await h.capture('first-press');
@@ -125,7 +125,7 @@ async function pauseWalkthrough(order,finish=false){
   }else await h.expect('Operation aborted');
   if(!finish){await delay(6500);assert.equal(h.requests().length,1);assert.equal(fs.existsSync(path.join(h.cwd,'greeting.txt')),false);}
   assert.equal(h.goals()[0].status,'paused');
-  await h.send('/goal-resume\r');await until(()=>fs.existsSync(path.join(h.cwd,'greeting.txt'))&&h.goals().length===0,'resume completes',20000);
+  await h.send('/gx resume\r');await until(()=>fs.existsSync(path.join(h.cwd,'greeting.txt'))&&h.goals().length===0,'resume completes',20000);
   return {case:finish?'goal-first-finish':order,passed:true,sdk:piVersion,directory:path.relative(repository,h.cwd),requests:h.requests().length};
  }finally{await h.stop();}
 }
@@ -148,20 +148,20 @@ async function editorWalkthrough(){
 async function settingsPathsWalkthrough(){
  const h=await boot('settings-paths');
  try{
-  await h.send('/goal-settings controls\r');await h.resize(20,72);await h.expect('Source: Default');
+  await h.send('/gx settings controls\r');await h.resize(20,72);await h.expect('Source: Default');
   await h.keys('Pause the goal',ENTER,ENTER,'\x15','/reload',ENTER);await h.expect('belongs to Pi');
   await h.capture('invalid-command');
   await h.keys('\x15','/work stop',ENTER);assert.deepEqual(h.config().commands['goal-pause'],['work stop']);
   await h.keys(ENTER,DOWN,ENTER,'/hold',ENTER);assert.deepEqual(h.config().commands['goal-pause'],['work stop','hold']);
   await h.keys(ENTER,DOWN,DOWN,ENTER);assert.deepEqual(h.config().commands['goal-pause'],[]);
-  await h.keys(ENTER,DOWN,DOWN,DOWN,ENTER);assert.deepEqual(h.config().commands['goal-pause'],['goal-pause']);
+  await h.keys(ENTER,DOWN,DOWN,DOWN,ENTER);assert.deepEqual(h.config().commands['goal-pause'],['gx pause']);
   await h.keys(ESC,'\x1b[F',ENTER,DOWN,ENTER);assert.ok(h.config().commands,'Back preserves overrides');
   await h.keys(ENTER,ESC);assert.ok(h.config().commands,'Escape preserves overrides');
   await h.keys(ENTER,ENTER);assert.equal(h.config().commands,undefined);
   await h.keys('Goal settings',ENTER,DOWN,DOWN,ENTER);assert.deepEqual(h.config().commands['goal-settings'],[]);
   await h.expect('recovery only');await h.capture('settings-recovery');
   await h.send('\x12');await h.expect('Reloaded keybindings');
-  await h.send('/goal-settings controls\r');await h.expect('Goal controls');
+  await h.send('/gx settings controls\r');await h.expect('Goal controls');
   await h.keys('\x1b[F',ENTER,ENTER);assert.equal(h.config().commands,undefined);
   await h.keys(TAB,'Pause /',ENTER,ENTER,ESC);assert.equal(h.config().keybindings,undefined);
   await h.keys(DOWN,ENTER,F6,ESC);assert.equal(h.config().keybindings,undefined,'record preview cancels');
@@ -197,7 +197,7 @@ async function commandShortcutWalkthrough(){
   await h.send('\x1b[20~');await until(()=>h.goals()[0]?.status==='paused','Pause command shortcut stops both');
   await h.expect('Operation aborted');await h.capture('command-paused');
   assert.equal(fs.existsSync(path.join(h.cwd,'greeting.txt')),false);
-  await h.send('/goal-resume\r');await until(()=>fs.existsSync(path.join(h.cwd,'greeting.txt'))&&h.goals().length===0,'shortcut goal completes after resume',20000);
+  await h.send('/gx resume\r');await until(()=>fs.existsSync(path.join(h.cwd,'greeting.txt'))&&h.goals().length===0,'shortcut goal completes after resume',20000);
   return {case:'command-shortcuts',passed:true,sdk:piVersion,directory:path.relative(repository,h.cwd),requests:h.requests().length,checks:['argument-dialog-cancel','argument-dialog-submit','pause-command-shortcut','resume','audited-completion']};
  }finally{await h.stop();}
 }
@@ -205,7 +205,7 @@ async function commandShortcutWalkthrough(){
 async function nativeInterruptWalkthrough(){
  const h=await boot('native-interrupt',{keybindings:{pause:'f6'}});
  try{
-  await h.send('/goal-direct Create greeting.txt containing exactly Hello from goal followed by a newline. Verify it.\r');
+  await h.send('/gx direct Create greeting.txt containing exactly Hello from goal followed by a newline. Verify it.\r');
   await until(()=>h.requests().length===1,'visible work before native interrupt');await h.send(ESC);
   await until(()=>h.goals()[0]?.scheduler?.phase==='interrupted','native interrupt holds the turn');
   assert.equal(h.goals()[0].status,'active');await h.expect('waiting for you');await h.capture('native-held');
@@ -219,15 +219,15 @@ async function nativeInterruptWalkthrough(){
 async function dialogKeysWalkthrough(){
  const h=await boot('dialog-keys',{keybindings:{dialog:{confirm:'f6',cancel:'f7',up:'k',down:'j',toggleAuditor:'x'}}});
  try{
-  await h.send('/goal Create the greeting file and verify it.\r');await h.expect('Confirm Goal Draft');await h.expect('F6');await h.expect('F7');
+  await h.send('/gx Create the greeting file and verify it.\r');await h.expect('Confirm Goal Draft');await h.expect('F6');await h.expect('F7');
   await h.send(ENTER);assert.equal(h.goals().length,0,'the old confirmation key is inactive');
   await h.send('j');await h.capture('custom-navigation');
   await h.send('k');await h.send('x');await h.expect('Auditor disabled');
   await h.send('x');await h.expect('Auditor enabled');
   // Cancel returns to the conversation with the draft preserved for refinement.
   await h.send('\x1b[18~');await h.expect('Tell me what you would like to change.');assert.equal(h.goals().length,0);
-  await h.send('/goal-cancel\r');await h.expect('Draft cancelled');
-  await h.send('/goal Create the greeting file and verify it.\r');await h.expect('Confirm Goal Draft');
+  await h.send('/gx cancel\r');await h.expect('Draft cancelled');
+  await h.send('/gx Create the greeting file and verify it.\r');await h.expect('Confirm Goal Draft');
   await h.send(F6);await until(()=>fs.existsSync(path.join(h.cwd,'greeting.txt'))&&h.goals().length===0,'custom confirmation reaches audited completion',20000);
   return {case:'dialog-keys',passed:true,sdk:piVersion,directory:path.relative(repository,h.cwd),requests:h.requests().length,checks:['remapped-hints','old-confirm-inactive','custom-navigation','auditor-toggle','custom-cancel','draft-cancel','custom-confirm','audited-completion']};
  }finally{await h.stop();}
@@ -236,7 +236,7 @@ async function dialogKeysWalkthrough(){
 async function answerEditingWalkthrough(){
  const h=await boot('answer-editing',{keybindings:{dialog:{next:['n','ctrl+a'],previous:'p',cancel:'q',confirm:'f6'}}},'dialog-text');
  try{
-  await h.send('/goal Create the greeting file and verify it.\r');await h.expect('First answer?');
+  await h.send('/gx Create the greeting file and verify it.\r');await h.expect('First answer?');
   await h.keys('q','n','p','\x01','a','\x05');await h.expect('aqnp');
   await h.send(ESC);await h.expect('Write your own answer');await h.expect('F6 confirm');
   await h.keys(F6,ENTER);await h.expect('Second answer?');

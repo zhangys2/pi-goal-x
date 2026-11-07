@@ -9,6 +9,7 @@ All notable changes to pi-goal-x are documented here.
 - Completion audit results are correlated to their attempt; stale results cannot replace a newer audit or complete its goal.
 - Validate `update_goal` fields before flushing buffered changes, count skipped tasks as resolved, and leave shortcut keys to whichever Pi surface has focus.
 - Release validation installs and exercises the exact packed tarball before publication.
+- Partial command overrides keep `/gx` defaults for unconfigured actions; recognized `/gx` forms whose action is remapped show configured choices instead of starting a goal draft.
 
 - **The default goal prompt no longer describes a wait it rejects** — with `strictExecutionContract` off, new waits are refused, but the blocker rule still told the agent that new waits declare `depends_on`. That clause now appears only in strict mode (or while a saved wait exists).
 - **Worker worktree isolation needs pi-subagents 0.69.0 or later** — on older versions, background (async) runs with `worktree: true` ran the child in the parent repo, so its edits and commits landed in the main checkout ([nicobailon/pi-subagents#2316](https://github.com/nicobailon/pi-subagents/issues/2316)). goal-x briefly forced those launches into the foreground; that workaround is removed now that the upstream fix has shipped.

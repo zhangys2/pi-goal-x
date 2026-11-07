@@ -1009,8 +1009,12 @@ export function registerGoalCommands(core: GoalCore): void {
 					if (match && root === "gx") {
 						const defaultMatch = matchCommandRoute(defaultRoutes, root, args);
 						const draftRootAvailable = routes.some(route => route.id === "goal" && route.path === root);
-						if (draftRootAvailable && defaultMatch?.id === match.id && !acceptsDefaultCommandArguments(match.id, match.args)) {
-							match = { id: "goal", args };
+						if (draftRootAvailable && defaultMatch) {
+							if (defaultMatch.id === match.id && !acceptsDefaultCommandArguments(match.id, match.args)) {
+								match = { id: "goal", args };
+							} else if (match.id === "goal" && defaultMatch.id !== "goal" && acceptsDefaultCommandArguments(defaultMatch.id, defaultMatch.args)) {
+								match = undefined;
+							}
 						}
 					}
 					if (match?.id === "goal" || match?.id === "goal-tweak") {

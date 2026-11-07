@@ -48,6 +48,7 @@ Pi developers who have not used goal-x need a quick way to understand and try it
 ### Command namespace
 - `/gx` starts the guided regular-goal draft; `/gx sisyphus` starts an ordered-goal draft.
 - Every goal-x action is reachable beneath `/gx` by default, with valid arguments preserved (for example `/gx status verbose`, `/gx recovery repair`, and `/gx list recovery`). If trailing text does not form valid arguments for a matched subcommand, it becomes the guided objective instead of invoking that subcommand; free-form `/gx tweak <change>` text stays with the tweak action. Prefix an objective with `--` (`/gx -- <objective>`) when it matches a valid subcommand form.
+- Partial command settings retain `/gx` defaults for unconfigured actions. A recognized built-in form whose action was remapped does not fall through to guided drafting.
 - Legacy goal-x roots (`/goal`, `/goal-*`, `/sisyphus*`) are not registered by default. On the first interactive session per extension instance, show a short migration notice that former roots are no longer registered by default and points to `/gx`. Explicit user-configured aliases, including former roots, remain valid; `/loop` remains independent.
 
 ## Implementation clarification
