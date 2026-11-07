@@ -82,6 +82,29 @@ import type { GoalCore } from "./goal-state.ts";
 import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 import { regenerateGoalReport } from "./goal-report-runtime.ts";
 
+function acceptsDefaultCommandArguments(id: GoalCommandId, args: string): boolean {
+	const value = args.trim();
+	switch (id) {
+		case "goal":
+		case "sisyphus":
+		case "goal-direct":
+		case "sisyphus-direct":
+			return true;
+		case "goal-tweak":
+			return true;
+		case "goal-list":
+			return value === "" || /^recovery$/i.test(value);
+		case "goal-status":
+			return value === "" || value === "verbose" || value === "health";
+		case "goal-recovery":
+			return value === "" || value === "repair";
+		case "goal-settings":
+			return value === "" || value === "controls";
+		default:
+			return value === "";
+	}
+}
+
 /**
  * Stable command actions retain their lifecycle checks. Configured invocation
  * paths are registered at load time; aliases and subcommands share the same
@@ -914,7 +937,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		description: "Revise the current goal or its token budget with confirmation.",
 
 		handler: async (rawArgs, ctx) => {
-			await runGoalTweak(rawArgs, ctx);
+			await runGoalTweak(rawArgs.replace(/^--(?:\s+|$)/, ""), ctx);
 		},
 	});
 	define("goal-clear", {
@@ -956,7 +979,8 @@ export function registerGoalCommands(core: GoalCore): void {
 			await handleGoalResume(ctx);
 		},
 	});
-	let routes = commandRoutes(undefined);
+	const defaultRoutes = commandRoutes(undefined);
+	let routes = defaultRoutes;
 	const registeredRoots = new Set<string>();
 	core.invokeGoalCommand = async (id, args, ctx) => {
 		const action = actions.get(id);
@@ -981,7 +1005,17 @@ export function registerGoalCommands(core: GoalCore): void {
 				getArgumentCompletions: prefix => routes.filter(route => route.path.split(" ")[0] === root && route.path !== root && route.path.slice(root.length + 1).startsWith(prefix)).map(route => ({ value: route.path.slice(root.length + 1), label: route.path.slice(root.length + 1), description: GOAL_COMMANDS.find(([id]) => id === route.id)![1] })),
 				handler: async (args, ctx) => {
 					const currentRoutes = routes.filter(route => route.path.split(" ")[0] === root);
-					const match = matchCommandRoute(routes, root, args);
+					let match = matchCommandRoute(routes, root, args);
+					if (match && root === "gx") {
+						const defaultMatch = matchCommandRoute(defaultRoutes, root, args);
+						const draftRootAvailable = routes.some(route => route.id === "goal" && route.path === root);
+						if (draftRootAvailable && defaultMatch?.id === match.id && !acceptsDefaultCommandArguments(match.id, match.args)) {
+							match = { id: "goal", args };
+						}
+					}
+					if (match?.id === "goal" || match?.id === "goal-tweak") {
+						match = { ...match, args: match.args.replace(/^--(?:\s+|$)/, "") };
+					}
 					if (match) await core.invokeGoalCommand!(match.id, match.args, ctx);
 					else if (currentRoutes.length) ctx.ui.notify(`Choose a goal command: ${currentRoutes.map(route => `/${route.path}`).join(", ")}`, "info");
 					else ctx.ui.notify(`/${root} is not configured as a goal command in this project.`, "info");

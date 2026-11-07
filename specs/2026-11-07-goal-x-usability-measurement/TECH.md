@@ -41,13 +41,13 @@
 - Tests: disabled-by-default, schema validation, aggregation without text leakage, 90-day pruning, reset/disable, atomic write failure, and no network calls.
 
 ### 6. `/gx` command namespace
-- Keep stable command action IDs and custom command settings; change only the default paths to `/gx` and subcommands.
+- Keep stable command action IDs and explicit custom command settings; change default paths to `/gx` and subcommands. Former roots remain usable only when explicitly configured as aliases.
 - Route guided goal creation at `/gx`; place Sisyphus, direct creation, lifecycle, status, list/recovery, settings, onboarding, and report actions beneath `/gx <subcommand>`.
 - Move `goal-report` and `goal-onboarding` from fixed registrations into the same action router. Keep `/loop` independent.
 - Make `/gx settings` the guaranteed settings/recovery entry; remove the old `/goal-settings` fallback. Register roots from the complete route table so the fallback remains available even if configurable actions are disabled.
-- Ensure default route metadata drives command hints and argument completions. Explicit project/global aliases remain user-owned and continue to override defaults.
-- Tests: default command surface, no legacy roots, subcommand matching and argument preservation, fixed settings/report/onboarding routing, and custom aliases.
-- Update active usage docs and changelog with the new paths; do not rewrite historical design notes.
+- Ensure route metadata drives command hints and argument completions. When a default subcommand match has trailing text that is not valid for that action, dispatch the full text to guided drafting; retain recognized arguments such as `status verbose`, `recovery repair`, `list recovery`, and `settings controls`, and retain free-form `/gx tweak <change>` input for the tweak action. `/gx -- <objective>` forces guided drafting for ambiguous valid forms. Explicit aliases outside the default route keep their configured behavior.
+- `commandInstructions` must rewrite only stable action references, not path segments or ordinary prose. Show one migration notice on the first interactive session per extension instance, stating former roots are no longer registered unless configured as aliases. Tests cover subcommand-like objectives, the `--` escape, exact default surface, no default legacy roots, explicit former-root aliases, custom settings/report/onboarding routing, and reference-text boundaries.
+- Update active usage docs and changelog with the new paths and disambiguation syntax; do not rewrite historical design notes.
 
 ## Implementation order
 1. Land focused tests/seams for report summary and settings mutation boundaries.

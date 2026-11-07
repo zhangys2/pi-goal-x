@@ -175,6 +175,8 @@ A project can have several open goals, with one focused goal per session. Switch
 | `/gx onboarding` | Reopen the getting-started walkthrough. |
 | `/loop <interval> [deadline] [prompt]` | Repeat a prompt on an interval until `/loop stop`. |
 
+When a draft objective matches a valid subcommand form, prefix it with `--`, for example `/gx -- status page redesign`.
+
 `/loop` needs no goal. `/loop 5m check the deploy` asks that every five minutes, `/loop 30s --until 10m` adds a deadline, and `/loop 5m` on its own repeats your last message. The next run is timed from the moment the agent finishes the previous one, so runs never overlap.
 
 For troubleshooting, use `/gx status verbose` for more detail, `/gx status health` or `/gx recovery` to check for problems, and `/gx refresh` to reload saved goals and settings after external changes. `/gx recovery repair` offers repairs after confirmation.

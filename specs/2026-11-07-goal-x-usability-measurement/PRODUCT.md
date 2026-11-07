@@ -47,8 +47,8 @@ Pi developers who have not used goal-x need a quick way to understand and try it
 
 ### Command namespace
 - `/gx` starts the guided regular-goal draft; `/gx sisyphus` starts an ordered-goal draft.
-- Every goal-x command action, including direct creation, lifecycle, recovery, settings, onboarding, and reports, is reachable beneath `/gx` by default. Arguments continue to reach the action (for example `/gx status verbose`, `/gx recovery repair`, and `/gx list recovery`).
-- Legacy goal-x roots (`/goal`, `/goal-*`, `/sisyphus*`) are not registered by default. `/loop` remains independent, and explicit custom aliases continue to work.
+- Every goal-x action is reachable beneath `/gx` by default, with valid arguments preserved (for example `/gx status verbose`, `/gx recovery repair`, and `/gx list recovery`). If trailing text does not form valid arguments for a matched subcommand, it becomes the guided objective instead of invoking that subcommand; free-form `/gx tweak <change>` text stays with the tweak action. Prefix an objective with `--` (`/gx -- <objective>`) when it matches a valid subcommand form.
+- Legacy goal-x roots (`/goal`, `/goal-*`, `/sisyphus*`) are not registered by default. On the first interactive session per extension instance, show a short migration notice that former roots are no longer registered by default and points to `/gx`. Explicit user-configured aliases, including former roots, remain valid; `/loop` remains independent.
 
 ## Implementation clarification
 Repository inspection found that goal-x has no project setting for the default auditor choice: auditing is enabled by default per goal, with a per-goal bypass. User approved adding a project-level default auditor setting for newly created goals so the audited preset can control this behavior. Existing goals and their saved per-goal auditor choice remain unchanged.
@@ -63,6 +63,6 @@ Repository inspection found that goal-x has no project setting for the default a
 
 ## Success evidence
 - Regression tests prove onboarding is non-mutating until explicit user confirmation, recovery suggestions are read-only, report summaries derive from persisted facts, presets preserve unrelated/global settings, and opt-in measurement is local/aggregate/retention-bounded.
-- Regression tests prove every default goal-x command is rooted under `/gx`, legacy goal-x roots are absent, arguments reach the intended action, and custom aliases still work.
+- Regression tests prove every default goal-x command is rooted under `/gx`, legacy roots are absent by default, valid arguments reach the intended action, ambiguous objectives fall back to drafting, the `--` escape works, explicit former-root aliases remain valid, and command-reference rewriting leaves path/non-command text untouched.
 - Manual UI walkthroughs cover onboarding, multi-goal recovery, settings preset application/customization, and measurement inspect/reset.
 - No external telemetry request occurs in any test or manual validation.

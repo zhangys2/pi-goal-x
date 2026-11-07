@@ -26,3 +26,17 @@
 - `npm run check`, `npm run lint`, `npm run test:selfcheck` (93 unit, 1 integration, 9 e2e manifest entries), and `npm pack --dry-run --ignore-scripts` passed.
 - Full suite passed: 1,356 passed, 1 skipped (1,357 total). Run with an isolated `HOME` and `PI_GOAL_GLOBAL_SETTINGS_FILE` unset so tests do not read or inherit the user settings file. An earlier run passed a global-settings override into child Pi processes, disabling the recovery E2E's per-agent auto-focus; rerunning with isolated `HOME` and no override passed the real Pi recovery scenarios.
 - `git diff --check` passed after the milestone update.
+
+
+## 2026-11-08 — Addressed PR #39 review
+
+- Keep subcommand-like objectives on guided drafting when their trailing text is not a valid action argument; preserve recognized status/list/recovery/settings arguments, free-form tweak text, and the explicit `/gx -- <objective>` escape.
+- Preserve `/goal/` paths and ordinary `/goal.` prose in command-reference rewriting. Add a one-time interactive notice that former roots require explicit aliases; test former report/onboarding roots as configured aliases.
+- Documented the routing and escape syntax. Confirmed surface contracts remain covered by the exact command-palette test and the tool-name/visibility suites. The deleted characterization test's registration-order and duplicate-registration assertions were not retained because they test internal wiring rather than consumer behavior.
+
+### Validation
+
+- Focused routing and drafting tests: 105 passed.
+- `npm run check` and `npm run lint` passed.
+- Headless extension smoke: `/gx status page redesign` started guided drafting.
+- Full `npm run test:all`: 1,364 passed, 1 skipped, 0 failed (1,365 total; 103 test files discovered).

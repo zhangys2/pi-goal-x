@@ -19,7 +19,10 @@ Default actions share the `/gx` root: `/gx` starts regular drafting, `/gx sisyph
 command paths** to replace them, **Add an alias** to keep the current spellings,
 or **Disable** to remove its command invocations. For example, add `/gx edit`
 to **Revise the goal** to use the existing confirmation workflow with that
-spelling. Arguments after the command path are passed through to the action.
+spelling. Arguments after a command path are passed through to the action. At
+`/gx`, unrecognized trailing text after a subcommand starts a guided goal draft;
+free-form `/gx tweak <change>` text stays with the tweak action. Prefix an
+objective with `--` (`/gx -- <objective>`) when it matches a valid command form.
 Subcommands appear in argument completion; the longest matching complete path
 wins. A routing-only root lists its available subcommands when called without
 a matching action.

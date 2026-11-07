@@ -22,7 +22,7 @@ All notable changes to pi-goal-x are documented here.
 
 - **One code task at a time** — `update_goal_task` refuses to start a code task while another started code task is unresolved, so review diffs stay scoped to one task.
 - **Rejection cap** — three consecutive rejected reviews of the same task block the goal until `/gx resume`.
-- **Goal command namespace** — goal-x defaults to a single `/gx` tree for guided, Sisyphus, direct, lifecycle, recovery, settings, onboarding, and report actions. `/loop` remains separate; configured aliases continue to work.
+- **Goal command namespace** — goal-x defaults to a single `/gx` tree. Invalid trailing arguments after a subcommand start a guided draft; use `/gx -- <objective>` to force drafting when an objective matches a valid command form. The first interactive session explains that former roots need explicit aliases. `/loop` remains separate; configured aliases continue to work.
 - Goal drafting asks for small, independently reviewable code tasks whose verification contracts list the tests, exact commands, and out-of-scope files, and for a toolchain check before confirming build-dependent goals.
 
 ### Added

@@ -129,6 +129,50 @@ test("/gx <objective> starts guided drafting without creating a goal", async () 
 	}
 });
 
+test("/gx subcommand-like objective text stays in guided drafting", async () => {
+	for (const objective of [
+		"status page redesign",
+		"list export bug",
+		"pause menu fix",
+		"focus mode toggle",
+		"clear cache on logout",
+	]) {
+		const cwd = mkdtempSync(path.join(tmpdir(), "goal-command-objective-"));
+		try {
+			const h = createHarness(cwd);
+			await h.commands.get("gx")!.handler(objective, h.ctx);
+			const prompt = h.messages.map(String).join("\n");
+			assert.ok(prompt.includes("GOAL CONFIRMATION"), objective);
+			assert.ok(prompt.includes(objective), objective);
+			assert.equal(activeGoalFiles(cwd).length, 0, "drafting does not create a goal");
+		} finally { rmSync(cwd, { recursive: true, force: true }); }
+	}
+});
+
+test("/gx preserves accepted command arguments instead of drafting", async () => {
+	for (const args of ["status verbose", "recovery repair", "list recovery", "settings controls"]) {
+		const cwd = mkdtempSync(path.join(tmpdir(), "goal-command-args-"));
+		try {
+			const h = createHarness(cwd);
+			await h.commands.get("gx")!.handler(args, h.ctx);
+			assert.ok(!h.messages.some(message => String(message).includes("GOAL CONFIRMATION")), args);
+			assert.equal(activeGoalFiles(cwd).length, 0, args);
+		} finally { rmSync(cwd, { recursive: true, force: true }); }
+	}
+});
+
+test("/gx -- disambiguates a draft objective matching a valid command form", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-command-escape-"));
+	try {
+		const h = createHarness(cwd);
+		await h.commands.get("gx")!.handler("-- status verbose", h.ctx);
+		const prompt = h.messages.map(String).join("\n");
+		assert.ok(prompt.includes("GOAL CONFIRMATION"));
+		assert.ok(prompt.includes("\nstatus verbose\n"));
+		assert.ok(!prompt.includes("\n-- status verbose\n"));
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("bare /gx begins a guided draft and asks for an objective", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-palette-status-"));
 	try {

@@ -9,7 +9,7 @@ import goalExtension from "../extensions/goal.ts";
 import type { GoalCore } from "../extensions/goal-state.ts";
 import {
 	GOAL_COMMANDS, GOAL_KEY_ACTIONS, commandPaths, commandProblems, commandRoutes, matchCommandRoute,
-	normalizeGoalKey, sameGoalKey, parseCommandPaths, parseGoalKeybinding, keybindingProblems, commandHint,
+	normalizeGoalKey, sameGoalKey, parseCommandPaths, parseGoalKeybinding, keybindingProblems, commandHint, commandInstructions,
 } from "../extensions/goal-controls.ts";
 import { loadSettingsSnapshot, mutateSettingsLayer, SettingsMutationError, invalidateGoalSettingsCache } from "../extensions/goal-settings.ts";
 import { syncTerminalInputPause } from "../extensions/goal-widget.ts";
@@ -112,6 +112,13 @@ test("routes match whole words, prefer subcommands and preserve objective whites
 	assert.ok(commandProblems({ "goal-status": ["gx report"] }).some(problem => problem.includes("/gx report")));
 });
 
+test("command reference rewriting leaves paths and ordinary prose untouched", () => {
+	assert.equal(
+		commandInstructions("Keep /goal/path and /goal. literal; use /goal-resume."),
+		"Keep /goal/path and /goal. literal; use /gx resume.",
+	);
+});
+
 test("controls inherit per leaf, explicit empty lists override and resolved arrays are caller-owned", () => {
 	const h = fixture();
 	try {
@@ -172,6 +179,56 @@ test("session project cwd controls command aliases and fixed command collisions 
 			assert.ok(collision.core.controlWarnings?.some(warning => /belongs to Pi or another command/.test(warning)));
 		} finally { collision.close(); }
 	}
+});
+
+test("former report and onboarding roots remain available as explicit aliases", async () => {
+	const h = fixture({ commands: { "goal-report": ["goal-report"], "goal-onboarding": ["goal-onboarding"] } });
+	try {
+		await h.emit("session_start");
+		assert.deepEqual(h.core.loadedCommands?.["goal-report"], ["goal-report"]);
+		assert.deepEqual(h.core.loadedCommands?.["goal-onboarding"], ["goal-onboarding"]);
+		assert.equal(h.commands.has("goal-report"), true);
+		assert.equal(h.commands.has("goal-onboarding"), true);
+		assert.equal(h.core.controlWarnings?.length ?? 0, 0);
+	} finally { h.close(); }
+});
+
+test("the first interactive session shows the /gx migration notice once", async () => {
+	const h = fixture();
+	try {
+		const notices = () => h.notifications.filter(message => message.includes("Goal commands now use /gx"));
+		await h.emit("session_start");
+		assert.equal(notices().length, 1);
+		assert.match(notices()[0]!, /not registered unless configured as aliases/);
+		await h.emit("session_start");
+		assert.equal(notices().length, 1);
+	} finally { h.close(); }
+});
+
+test("/gx tweak free-form text reaches the revision draft without a separator", async () => {
+	const h = fixture();
+	try {
+		await h.start();
+		await h.commands.get("gx")!.handler("tweak revise the goal target", h.ctx);
+		const prompt = h.messages.map(String).join("\n");
+		assert.ok(prompt.includes("[GOAL TWEAK DRAFT]"));
+		assert.ok(prompt.includes("User request:\nrevise the goal target"));
+	} finally { h.close(); }
+});
+
+test("/gx tweak -- passes only the change text to the revision draft", async () => {
+	const h = fixture();
+	try {
+		await h.start();
+		const goalId = h.core.state.goal?.id;
+		assert.ok(goalId);
+		await h.commands.get("gx")!.handler("tweak -- revise the goal target", h.ctx);
+		const prompt = h.messages.map(String).join("\n");
+		assert.ok(prompt.includes("[GOAL TWEAK DRAFT]"));
+		assert.ok(prompt.includes("User request:\nrevise the goal target"));
+		assert.ok(!prompt.includes("User request:\n-- revise"));
+		assert.equal(h.core.state.goal?.id, goalId);
+	} finally { h.close(); }
 });
 
 test("shortcut conflicts use overlapping contexts, preserving Escape view priority", () => {

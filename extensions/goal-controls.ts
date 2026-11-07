@@ -179,9 +179,14 @@ export function commandHint(id: GoalCommandId, commands?: GoalCommands): string 
 	return first ? `/${first}` : `/gx settings controls to enable ${GOAL_COMMANDS.find(([action]) => action === id)![1].toLowerCase()}`;
 }
 const commandReference = new RegExp(`/(${GOAL_COMMANDS.map(([id]) => id).sort((a, b) => b.length - a.length).join("|")})(?![a-z0-9_-])`, "g");
-/** For standing instructions only: objectives and other user text stay verbatim. */
+/** Rewrite standalone action references in standing instructions, not path fragments. */
 export function commandInstructions(text: string, commands?: GoalCommands): string {
-	return text.replace(commandReference, (_match, id: GoalCommandId) => commandHint(id, commands));
+	return text.replace(commandReference, (match, id: GoalCommandId, offset: number) => {
+		const previous = text[offset - 1];
+		const next = text[offset + match.length];
+		if ((previous && /[a-z0-9_/-]/i.test(previous)) || next === "/" || (id === "goal" && next === ".")) return match;
+		return commandHint(id, commands);
+	});
 }
 export interface GoalCommandRoute { path: string; id: GoalCommandId }
 export function commandRoutes(commands: GoalCommands | undefined): GoalCommandRoute[] {
