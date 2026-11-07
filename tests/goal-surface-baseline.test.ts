@@ -82,6 +82,7 @@ const EXPECTED_REGISTERED_TOOLS = [
  * from goal-loop.ts, and is independent of the goal lifecycle.
  */
 const EXPECTED_REGISTERED_COMMANDS = [
+	"goal-onboarding",
 	"goal-report",
 	"goal",
 	"sisyphus",
@@ -109,7 +110,7 @@ test("baseline: execution and drafting tools are registered in pinned order", ()
 	assert.deepEqual(registeredTools, [...EXPECTED_REGISTERED_TOOLS]);
 });
 
-test("baseline: exactly 18 slash commands are registered, in pinned order", () => {
+test("baseline: exactly 19 slash commands are registered, in pinned order", () => {
 	const { pi, registeredCommands } = createRecordingPi();
 	piGoalExtension(pi as never);
 

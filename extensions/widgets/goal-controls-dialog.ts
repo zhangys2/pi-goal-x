@@ -8,7 +8,7 @@ import {
 } from "../goal-controls.ts";
 import {
 	formatGoalKeybinding, invalidateGoalSettingsCache, loadSettingsSnapshot, mutateSettingsLayer,
-	type GoalSettings, type SettingsSnapshot, type SettingsScope, type SettingsMutation,
+	type GoalSettings, type SettingsSnapshot, type SettingsScope, type SettingsLeafMutation,
 } from "../goal-settings.ts";
 import type { GoalCore } from "../goal-state.ts";
 import { truncateToWidth } from "./text-cache.ts";
@@ -106,7 +106,7 @@ export class GoalControlsDialog implements Component {
 		if (option === "Add an alias") return "Keep the current names and add another command. The first name stays preferred.";
 		return row.help;
 	}
-	private mutate(mutation: SettingsMutation): boolean {
+	private mutate(mutation: SettingsLeafMutation): boolean {
 		try {
 			this.snapshot = mutateSettingsLayer({ scope: this.scope, cwd: this.ctx.cwd, mutation, validate: (next, current) => {
 				// Another session may have edited a different leaf since this screen opened.

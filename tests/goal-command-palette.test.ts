@@ -12,10 +12,12 @@ import assert from "node:assert/strict";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import goalExtension from "../extensions/goal.ts";
 import { parseGoalFile } from "../extensions/storage/goal-files.ts";
+import { mutateSettingsLayer } from "../extensions/goal-settings.ts";
+import { applyGoalPreset } from "../extensions/goal-presets.ts";
 
 const CURATED_COMMANDS = [
 	"goal", "sisyphus", "goal-direct", "sisyphus-direct", "goal-tweak", "goal-pause", "goal-resume",
-	"goal-clear", "goal-list", "goal-status", "goal-refresh", "goal-recovery", "goal-focus", "goal-unfocus", "goal-settings", "goal-cancel", "goal-report",
+	"goal-clear", "goal-list", "goal-status", "goal-refresh", "goal-recovery", "goal-focus", "goal-unfocus", "goal-settings", "goal-cancel", "goal-report", "goal-onboarding",
 	"loop",
 ];
 
@@ -91,6 +93,26 @@ test("exactly the curated commands are registered; legacy commands are absent", 
 	}
 });
 
+test("goal-list recovery is a read-only lifecycle recovery summary", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-recovery-view-"));
+	try {
+		const h = createHarness(cwd);
+		await h.commands.get("goal-list")!.handler("recovery", h.ctx);
+		assert.ok(h.notifications.some((message) => message.includes("Goal recovery") && message.includes("no goal state changed")));
+		assert.equal(activeGoalFiles(cwd).length, 0);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("headless onboarding explains the draft-confirm flow without creating a goal", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-onboarding-"));
+	try {
+		const h = createHarness(cwd);
+		await h.commands.get("goal-onboarding")!.handler("", h.ctx);
+		assert.ok(h.notifications.some((message) => message.includes("draft") && message.includes("confirm")));
+		assert.equal(activeGoalFiles(cwd).length, 0);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("/goal <objective> starts guided drafting without creating a goal", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-palette-create-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
@@ -162,6 +184,19 @@ test("/goal-direct and /sisyphus-direct create goals immediately", async () => {
 	} finally {
 		try { rmSync(cwd, { recursive: true, force: true }); } catch {}
 	}
+});
+
+test("project default auditor setting applies to newly created goals only", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-default-auditor-"));
+	try {
+		applyGoalPreset(cwd, "lightweight");
+		const h = createHarness(cwd);
+		await h.commands.get("goal-direct")!.handler("Create a small sample", h.ctx);
+		const files = activeGoalFiles(cwd);
+		assert.equal(files.length, 1);
+		const record = parseGoalFile(path.join(cwd, ".pi", "goals", files[0]!));
+		assert.equal(record?.skipAuditor, true);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
 test("goal-settings renders sectioned rows with clearer auditor wording", async () => {

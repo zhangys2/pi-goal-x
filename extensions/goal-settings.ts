@@ -117,6 +117,12 @@ export interface GoalSettingsResolvedShape {
 	thinkingLevel?: ThinkingLevel;
 	disabled?: boolean;
 	autoSelectSingleGoal?: boolean;
+	/** Default completion-auditor choice for newly created goals. */
+	defaultAuditorEnabled?: boolean;
+	/** Opt in to local aggregate workflow measurements for this project. */
+	measureOutcomes?: boolean;
+	/** Dismissed the project onboarding walkthrough. */
+	onboardingDismissed?: boolean;
 	/** E3: load the project's own skills/extensions into auditor sessions (off by default = isolation). */
 	auditorProjectResources?: boolean;
 	/** Extra directories (e.g. a second repository) the auditor may inspect. Guidance, not evidence. */
@@ -232,6 +238,11 @@ export type ResolvedGoalSettings = ResolvedGoalSettingsShape;
 
 /** Compatibility alias: runtime code keeps importing GoalSettings. */
 export type GoalSettings = ResolvedGoalSettings;
+
+/** Effective auditor choice for newly created goals; existing goals keep their saved per-goal value. */
+export function defaultAuditorEnabledForNewGoal(settings: Pick<GoalSettings, "defaultAuditorEnabled" | "disabled">): boolean {
+	return settings.defaultAuditorEnabled !== false && settings.disabled !== true;
+}
 
 export const PI_GOAL_SETTINGS_FILE_ENV = "PI_GOAL_SETTINGS_FILE";
 export const PI_GOAL_GLOBAL_SETTINGS_FILE_ENV = "PI_GOAL_GLOBAL_SETTINGS_FILE";
@@ -377,6 +388,9 @@ const ALLOWED_SETTINGS_KEYS = new Set([
 	"thinking_level",
 	"disabled",
 	"autoSelectSingleGoal",
+	"defaultAuditorEnabled",
+	"measureOutcomes",
+	"onboardingDismissed",
 	"auditorProjectResources",
 	"auditorWorkspaces",
 	"auditorEnvironment",
@@ -445,6 +459,9 @@ export function parseSettingsLayer(
 			case "disableGoalReport":
 			case "disabled":
 			case "autoSelectSingleGoal":
+			case "defaultAuditorEnabled":
+			case "measureOutcomes":
+			case "onboardingDismissed":
 			case "auditorProjectResources":
 			case "hideUnfocusedBanner":
 			case "showAutonomousRuns":
@@ -871,6 +888,20 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		globalValue: global.layer.autoSelectSingleGoal,
 		defaultValue: false,
 	}));
+	const defaultAuditorEnabled = track("defaultAuditorEnabled", resolveLeaf<boolean>({
+		projectValue: project.layer.defaultAuditorEnabled,
+		defaultValue: true,
+	}));
+	const measureOutcomes = track("measureOutcomes", resolveLeaf<boolean>({
+		projectValue: project.layer.measureOutcomes,
+		globalValue: global.layer.measureOutcomes,
+		defaultValue: false,
+	}));
+	const onboardingDismissed = track("onboardingDismissed", resolveLeaf<boolean>({
+		projectValue: project.layer.onboardingDismissed,
+		globalValue: global.layer.onboardingDismissed,
+		defaultValue: false,
+	}));
 	const auditorProjectResources = track("auditorProjectResources", resolveLeaf<boolean>({
 		projectValue: project.layer.auditorProjectResources,
 		globalValue: global.layer.auditorProjectResources,
@@ -1021,6 +1052,9 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		...(thinkingLevel ? { thinkingLevel } : {}),
 		disabled,
 		autoSelectSingleGoal,
+		defaultAuditorEnabled,
+		measureOutcomes,
+		onboardingDismissed,
 		auditorProjectResources,
 		...(auditorWorkspaces ? { auditorWorkspaces } : {}),
 		...(auditorEnvironment ? { auditorEnvironment } : {}),
@@ -1095,9 +1129,10 @@ export function loadGoalSettings(cwd: string, env: NodeJS.ProcessEnv = process.e
 
 // ── conflict-safe scoped mutation ───────────────────────────────────────────
 
-export type SettingsMutation =
+export type SettingsLeafMutation =
 	| { op: "set"; path: readonly string[]; value: unknown }
 	| { op: "unset"; path: readonly string[] };
+export type SettingsMutation = SettingsLeafMutation | { op: "batch"; mutations: readonly SettingsLeafMutation[] };
 
 export interface MutateSettingsInput {
 	scope: SettingsScope;
@@ -1247,6 +1282,10 @@ function atomicWriteJson(target: string, value: unknown, options: { defaultMode:
 }
 
 function applyPathMutation(layer: GoalSettingsLayer, mutation: SettingsMutation): void {
+	if (mutation.op === "batch") {
+		for (const item of mutation.mutations) applyPathMutation(layer, item);
+		return;
+	}
 	if (mutation.path.length === 0) throw new SettingsMutationError("empty settings path");
 	let container: Record<string, unknown> = layer as unknown as Record<string, unknown>;
 	for (let i = 0; i < mutation.path.length - 1; i += 1) {
@@ -1376,6 +1415,9 @@ function buildPersistedLayer(settings: GoalSettings): Record<string, unknown> {
 	if (settings.disableGoalReport !== undefined) persisted.disableGoalReport = settings.disableGoalReport;
 	if (settings.subtaskDepth !== undefined) persisted.subtaskDepth = settings.subtaskDepth;
 	if (settings.autoSelectSingleGoal !== undefined) persisted.autoSelectSingleGoal = settings.autoSelectSingleGoal;
+	if (settings.defaultAuditorEnabled !== undefined) persisted.defaultAuditorEnabled = settings.defaultAuditorEnabled;
+	if (settings.measureOutcomes !== undefined) persisted.measureOutcomes = settings.measureOutcomes;
+	if (settings.onboardingDismissed !== undefined) persisted.onboardingDismissed = settings.onboardingDismissed;
 	if (settings.auditorProjectResources !== undefined) persisted.auditorProjectResources = settings.auditorProjectResources;
 	if (settings.auditorWorkspaces?.length) persisted.auditorWorkspaces = [...settings.auditorWorkspaces];
 	if (settings.auditorEnvironment) persisted.auditorEnvironment = settings.auditorEnvironment;

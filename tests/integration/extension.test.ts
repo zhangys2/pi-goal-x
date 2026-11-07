@@ -449,7 +449,7 @@ describe("five-tool handler integration", () => {
 				await h.commands.get("goal-settings").handler("", h.ctx);
 				const lines = firstOptions.filter((o) => o.startsWith("  ") && !o.startsWith("  ───"));
 
-				assert.equal(lines.length, 22, `all twenty-two rows rendered, got: ${lines.join(" | ")}`);
+				assert.equal(lines.length, 23, `all twenty-three rows rendered, got: ${lines.join(" | ")}`);
 
 				assert.ok(lines.includes("  slow repeated idle replies (opt-in): false (default)"));
 				assert.ok(lines.some((l) => l === "  show autonomous runs line: true (default)"), "the runs-line setting is listed and defaults to on");

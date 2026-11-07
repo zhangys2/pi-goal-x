@@ -10,7 +10,7 @@ import { deriveTasksFromObjective } from "./goal-task-derive.ts";
 import { goalDetails, renderGoalResult } from "./goal-format.ts";
 import { budgetReached } from "./goal-accounting.ts";
 import { buildGoalCreatedReport, formatGoalBudget } from "./goal-policy.ts";
-import { loadGoalSettings } from "./goal-settings.ts";
+import { defaultAuditorEnabledForNewGoal, loadGoalSettings } from "./goal-settings.ts";
 import { DIALOG_UNAVAILABLE_HINT, proposalDialogFailureMessage, formatQuestionnaireAnswers, runGoalQuestionnaire, shouldAutoConfirmProposal, showProposalDialog, type GoalQuestionnaireQuestion, type ProposalDecision } from "./goal-questionnaire.ts";
 import { currentTaskIdIsPending, nowIso, validateTokenBudgetInput, type GoalRecord, type GoalTaskList } from "./goal-record.ts";
 import type { GoalCore } from "./goal-state.ts";
@@ -162,9 +162,10 @@ export async function startGoalDrafting(core: GoalCore, ctx: ExtensionContext, m
 	// disabled` setting is only the fallback when the goal has no per-goal
 	// value. Confirming a tweak must never silently re-enable or disable the
 	// auditor the user chose when the goal was created.
+	const settings = loadGoalSettings(ctx.cwd);
 	const auditorEnabled = mode === "tweak"
-		? !(targetGoal?.skipAuditor ?? loadGoalSettings(ctx.cwd).disabled)
-		: !loadGoalSettings(ctx.cwd).disabled;
+		? !(targetGoal?.skipAuditor ?? (settings.disabled === true))
+		: defaultAuditorEnabledForNewGoal(settings);
 	activeDrafts.set(core, { mode, originalTopic: trimmed, targetGoalId: targetGoal?.id, startedAt, auditorEnabled });
 	draftSessionEntry(core, { version: 1, mode, seed: trimmed, targetGoalId: targetGoal?.id, startedAt, auditorEnabled });
 	core.clearContinuationState();

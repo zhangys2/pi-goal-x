@@ -83,7 +83,8 @@ test("empty sections are omitted and a table cell cannot break the table", () =>
 		events: [],
 		now: NOW,
 	}), { now: NOW });
-	for (const heading of ["## Plan", "## Current state", "## Tasks", "## Reviews", "## Attention", "## Subagent", "## Timeline", "## Recommendations"]) {
+	assert.match(bare, /## Attention \/ next actions\n\nNo open attention items or recommendations are recorded\./);
+	for (const heading of ["## Plan", "## Current state", "## Tasks", "## Reviews", "## Attention and lost time", "## Subagent", "## Timeline", "## Recommendations"]) {
 		assert.doesNotMatch(bare, new RegExp(heading), `${heading} is omitted when empty`);
 	}
 	assert.match(bare, /# Goal report: Do it/);
@@ -111,6 +112,7 @@ test("recommendations name the task and their evidence", () => {
 		{ type: "task_review", goalId: "g1", taskId: "w2", verdict: "disapproved", report: "three", at: at(30) },
 	];
 	const report = renderGoalReport(fixture({}, events), { now: NOW });
+	assert.match(report, /## Attention \/ next actions[\s\S]*Next action · w2/);
 	assert.match(report, /## Recommendations/);
 	assert.match(report, /\*\*w2\*\* — Split or renegotiate "w2"/);
 	assert.match(report, /Evidence: 3 disapproved task_review events/);
