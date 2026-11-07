@@ -115,7 +115,7 @@ export async function toggleTaskViaService(core: GoalCore, ctx: ExtensionContext
 		return { ok: true };
 	}
 
-	return { ok: false, message: `Task "${taskId}" is skipped; change it with /goal-tweak or update_goal_task.` };
+	return { ok: false, message: `Task "${taskId}" is skipped; change it with /gx tweak or update_goal_task.` };
 }
 
 export function syncTerminalInputPause(core: GoalCore, ctx: ExtensionContext): void {

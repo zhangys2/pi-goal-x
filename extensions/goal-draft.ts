@@ -112,7 +112,7 @@ export function validateGoalDraftProposal(input: DraftProposalInput): DraftPropo
 	if (input.intent === null) {
 		return {
 			ok: false,
-			message: "propose_goal_draft REJECTED: no /goal, /sisyphus, or /goal-tweak guided draft is in progress.",
+			message: "propose_goal_draft REJECTED: no /gx, /gx sisyphus, or /gx tweak guided draft is in progress.",
 		};
 	}
 
@@ -121,7 +121,7 @@ export function validateGoalDraftProposal(input: DraftProposalInput): DraftPropo
 	if (actualSisyphus !== expectedSisyphus) {
 		return {
 			ok: false,
-			message: `propose_goal_draft REJECTED (focus gate): the user invoked ${input.intent.focus === "sisyphus" ? "/sisyphus" : "/goal"} but you passed sisyphus=${actualSisyphus}. Set sisyphus=${expectedSisyphus} to match their choice.`,
+			message: `propose_goal_draft REJECTED (focus gate): the user invoked ${input.intent.focus === "sisyphus" ? "/gx sisyphus" : "/gx"} but you passed sisyphus=${actualSisyphus}. Set sisyphus=${expectedSisyphus} to match their choice.`,
 		};
 	}
 

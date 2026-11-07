@@ -14,3 +14,15 @@
 - Focused feature/regression tests passed: onboarding, recovery, report, settings, presets, measurements, and service failure isolation. Coverage includes corrupt bucket sanitation, unusable measurement storage, project-only auditor defaults, preset-to-new-goal behavior, and preserving goal/ledger success when measurement recording throws.
 - `npm run check`, `npm run lint`, `npm run test:selfcheck`, `git diff --check`, and `npm pack --dry-run --ignore-scripts` passed. Final `npm run test:all`: 1,360 passed, 1 skipped, 0 failed (1,361 total).
 - Earlier PR CI failures were traced to a new test writing global settings into the CI home directory; the test now uses an isolated global settings path.
+
+## 2026-11-07 — Renamed the command tree to /gx
+
+- Migrated the public goal command and its subcommands to the /gx root; /loop remains separate. Legacy goal roots are not registered by default. Stable action IDs and configurable aliases remain unchanged.
+- Updated command guidance, worker prompts, tests, documentation, README command table, changelog, and active experiment assets. Added route tests for nested subcommands and argument preservation.
+
+### Validation
+
+- Focused command/lifecycle checks passed: 491 tests, 491 passed.
+- `npm run check`, `npm run lint`, `npm run test:selfcheck` (93 unit, 1 integration, 9 e2e manifest entries), and `npm pack --dry-run --ignore-scripts` passed.
+- Full suite passed: 1,356 passed, 1 skipped (1,357 total). Run with an isolated `HOME` and `PI_GOAL_GLOBAL_SETTINGS_FILE` unset so tests do not read or inherit the user settings file. An earlier run passed a global-settings override into child Pi processes, disabling the recovery E2E's per-agent auto-focus; rerunning with isolated `HOME` and no override passed the real Pi recovery scenarios.
+- `git diff --check` passed after the milestone update.

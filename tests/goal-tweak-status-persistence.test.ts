@@ -1,5 +1,5 @@
 /**
- * End-to-end regression coverage for /goal-tweak status persistence
+ * End-to-end regression coverage for /gx tweak status persistence
  * (specs/2026-08-08-tweak-status-persistence, R1 / success criterion 3):
  * a completed task's status/evidence/completedAt must survive a task-list
  * tweak through the full draft → confirm → apply → disk → reload flow; a
@@ -125,7 +125,7 @@ async function callTaskTool(h: Harness, name: string, params: Record<string, unk
 }
 
 async function createGoalWithTasks(h: Harness, objective: string, tasks: Array<Record<string, unknown>>): Promise<void> {
-	await h.commands.get("goal")!.handler(objective, h.ctx);
+	await h.commands.get("gx")!.handler(objective, h.ctx);
 	await confirmDialog(h, runProposal(h, proposalParams(objective + "\nSuccess criteria: tests pass.", { tasks })));
 	const goal = diskGoal(h.ctx.cwd);
 	assert.ok(goal.taskList && countTasks(goal.taskList.tasks) === tasks.length, "goal created with the proposed task tree");
@@ -156,7 +156,7 @@ test("e2e: completed task status, evidence, and completedAt survive a task-list 
 		assert.equal(diskGoal(cwd).currentTaskId, "b", "currentTaskId set before the tweak");
 
 		// Tweak: same ids + a new task c. The merge must keep a complete.
-		await h.commands.get("goal-tweak")!.handler("Revise the plan", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise the plan", h.ctx);
 		await confirmDialog(h, runProposal(h, proposalParams("Revised objective", {
 			tasks: [
 				{ id: "a", title: "Task A (retitled)" },
@@ -195,7 +195,7 @@ test("e2e: a tweak without a task list retains the current list unchanged (statu
 		await callTaskTool(h, "update_goal_task", { task_id: "b", status: "skipped", reason: "user direction" });
 
 		// Tweak WITHOUT tasks in the proposal: the current list must be retained unchanged.
-		await h.commands.get("goal-tweak")!.handler("Tighten the wording", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Tighten the wording", h.ctx);
 		await confirmDialog(h, runProposal(h, proposalParams("Tightened objective wording")));
 
 		const goal = diskGoal(cwd);
@@ -226,7 +226,7 @@ test("e2e: subtask completion status survives a task-list tweak", async () => {
 		await callTaskTool(h, "update_goal_task", { task_id: "p1", status: "complete", evidence: "child-done" });
 
 		// Tweak proposing the same parent/subtask structure.
-		await h.commands.get("goal-tweak")!.handler("Revise", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise", h.ctx);
 		await confirmDialog(h, runProposal(h, proposalParams("Revised objective", {
 			tasks: [
 				{ id: "p", title: "Parent" },
@@ -258,7 +258,7 @@ test("e2e: currentTaskId survives while its task stays pending and clears when r
 		assert.equal(diskGoal(cwd).currentTaskId, "x");
 
 		// Tweak keeping x: focus survives.
-		await h.commands.get("goal-tweak")!.handler("Keep the plan", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Keep the plan", h.ctx);
 		await confirmDialog(h, runProposal(h, proposalParams("Kept objective", {
 			tasks: [
 				{ id: "x", title: "Task X" },
@@ -268,7 +268,7 @@ test("e2e: currentTaskId survives while its task stays pending and clears when r
 		assert.equal(diskGoal(cwd).currentTaskId, "x", "currentTaskId survives when its task stays pending");
 
 		// Tweak removing x: focus clears.
-		await h.commands.get("goal-tweak")!.handler("Drop task X", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Drop task X", h.ctx);
 		await confirmDialog(h, runProposal(h, proposalParams("Dropped objective", {
 			tasks: [
 				{ id: "y", title: "Task Y" },
@@ -287,7 +287,7 @@ for(const answer of ["Cancel", "Continue chatting"]){
   const cwd=newTmpDir("tweak-budget-cancel-");const h=createHarness(cwd);
   t.after(()=>{h.core.scheduler.shutdown();h.core.clearContinuationState();rmSync(cwd,{recursive:true,force:true});});
   await createGoalWithTasks(h,"Objective",[{id:"one",title:"One"}]);
-  await h.commands.get("goal-tweak")!.handler("Set budget to 100",h.ctx);
+  await h.commands.get("gx")!.handler("tweak Set budget to 100",h.ctx);
   const before=diskGoal(cwd);
   const pending=runProposal(h,proposalParams(before.objective,{token_budget:100}));
   assert.ok(h.hasDialog());
@@ -309,7 +309,7 @@ for (const budget of [undefined, null, 1, 50000]) {
  test(`guided creation reports and persists budget ${budget}`, async t => {
   const cwd = newTmpDir("create-budget-"); const h = createHarness(cwd);
   t.after(() => {h.core.scheduler.shutdown(); h.core.clearContinuationState(); rmSync(cwd, {recursive:true,force:true});});
-  await h.commands.get("goal")!.handler("Keep objective", h.ctx);
+  await h.commands.get("gx")!.handler("Keep objective", h.ctx);
   const pending = runProposal(h, proposalParams("Keep objective", budget === undefined ? {} : {token_budget: budget}));
   await confirmDialog(h, pending);
   assert.equal(diskGoal(cwd).tokenBudget, budget ?? undefined);
@@ -328,7 +328,7 @@ for (const budget of [undefined, null, 5, 50000]) {
   original.scheduler={...newGoalScheduler("tweak-status-session"),used:3};
   writeActiveGoalFile(h.ctx,original); h.core.reconcileFocusedGoalFromDisk(h.ctx);
   h.core.runtime.armPostBudgetReminder();
-  await h.commands.get("goal-tweak")!.handler("Change only the budget",h.ctx);
+  await h.commands.get("gx")!.handler("tweak Change only the budget",h.ctx);
   const pending=runProposal(h,proposalParams(original.objective,budget === undefined ? {} : {token_budget:budget}));
   await confirmDialog(h,pending);
   const saved=diskGoal(cwd);
@@ -355,7 +355,7 @@ for (const barrier of ["foreign", "interrupted", "claimed", "allowance"]) {
   if(barrier === "claimed"){goal.scheduler.phase="claimed";goal.scheduler.dispatch={id:"old",kind:"ready",claimedAt:Date.now()};}
   if(barrier === "allowance") { const {saveGoalSettingsFileConfig}=await import("../extensions/goal-settings.ts");saveGoalSettingsFileConfig(cwd,{maxAutonomousRuns:3}); }
   writeActiveGoalFile(h.ctx,goal);h.core.reconcileFocusedGoalFromDisk(h.ctx);
-  await h.commands.get("goal-tweak")!.handler("Remove budget",h.ctx);
+  await h.commands.get("gx")!.handler("tweak Remove budget",h.ctx);
   await confirmDialog(h,runProposal(h,proposalParams(goal.objective,{token_budget:null})));
   const saved=diskGoal(cwd);assert.equal(saved.status,"paused");assert.equal(saved.tokenBudget,undefined);assert.equal(saved.scheduler?.used,3);
  });
@@ -370,7 +370,7 @@ test("lowering active budget stops immediately and invalidates queued dispatch",
  // on disk. Seeding it here shows that such a goal loads and tweaks normally.
  goal.scheduler={...newGoalScheduler("tweak-status-session"),phase:"ready",decision:{kind:"ready",purpose:"ready",nextAction:"Old action"} as unknown as {kind:"ready";purpose:"ready"},used:2};
  writeActiveGoalFile(h.ctx,goal);h.core.reconcileFocusedGoalFromDisk(h.ctx);
- await h.commands.get("goal-tweak")!.handler("Set budget to 1",h.ctx);
+ await h.commands.get("gx")!.handler("tweak Set budget to 1",h.ctx);
  await confirmDialog(h,runProposal(h,proposalParams(goal.objective,{token_budget:1})));
  const saved=diskGoal(cwd);assert.equal(saved.status,"budget_limited");assert.equal(saved.scheduler?.decision,undefined);assert.notEqual(saved.scheduler?.generation,goal.scheduler?.generation);assert.equal(saved.scheduler?.used,2);
 });
@@ -379,7 +379,7 @@ test("budget confirmation rejects a changed revision",async t=>{
  const cwd=newTmpDir("tweak-budget-stale-");const h=createHarness(cwd);
  t.after(()=>{h.core.scheduler.shutdown();h.core.clearContinuationState();rmSync(cwd,{recursive:true,force:true});});
  await createGoalWithTasks(h,"Objective",[{id:"one",title:"One"}]);
- await h.commands.get("goal-tweak")!.handler("Remove budget",h.ctx);
+ await h.commands.get("gx")!.handler("tweak Remove budget",h.ctx);
  const goal=diskGoal(cwd);const pending=runProposal(h,proposalParams(goal.objective,{token_budget:null}));
  writeActiveGoalFile(h.ctx,{...goal,tokenBudget:123,revision:(goal.revision??0)+1});
  await confirmDialog(h,pending);
@@ -389,7 +389,7 @@ test("budget confirmation rejects a changed revision",async t=>{
 for(const value of [0,-1,1.5,Number.MAX_SAFE_INTEGER+1,"50"]){
  test(`invalid draft budget ${value} is rejected before confirmation`,async t=>{
   const cwd=newTmpDir("tweak-budget-invalid-");const h=createHarness(cwd);t.after(()=>rmSync(cwd,{recursive:true,force:true}));
-  await h.commands.get("goal")!.handler("Objective",h.ctx);
+  await h.commands.get("gx")!.handler("Objective",h.ctx);
   const result=await runProposal(h,proposalParams("Objective",{token_budget:value}));
   assert.equal(h.hasDialog(),false);assert.match(JSON.stringify(result.content),/token_budget/);assert.equal(activeGoalFiles(cwd).length,0);
  });
@@ -399,7 +399,7 @@ test("failed budget mutation never reports success or changes the saved goal",as
  const cwd=newTmpDir("tweak-budget-fail-");const h=createHarness(cwd);
  t.after(()=>{h.core.scheduler.shutdown();h.core.clearContinuationState();rmSync(cwd,{recursive:true,force:true});});
  await createGoalWithTasks(h,"Objective",[{id:"one",title:"One"}]);
- await h.commands.get("goal-tweak")!.handler("Set budget",h.ctx);
+ await h.commands.get("gx")!.handler("tweak Set budget",h.ctx);
  const before=diskGoal(cwd);const pending=runProposal(h,proposalParams(before.objective,{token_budget:123}));
  t.mock.method(h.core.goalService,"apply",()=>({ok:false,message:"injected storage failure"}));
  await confirmDialog(h,pending);

@@ -68,7 +68,7 @@ try{
   async select(title,options){const answer=options.find(o=>/confirm.*create/i.test(o))??options.find(o=>/^Enabled\b/.test(o))??options[0];choices.push({title:title.split('\n')[0],answer});return answer;},
   async confirm(){return true;},async input(){return 'Use the stated objective.';}},onError:event=>errors.push(event.error)});
  await bind();
- const command=`/${mode==='direct'||mode==='reload'||startupAbort||turnFirst?'goal-direct':'goal'} Create result.txt containing exactly verified result followed by a newline, verify it and finish.`;
+ const command=`/${mode==='direct'||mode==='reload'||startupAbort||turnFirst?'gx direct':'gx'} Create result.txt containing exactly verified result followed by a newline, verify it and finish.`;
  const start=session.prompt(command);
  if(lifecycle){
   await until(()=>held);
@@ -77,17 +77,17 @@ try{
    await until(()=>settlementHeld||session.isIdle);
    heldBeforeResume=core.interruption.isHeld();assert.equal(heldBeforeResume,true);
    assert.equal(core.state.goal.status,'active');
-   await session.prompt('/goal-resume');resumed=true;
+   await session.prompt('/gx resume');resumed=true;
    releaseSettlement?.();releaseHold();await start;
   }else{
-  if(!startupAbort)await session.prompt('/goal-pause');
+  if(!startupAbort)await session.prompt('/gx pause');
   const aborting=session.abort();if(startupAbort)releaseHold();await aborting;
   paused=core.state.goal?.status==='paused';assert.equal(paused,true);
   if(startupAbort){pausedBeforeAnyRequest=requests.length===0;assert.equal(pausedBeforeAnyRequest,true);}
   const count=requests.length;await delay(150);assert.equal(requests.length,count);assert.equal(fs.existsSync(path.join(cwd,'result.txt')),false);
   releaseHold();await start;
   if(mode==='reload'){await session.reload();await bind();core=piApi._goalCore;assert.equal(core.state.goal?.status,'paused');}
-  await session.prompt('/goal-resume');
+  await session.prompt('/gx resume');
   }
  }else await start;
  await until(()=>fs.existsSync(path.join(cwd,'result.txt'))&&!core.state.goal&&session.isIdle);

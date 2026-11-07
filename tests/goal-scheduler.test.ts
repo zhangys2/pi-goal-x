@@ -419,7 +419,7 @@ test("a distant wait announces itself, reminds while waiting, and spends nothing
 	t.mock.timers.tick(2 * 60 * 60_000);
 	assert.equal(h.core.state.goal?.status, "paused");
 	assert.match(h.core.state.goal?.pauseReason ?? "", /deadline reached without the expected signal: Await the remote build/);
-	assert.match(h.core.state.goal?.pauseSuggestedAction ?? "", /\/goal-resume to continue or \/goal-tweak/);
+	assert.match(h.core.state.goal?.pauseSuggestedAction ?? "", /\/gx resume to continue or \/gx tweak/);
 	assert.match(h.notifications.at(-1)!, /To continue: Check whether that condition happened/);
 	assert.equal(h.sent.length, 0);
 });
@@ -454,7 +454,7 @@ test("wait notices round the remaining time and include polling state", () => {
 	const plain = buildWaitNotice({ id: "w", token: "t", reason: "Await CI", deadline: now + 60_000 }, "heartbeat", now);
 	assert.match(plain, /^⏳ Goal still waiting: Await CI$/m);
 	assert.doesNotMatch(plain, /Next check/);
-	assert.match(plain, /\/goal-resume to continue now, \/goal-pause to stop waiting\./);
+	assert.match(plain, /\/gx resume to continue now, \/gx pause to stop waiting\./);
 });
 
 // Default policy deliberately does not infer productivity from tool activity.

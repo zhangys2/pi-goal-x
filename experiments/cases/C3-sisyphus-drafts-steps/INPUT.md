@@ -1,4 +1,4 @@
-# C3 — /sisyphus full spec should create_goal with numbered steps in the objective
+# C3 — /gx sisyphus full spec should create_goal with numbered steps in the objective
 
 ## Behavior under test
 
@@ -9,4 +9,4 @@ numbered steps ("1.", "2.", "3.", etc.).
 
 ## Prompts
 
-TURN: /sisyphus I want to do three things in the current directory, in order: first, create file a.txt with content "a"; second, create file b.txt with content "b"; third, merge a.txt and b.txt into c.txt so c.txt contains "a\nb" (two lines). Done criterion: a.txt, b.txt, c.txt all exist with correct content. Do not modify anything outside the current directory. autoContinue: true.
+TURN: /gx sisyphus I want to do three things in the current directory, in order: first, create file a.txt with content "a"; second, create file b.txt with content "b"; third, merge a.txt and b.txt into c.txt so c.txt contains "a\nb" (two lines). Done criterion: a.txt, b.txt, c.txt all exist with correct content. Do not modify anything outside the current directory. autoContinue: true.

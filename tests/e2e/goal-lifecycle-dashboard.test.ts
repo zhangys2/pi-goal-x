@@ -164,7 +164,7 @@ test("full guided lifecycle: create → focus → tasks → audit → archive (�
 		await h.beforeAgentStart();
 
 		// ── Step 1: guided goal creation ────────────────────────────────────
-		await h.commands.get("goal")!.handler("Add CSV export to the reports page", h.ctx);
+		await h.commands.get("gx")!.handler("Add CSV export to the reports page", h.ctx);
 
 		// ── Step 2: clarification questions ─────────────────────────────────
 		const q = callTool(h, "goal_questionnaire", "q-1", {
@@ -314,7 +314,7 @@ test("archive failure never reports success; the complete record stays recoverab
 	try {
 		await h.sessionStart();
 		await h.beforeAgentStart();
-		await h.commands.get("goal-direct")!.handler("Ship the report feature.\nVerification contract: Run npm test (0 failures)", h.ctx);
+		await h.commands.get("gx")!.handler("direct Ship the report feature.\\nVerification contract: Run npm test (0 failures)", h.ctx);
 		let goal = currentGoal(cwd);
 		assert.ok(goal);
 		// Complete it through the normal deferred flow (approval).

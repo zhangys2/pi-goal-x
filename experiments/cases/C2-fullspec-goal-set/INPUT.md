@@ -4,8 +4,8 @@
 
 When the user gives a clear, verifiable, bounded full description, the agent
 should confirm in one sentence and immediately call `create_goal` (the user
-explicitly asked for a persistent goal via /goal). No interactive questions.
+explicitly asked for a persistent goal via /gx). No interactive questions.
 
 ## Prompts
 
-TURN: /goal In the sandbox current directory, create a new file called hello.txt whose content is "Hello, Goal!" on a single line (no extra blank lines). Done criterion: the file exists and its content is exactly that line. Do not modify any other files. No interactive questions needed. autoContinue: true.
+TURN: /gx In the sandbox current directory, create a new file called hello.txt whose content is "Hello, Goal!" on a single line (no extra blank lines). Done criterion: the file exists and its content is exactly that line. Do not modify any other files. No interactive questions needed. autoContinue: true.

@@ -17,4 +17,4 @@ Expected:
 
 ## Prompts
 
-TURN: /goal Create file alpha.txt with 'one' and file beta.txt with 'two'. Use the task tools: propose a task list with two tasks (alpha.txt, beta.txt) via set_goal_tasks, then mark each task complete with update_goal_task(status=complete, evidence=...) as soon as its file is verified.
+TURN: /gx Create file alpha.txt with 'one' and file beta.txt with 'two'. Use the task tools: propose a task list with two tasks (alpha.txt, beta.txt) via set_goal_tasks, then mark each task complete with update_goal_task(status=complete, evidence=...) as soon as its file is verified.

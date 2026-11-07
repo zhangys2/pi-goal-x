@@ -25,7 +25,7 @@
   },
   {
     "id": "no-abort-goal",
-    "desc": "abort_goal is removed; abandonment is user-owned via /goal-clear.",
+    "desc": "abort_goal is removed; abandonment is user-owned via /gx clear.",
     "kind": "tool-not-called",
     "tool": "abort_goal"
   },

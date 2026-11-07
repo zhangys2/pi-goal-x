@@ -21,12 +21,13 @@ All notable changes to pi-goal-x are documented here.
 ### Changed
 
 - **One code task at a time** — `update_goal_task` refuses to start a code task while another started code task is unresolved, so review diffs stay scoped to one task.
-- **Rejection cap** — three consecutive rejected reviews of the same task block the goal until `/goal-resume`.
+- **Rejection cap** — three consecutive rejected reviews of the same task block the goal until `/gx resume`.
+- **Goal command namespace** — goal-x defaults to a single `/gx` tree for guided, Sisyphus, direct, lifecycle, recovery, settings, onboarding, and report actions. `/loop` remains separate; configured aliases continue to work.
 - Goal drafting asks for small, independently reviewable code tasks whose verification contracts list the tests, exact commands, and out-of-scope files, and for a toolchain check before confirming build-dependent goals.
 
 ### Added
 
-- **Goal usability improvements** — first-run walkthrough with a sample goal (`/goal-onboarding` to reopen), read-only recovery summaries via `/goal-list recovery`, a report attention/next-actions summary, project-scoped lightweight/structured/audited presets, and opt-in local aggregate measurements with 90-day retention.
+- **Goal usability improvements** — first-run walkthrough with a sample goal (`/gx onboarding` to reopen), read-only recovery summaries via `/gx list recovery`, a report attention/next-actions summary, project-scoped lightweight/structured/audited presets, and opt-in local aggregate measurements with 90-day retention.
 
 - **`/loop`** — repeat a prompt on an interval without creating a goal: `/loop 5m check the deploy`, with an optional deadline (`/loop 30s --until 10m …`) and `/loop stop` to end it. With no prompt it repeats the last user message. The next send is timed from the moment the agent settles, so runs never overlap, and a loop started while the agent is busy waits for it. The status line shows the cadence while it runs.
 
@@ -36,7 +37,7 @@ All notable changes to pi-goal-x are documented here.
 
 - **Removed stray Windows cache files** — four `%SystemDrive%/ProgramData/...` cache databases committed by accident are gone, and the path is ignored.
 
-- **Goal report (#14)** — every goal keeps one Markdown report at `.pi/goals/reports/`: plan DAG and current-state flowchart (Mermaid), task table with timings, quoted reviews and evidence, blocks/pauses/waits with elapsed time, observed subagent artifacts, timeline, and recommendations derived from the report's own data (repeat rejections, overlapping code tasks, scope drift, expired waits, completions naming no verification command). Written once per turn that changed goal state, never injected into the prompt. `/goal-report` writes it on demand; `disableGoalReport: true` turns it off.
+- **Goal report (#14)** — every goal keeps one Markdown report at `.pi/goals/reports/`: plan DAG and current-state flowchart (Mermaid), task table with timings, quoted reviews and evidence, blocks/pauses/waits with elapsed time, observed subagent artifacts, timeline, and recommendations derived from the report's own data (repeat rejections, overlapping code tasks, scope drift, expired waits, completions naming no verification command). Written once per turn that changed goal state, never injected into the prompt. `/gx report` writes it on demand; `disableGoalReport: true` turns it off.
 
 - **Waits are visible** — declaring a wait announces its reason and deadline, and a wait longer than 30 minutes reminds the user every 30 minutes that it is still waiting, with the time left. Reminders notify only: they dispatch no model turn and spend no autonomous allowance. A wait that expires now pauses with its reason and what to do next.
 

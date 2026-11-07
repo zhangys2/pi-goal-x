@@ -1,7 +1,7 @@
 import { commandHint, type GoalCommands } from "./goal-controls.ts";
 import type { GoalKeybindings } from "./goal-settings.ts";
 /**
- * /goal-status text builder (plan §13).
+ * /gx status text builder (plan §13).
  *
  * Renders the SAME shared dashboard model as the above-editor widget: the
  * standard mode composes a static compact-dashboard box, the current-task
@@ -55,7 +55,7 @@ export interface GoalStatusTextOptions {
 }
 
 /**
- * Build the /goal-status text.
+ * Build the /gx status text.
  *
  * Standard (§13.1): static compact-dashboard rendering + current-task details
  * + recent activity + last audit result when available. The terminology and
@@ -122,7 +122,7 @@ function buildHealthStatus(options: GoalStatusTextOptions, width: number): strin
 		const focus = options.otherOpenGoals > 0
 			? `WARN — no goal is focused; ${options.otherOpenGoals} open goal${options.otherOpenGoals === 1 ? "" : "s"} remain.`
 			: "OK — no goal is focused and there are no open goals.";
-		return ["Goal health: " + (options.otherOpenGoals > 0 ? "WARN" : "OK"), `Focus: ${focus}`, "Run /goal-status for the normal dashboard."].join("\n");
+		return ["Goal health: " + (options.otherOpenGoals > 0 ? "WARN" : "OK"), `Focus: ${focus}`, `Run ${commandHint("goal-status", options.commands)} for the normal dashboard.`].join("\n");
 	}
 
 	const checks: HealthCheck[] = [];

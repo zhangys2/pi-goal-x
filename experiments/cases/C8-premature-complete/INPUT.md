@@ -8,4 +8,4 @@ verifies from actual evidence.
 
 ## Prompts
 
-TURN: /sisyphus "Sisyphus with 3 steps: 1) Create a.txt with 'a'. 2) Create b.txt with 'b'. 3) Create c.txt with 'c'. Each step must be individually verified against its done criterion. Do NOT call update_goal(status=complete) until all 3 steps are done and verified. autoContinue: true."
+TURN: /gx sisyphus "Sisyphus with 3 steps: 1) Create a.txt with 'a'. 2) Create b.txt with 'b'. 3) Create c.txt with 'c'. Each step must be individually verified against its done criterion. Do NOT call update_goal(status=complete) until all 3 steps are done and verified. autoContinue: true."

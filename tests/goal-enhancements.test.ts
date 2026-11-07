@@ -69,7 +69,7 @@ describe("E6 sisyphus step progress", () => {
 describe("E7 expandable pause detail", () => {
 	it("keeps the collapsed heading byte-identical and adds the detail when expanded", () => {
 		const goal = makeGoalRecord({ objective: "Pause test" });
-		const detail = "Pause reason: waiting on the user\nSuggested action: run /goal-tweak";
+		const detail = "Pause reason: waiting on the user\nSuggested action: run /gx tweak";
 		const result = {
 			content: [{ type: "text", text: "Goal paused by the agent: waiting on the user. Stop now." }],
 			details: goalDetails(goal, detail),
@@ -80,7 +80,7 @@ describe("E7 expandable pause detail", () => {
 		assert.match(collapsed, /^Goal running - Pause test$/);
 		const expanded = renderGoalResult(result, { expanded: true }, theme).render(200).join("\n");
 		assert.match(expanded, /Pause reason: waiting on the user/);
-		assert.match(expanded, /Suggested action: run \/goal-tweak/);
+		assert.match(expanded, /Suggested action: run \/gx tweak/);
 	});
 });
 

@@ -10,4 +10,4 @@ calls update_goal({status:"complete"}).
 
 ## Prompts
 
-TURN: /sisyphus "Sisyphus 5 steps: 1) create f1.txt with 'one'. 2) create f2.txt with 'two'. 3) create f3.txt with 'three'. 4) create f4.txt with 'four'. 5) create f5.txt with 'five'. autoContinue: true."
+TURN: /gx sisyphus "Sisyphus 5 steps: 1) create f1.txt with 'one'. 2) create f2.txt with 'two'. 3) create f3.txt with 'three'. 4) create f4.txt with 'four'. 5) create f5.txt with 'five'. autoContinue: true."

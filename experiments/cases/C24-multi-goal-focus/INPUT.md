@@ -15,5 +15,5 @@ Expected:
 
 ## Prompts
 
-TURN: /goal Create file one.txt with content 'one'.
-TURN: /goal Create file two.txt with content 'two'. (Keep the first goal open.)
+TURN: /gx Create file one.txt with content 'one'.
+TURN: /gx Create file two.txt with content 'two'. (Keep the first goal open.)

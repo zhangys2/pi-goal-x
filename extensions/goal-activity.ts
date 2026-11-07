@@ -2,7 +2,7 @@
  * Human-readable activity feed (plan §12).
  *
  * Maps the durable ledger into concise, readable activity items for the
- * unified dashboard, `/goal-status`, and archived records. Pure module: no
+ * unified dashboard, `/gx status`, and archived records. Pure module: no
  * TUI imports; formatting lives here so every surface reads the same text.
  *
  * Rules (from the plan):

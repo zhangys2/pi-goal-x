@@ -65,7 +65,7 @@ for (const width of [72, 110]) test(`idle pacing preserves compact height and co
 	const paced = renderGoalWidgetLines(current, theme, width, { model: model() });
 	const visible = applyStableHeightBound(paced, 32, state, "same-goal");
 	assert.equal(visible.length, first.length);
-	assert.match(visible.join("\n"), /Next automatic attempt in .*\/goal-resume/);
+	assert.match(visible.join("\n"), /Next automatic attempt in .*\/gx resume/);
 	assert.match(visible.at(-1)!, /^╰─ .*Ctrl\+Shift\+T/);
 	assert.ok(visible.every(line => visibleWidth(line) <= width));
 });
@@ -86,11 +86,11 @@ test("renderGoalWidgetLines highlights blocked state with reason and action", ()
 		status: "blocked",
 		autoContinue: false,
 		pauseReason: "Missing API token",
-		pauseSuggestedAction: "Set TOKEN and run /goal-resume",
+		pauseSuggestedAction: "Set TOKEN and run /gx resume",
 	}), theme, 100);
 	assert.match(lines.join("\n"), /goal: sisyphus blocked/);
 	assert.match(lines.join("\n"), /Blocker  Missing API token/);
-	assert.match(lines.join("\n"), /Action   Set TOKEN and run \/goal-resume/);
+	assert.match(lines.join("\n"), /Action   Set TOKEN and run \/gx resume/);
 });
 
 test("renderGoalWidgetLines shows paused reason and who paused", () => {
@@ -111,7 +111,7 @@ test("renderGoalWidgetLines shows other open goals and unfocused multi-goal guid
 	const unfocused = renderGoalWidgetLines(null, theme, 100, { openGoalCount: 2 });
 	assert.match(unfocused[0]!, /^╭─ pi-goal-x ─ Goal focus required/);
 	assert.match(unfocused.join("\n"), /2 open goals are available/);
-	assert.match(unfocused.join("\n"), /\/goal-focus/);
+	assert.match(unfocused.join("\n"), /\/gx focus/);
 });
 
 test("renderAuditorWidgetLines shows the structured audit dashboard (§15.3)", () => {

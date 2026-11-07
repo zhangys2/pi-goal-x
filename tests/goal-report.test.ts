@@ -97,12 +97,12 @@ test("empty sections are omitted and a table cell cannot break the table", () =>
 
 test("attention spans render their reason, attempts and fix", () => {
 	const report = renderGoalReport(fixture(
-		{ status: "blocked", pauseReason: "MSVC missing", pauseSuggestedAction: "Install it, then /goal-resume", blockedAttempts: ["unset CC"] },
+		{ status: "blocked", pauseReason: "MSVC missing", pauseSuggestedAction: "Install it, then /gx resume", blockedAttempts: ["unset CC"] },
 		[{ type: "goal_blocked", goalId: "g1", reason: "MSVC missing", source: "agent", at: at(60) }],
 	), { now: NOW });
 	assert.match(report, /- \*\*blocked\*\* 2026-09-17 11:00:00Z \(still open\) — 1h/);
 	assert.match(report, /Already tried: unset CC/);
-	assert.match(report, /To fix: Install it, then \/goal-resume/);
+	assert.match(report, /To fix: Install it, then \/gx resume/);
 });
 
 test("recommendations name the task and their evidence", () => {

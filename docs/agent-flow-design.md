@@ -30,7 +30,7 @@ Core principle:
 
 ```text
 User command
-  -> pi-goal command handler (/goal, /sisyphus, /goal-*)
+  -> pi-goal command handler (/gx, /gx sisyphus, /gx subcommands)
   -> guided draft and explicit confirmation, direct creation, or focus/lifecycle state update
   -> runtime reconciles from disk, re-computes prompts and the active tool subset
   -> executing agent works on the focused goal
@@ -90,32 +90,37 @@ in place.
 
 ## 5. Command palette: the user owns intent
 
-The curated fourteen-command palette:
+The default command tree is grouped under `/gx`; `/loop` remains separate:
 
 | Command | Behavior |
 |---|---|
-| `/goal [seed]` | Guided regular-goal drafting, questionnaire where useful, then explicit confirmation |
-| `/sisyphus [seed]` | Guided Sisyphus drafting with ordered-work constraints and explicit confirmation |
-| `/goal-direct <objective>` | Direct regular-goal creation without drafting |
-| `/sisyphus-direct <objective>` | Direct Sisyphus creation without drafting |
-| `/goal-list` | List all open goals and the current focus |
-| `/goal-status` | Read-only focused-goal summary plus other-open-goal count; append `verbose` for diagnostics or `health` for storage/runtime checks |
-| `/goal-focus` | Choose this session's focused goal |
-| `/goal-unfocus` | Detach the session without modifying the shared goal |
-| `/goal-settings` | Fully operable settings editor for all eight persisted fields |
-| `/goal-tweak <change>` | Guided, user-confirmed refinement of the focused objective and task plan |
-| `/goal-clear` | Archive the focused goal after confirmation (cancel is a durable no-op) |
-| `/goal-cancel` | Cancel the in-progress guided draft without creating a goal |
-| `/goal-pause` | Pause the focused active goal (Esc also pauses) |
-| `/goal-resume` | Resume a paused or blocked goal |
+| `/gx [seed]` | Guided regular-goal drafting, then explicit confirmation |
+| `/gx sisyphus [seed]` | Guided ordered-goal drafting, then explicit confirmation |
+| `/gx direct <objective>` | Direct regular-goal creation |
+| `/gx sisyphus direct <objective>` | Direct ordered-goal creation |
+| `/gx tweak <change>` | Guided, user-confirmed refinement |
+| `/gx pause` | Pause the focused goal |
+| `/gx resume` | Resume a paused or blocked goal |
+| `/gx clear` | Archive after confirmation |
+| `/gx list` | List open goals and current focus |
+| `/gx list recovery` | Read-only lifecycle recovery summary |
+| `/gx status [verbose|health]` | Read-only status and optional diagnostics |
+| `/gx refresh` | Reload saved goals and settings |
+| `/gx recovery [repair]` | Storage recovery report and guarded repair |
+| `/gx focus` | Choose this session's focused goal |
+| `/gx unfocus` | Detach the session without modifying the shared goal |
+| `/gx settings [controls]` | Settings editor and command/key controls |
+| `/gx cancel` | Cancel a guided draft |
+| `/gx report` | Write the focused goal report |
+| `/gx onboarding` | Reopen the getting-started walkthrough |
 
 ## 6. Goal creation flow
 
-`/goal [seed]` and `/sisyphus [seed]` enter a temporary draft profile.
+`/gx [seed]` and `/gx sisyphus [seed]` enter a temporary draft profile.
 The agent can ask questions, select a questionnaire when it adds value, and
 propose both a full objective and a task tree in a single confirmation dialog.
 Confirm creates and focuses the goal atomically; Continue Chatting retains the
-draft. `/goal-direct` and `/sisyphus-direct` are the explicit immediate paths.
+draft. `/gx direct` and `/gx sisyphus direct` are the explicit immediate paths.
 
 ## 7. Tool surface and runtime gates
 
@@ -125,7 +130,7 @@ temporarily replaces it with three draft tools:
 - exactly five goal tools are installed when tasks are enabled — `create_goal`,
   `get_goal`, `update_goal`, `set_goal_tasks`, `update_goal_task`;
 - exactly the three core tools when tasks are disabled;
-- during a user-started `/goal`, `/sisyphus`, or `/goal-tweak` draft, only
+- during a user-started `/gx`, `/gx sisyphus`, or `/gx tweak` draft, only
   `goal_question`, `goal_questionnaire`, and `propose_goal_draft` are
   advertised until confirm or cancellation;
 - the profile is installed once at session start and after a settings change
@@ -153,7 +158,7 @@ agent turns for the focused goal only. The loop stops or pauses when:
 
 - the agent calls `update_goal(status="complete")`;
 - the agent calls `update_goal(status="blocked")`;
-- the user invokes `/goal-pause`, `/goal-clear`, or the user aborts the turn;
+- the user invokes `/gx pause`, `/gx clear`, or the user aborts the turn;
 - a turn ends without meaningful goal-work tool activity.
 
 Continuation prompts include a goal id so stale prompts can be detected and
@@ -208,8 +213,8 @@ ledger event is appended, and the session focus is cleared.
 - `update_goal({status: "blocked"})` records a distinct `blocked` status with
   an agent stop reason and stops continuation. The three-consecutive-turn
   blocker rule is prompt policy, not a persisted counter.
-- `/goal-pause` and Esc set `paused` (user-owned) with `autoContinue: false`.
-- `/goal-resume` reactivates a paused or blocked goal.
+- `/gx pause` and Esc set `paused` (user-owned) with `autoContinue: false`.
+- `/gx resume` reactivates a paused or blocked goal.
 - After any stop tool fires in a turn, subsequent tool calls in the same turn
   are blocked except read-only inspection.
 
@@ -297,8 +302,8 @@ E2E/experiment migration.
 The runtime follow-up
 ([`2026-08-04 goal runtime follow-up`](../specs/2026-08-04-goal-runtime-follow-up/TECH.md))
 then shipped the remaining work: guided drafting restored as a transient
-user-invoked workflow (durable draft sessions, `/goal-cancel`, `/goal-status`,
-per-draft auditor selection), a fully operable settings menu, `/goal-clear`
+user-invoked workflow (durable draft sessions, `/gx cancel`, `/gx status`,
+per-draft auditor selection), a fully operable settings menu, `/gx clear`
 confirmation, neutral task-confirmation labels, failure-checked completion
 commits, per-goal revision/lock serialization with typed conflicts, the
 agent-pause outcome, untrusted `completion_summary` claims, the enforced

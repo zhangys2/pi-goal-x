@@ -15,7 +15,7 @@
   },
   {
     "id": "no-clear-via-model",
-    "desc": "The model must not clear/archive goals; /goal-clear is user-owned.",
+    "desc": "The model must not clear/archive goals; /gx clear is user-owned.",
     "kind": "tool-not-called",
     "tool": "update_goal"
   },

@@ -74,7 +74,7 @@ export function goalSelectorLabel(goal: GoalRecord, focusedGoalId: string | null
 
 export function buildGoalListText(pool: Map<string, GoalRecord>, focusedGoalId: string | null): string {
 	const open = openGoalsFromPool(pool);
-	if (open.length === 0) return "No open goals. Use /goal <objective> or /sisyphus <objective> to start immediately.";
+	if (open.length === 0) return "No open goals. Use /gx <objective> or /gx sisyphus <objective> to start immediately.";
 	const lines = [`Open goals: ${open.length}`, ""];
 	for (const goal of open) {
 		const focused = goal.id === focusedGoalId ? "*" : " ";
@@ -90,7 +90,7 @@ export function buildGoalListText(pool: Map<string, GoalRecord>, focusedGoalId: 
 }
 
 export function buildUnfocusedOpenGoalsSummary(openGoalCount: number): string {
-	return `No goal is focused in this session. ${openGoalCount} open goal${openGoalCount === 1 ? "" : "s"} exist in the goal pool. Use /goal-focus to choose the session focus before doing goal work.`;
+	return `No goal is focused in this session. ${openGoalCount} open goal${openGoalCount === 1 ? "" : "s"} exist in the goal pool. Use /gx focus to choose the session focus before doing goal work.`;
 }
 
 export function mergeFocusedGoalWithDisk(args: { memoryGoal: GoalRecord; diskGoal: GoalRecord }): GoalRecord {

@@ -17,4 +17,4 @@ Expected:
 
 ## Prompts
 
-TURN: /goal Create a file alpha.txt containing "one" and a file beta.txt containing "two". Done criteria: both files exist with exactly those contents. Verification contract: confirm both files exist with correct contents before requesting completion.
+TURN: /gx Create a file alpha.txt containing "one" and a file beta.txt containing "two". Done criteria: both files exist with exactly those contents. Verification contract: confirm both files exist with correct contents before requesting completion.

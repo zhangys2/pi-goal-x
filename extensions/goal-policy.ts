@@ -71,8 +71,8 @@ export function validateGoalAgentPause(args: {
 }
 
 export function validateResumeGoal(goal: GoalPolicyRecordLike | null): PolicyValidation {
-	if (!goal) return { ok: false, message: "No goal is set. Use /goal to draft one, or /goal-direct <objective> to start immediately." };
-	if (goal.status === "complete") return { ok: false, message: "Goal is complete. Use /goal to draft a new one, or /goal-direct <objective> to start immediately." };
+	if (!goal) return { ok: false, message: "No goal is set. Use /gx to draft one, or /gx direct <objective> to start immediately." };
+	if (goal.status === "complete") return { ok: false, message: "Goal is complete. Use /gx to draft a new one, or /gx direct <objective> to start immediately." };
 	if (goal.status === "active" && goal.autoContinue) return { ok: false, message: "Goal is already running." };
 	return { ok: true };
 }

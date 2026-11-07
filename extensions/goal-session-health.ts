@@ -112,7 +112,7 @@ function formatChars(chars: number): string {
 
 /**
  * Render the read-only report section. The command layer appends this to
- * /goal-recovery output and /goal-status health when checkpoint data exists.
+ * /gx recovery output and /gx status health when checkpoint data exists.
  */
 export function formatCheckpointHealthReport(health: CheckpointHealth, sessionFile?: string): string {
 	const lines: string[] = [];

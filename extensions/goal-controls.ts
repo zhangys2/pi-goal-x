@@ -20,13 +20,35 @@ export const GOAL_COMMANDS = [
 	["goal-status", "Show goal status", "Show progress; accepts verbose and health."],
 	["goal-refresh", "Refresh goal state", "Read goal files and settings again."],
 	["goal-recovery", "Recover goal files", "Inspect recovery information; repair requires confirmation."],
-	["goal-focus", "Focus a goal", "Choose the goal this session works on."],
+	["goal-focus", "Focus a goal", "Choose the goal this session focuses on."],
 	["goal-unfocus", "Unfocus the goal", "Detach this session, leaving the shared goal open."],
-	["goal-settings", "Goal settings", "Open settings. /goal-settings always remains available."],
+	["goal-settings", "Goal settings", "Open settings. /gx settings always remains available."],
 	["goal-cancel", "Cancel a draft", "Cancel the guided draft without creating a goal."],
+	["goal-report", "Write the goal report", "Write the focused goal's report now and show its path."],
+	["goal-onboarding", "Reopen goal onboarding", "Show the goal-x getting-started walkthrough again."],
 ] as const;
 export type GoalCommandId = typeof GOAL_COMMANDS[number][0];
 export type GoalCommands = Partial<Record<GoalCommandId, string[]>>;
+const DEFAULT_COMMAND_PATHS: Record<GoalCommandId, string[]> = {
+	goal: ["gx"],
+	sisyphus: ["gx sisyphus"],
+	"goal-direct": ["gx direct"],
+	"sisyphus-direct": ["gx sisyphus direct"],
+	"goal-tweak": ["gx tweak"],
+	"goal-pause": ["gx pause"],
+	"goal-resume": ["gx resume"],
+	"goal-clear": ["gx clear"],
+	"goal-list": ["gx list"],
+	"goal-status": ["gx status"],
+	"goal-refresh": ["gx refresh"],
+	"goal-recovery": ["gx recovery"],
+	"goal-focus": ["gx focus"],
+	"goal-unfocus": ["gx unfocus"],
+	"goal-settings": ["gx settings"],
+	"goal-cancel": ["gx cancel"],
+	"goal-report": ["gx report"],
+	"goal-onboarding": ["gx onboarding"],
+};
 export const GOAL_COMMAND_INPUTS: Partial<Record<GoalCommandId, string>> = {
 	"goal-direct": "Goal objective", "sisyphus-direct": "Sisyphus objective and ordered steps", "goal-tweak": "Change to the goal",
 };
@@ -74,7 +96,7 @@ export const GOAL_KEY_ACTIONS: readonly GoalKeyAction[] = [
 	{ path: ["keybindings", "interruptAudit"], label: "Interrupt the audit", defaults: "escape", context: "audit", help: "Stop the audit and show the existing completion choices." },
 	...Object.entries(GOAL_DIALOG_KEYS).map(([name, defaults]): GoalKeyAction => ({
 		path: ["keybindings", "dialog", name], label: `Dialog: ${{ confirm: "confirm selection", cancel: "cancel / go back", up: "previous option", down: "next option", next: "next question", previous: "previous question", pageUp: "page up", pageDown: "page down", scrollUp: "scroll up", scrollDown: "scroll down", toggleAuditor: "toggle auditor" }[name]}`,
-		defaults, context: "dialog", help: "Applies to goal questionnaires and confirmations. Settings navigation and text editing keep Pi's controls.",
+		defaults, context: "dialog", help: "Applies to goal questionnaires and confirmation dialogs. Settings navigation and text editing keep Pi's controls.",
 	})),
 	...GOAL_COMMANDS.map(([id, label, help]): GoalKeyAction => ({ path: ["keybindings", "commands", id], label, help, context: "global", defaults: [] })),
 ];
@@ -97,7 +119,7 @@ export function keyActionBinding(settings: unknown, action: GoalKeyAction): Goal
 /** Used only while editing, so validation can consider both scopes before a write. */
 export function resolveGoalControls(global: unknown, project?: unknown): { commands: GoalCommands; keybindings: Record<string, unknown> } {
 	const value = { commands: {} as GoalCommands, keybindings: {} as Record<string, unknown> };
-	for (const [id] of GOAL_COMMANDS) value.commands[id] = (valueAtPath(project, ["commands", id]) ?? valueAtPath(global, ["commands", id]) ?? [id]) as string[];
+	for (const [id] of GOAL_COMMANDS) value.commands[id] = (valueAtPath(project, ["commands", id]) ?? valueAtPath(global, ["commands", id]) ?? [...DEFAULT_COMMAND_PATHS[id]]) as string[];
 	for (const action of GOAL_KEY_ACTIONS) {
 		let target: Record<string, unknown> = value;
 		for (const part of action.path.slice(0, -1)) target = (target[part] ??= {}) as Record<string, unknown>;
@@ -149,35 +171,35 @@ export function parseCommandPaths(value: unknown): string[] | undefined {
 	return paths.every((route): route is string => route !== undefined) ? [...new Set(paths)] : undefined;
 }
 export function commandPaths(commands: GoalCommands | undefined, id: GoalCommandId): string[] {
-	return commands?.[id] ?? [id];
+	return commands?.[id] ?? DEFAULT_COMMAND_PATHS[id];
 }
 export function commandHint(id: GoalCommandId, commands?: GoalCommands): string {
 	const first = commandPaths(commands, id)[0];
-	if (!first && id === "goal-settings") return "/goal-settings";
-	return first ? `/${first}` : `/goal-settings controls to enable ${GOAL_COMMANDS.find(([action]) => action === id)![1].toLowerCase()}`;
+	if (!first && id === "goal-settings") return "/gx settings";
+	return first ? `/${first}` : `/gx settings controls to enable ${GOAL_COMMANDS.find(([action]) => action === id)![1].toLowerCase()}`;
 }
 const commandReference = new RegExp(`/(${GOAL_COMMANDS.map(([id]) => id).sort((a, b) => b.length - a.length).join("|")})(?![a-z0-9_-])`, "g");
 /** For standing instructions only: objectives and other user text stay verbatim. */
 export function commandInstructions(text: string, commands?: GoalCommands): string {
-	return commands ? text.replace(commandReference, (_match, id: GoalCommandId) => commandHint(id, commands)) : text;
+	return text.replace(commandReference, (_match, id: GoalCommandId) => commandHint(id, commands));
 }
 export interface GoalCommandRoute { path: string; id: GoalCommandId }
 export function commandRoutes(commands: GoalCommands | undefined): GoalCommandRoute[] {
 	const routes = GOAL_COMMANDS.flatMap(([id]) => commandPaths(commands, id).map(path => ({ path, id })));
-	if (!routes.some(route => route.path === "goal-settings")) routes.push({ path: "goal-settings", id: "goal-settings" });
+	if (!routes.some(route => route.path === "gx settings")) routes.push({ path: "gx settings", id: "goal-settings" });
 	return routes.sort((a, b) => b.path.length - a.path.length);
 }
 export function commandProblems(commands: GoalCommands | undefined, occupiedRoots: readonly string[] = []): string[] {
 	const problems: string[] = [];
 	const owners = new Map<string, GoalCommandId>();
-	const reservedRoots = new Set(["loop", "goal-report", ...occupiedRoots]);
-	for (const [id] of GOAL_COMMANDS) for (const route of commandPaths(commands, id)) {
-		const root = route.split(" ")[0]!;
+	const reservedRoots = new Set(["loop", ...occupiedRoots]);
+	for (const { id, path } of commandRoutes(commands)) {
+		const root = path.split(" ")[0]!;
 		if (PI_COMMAND_ROOTS.has(root) || reservedRoots.has(root)) problems.push(`/${root} belongs to Pi or another command.`);
-		if (root === "goal-settings" && id !== "goal-settings") problems.push("/goal-settings is reserved for settings recovery.");
-		const owner = owners.get(route);
-		if (owner && owner !== id) problems.push(`/${route} is already assigned to ${owner}.`);
-		owners.set(route, id);
+		if (path === "gx settings" && id !== "goal-settings") problems.push("/gx settings is reserved for settings recovery.");
+		const owner = owners.get(path);
+		if (owner && owner !== id) problems.push(`/${path} is already assigned to ${owner}.`);
+		owners.set(path, id);
 	}
 	return [...new Set(problems)];
 }

@@ -1,7 +1,7 @@
 import { goalStoragePath, goalPoolSnapshotPath, ensureGoalStorageDirectory } from "./storage/goal-root.ts";
 import { commandPaths, type GoalCommands } from "./goal-controls.ts";
 /**
- * /goal-recovery — read-only storage/recovery report + guarded repair.
+ * /gx recovery — read-only storage/recovery report + guarded repair.
  *
  * Reliability campaign 2026-08-09. The report scans four failure classes:
  *   - malformed goal files (active_goal_*.md that do not parse);
@@ -250,7 +250,7 @@ export function formatRecoveryReport(report: RecoveryReport, commands?: GoalComm
 	if (report.staleLocks.length > 0 || report.orphanedSnapshotGoals.length > 0) {
 		const route = commandPaths(commands, "goal-recovery")[0];
 		lines.push(route ? `Run \`/${route} repair\` to remove stale locks and refresh the pool snapshot (confirmation + backup required).`
-			: "Enable a recovery command in /goal-settings controls to repair these files (confirmation + backup required).");
+			: "Enable a recovery command in /gx settings controls to repair these files (confirmation + backup required).");
 	}
 	return lines.join("\n");
 }

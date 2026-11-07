@@ -360,7 +360,7 @@ export class GoalScheduler {
 			if (s?.idle && s.owner === this.owner(ctx)) this.safe(ctx, () => this.update(ctx, state => { state.idle = undefined; }));
 		}
 		this.schedule(ctx);
-		// Keep the explicit refresh snapshot warm so the next /goal-refresh can
+		// Keep the explicit refresh snapshot warm so the next /gx refresh can
 		// distinguish an external edit from the state just shown to the user.
 		loadGoalSettings(ctx.cwd);
 	}
@@ -381,7 +381,7 @@ export class GoalScheduler {
 			if (!this.available(ctx, s)) { this.pause(ctx, this.allowanceReason(ctx)); return; }
 			// Recovery and repair retain the wait while changing phase to ready.
 			if (s.wait && Date.now() >= s.wait.deadline) {
-				this.pause(ctx, `Wait deadline reached without the expected signal: ${s.wait.reason}`, "Check whether that condition happened, then /goal-resume to continue or /goal-tweak to change the plan.");
+				this.pause(ctx, `Wait deadline reached without the expected signal: ${s.wait.reason}`, "Check whether that condition happened, then /gx resume to continue or /gx tweak to change the plan.");
 				return;
 			}
 			if (s.phase === "waiting" && s.wait) {

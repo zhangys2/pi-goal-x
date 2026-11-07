@@ -128,7 +128,7 @@ test("tweak persist path: writeActiveGoalFile with new objective (simulated hand
 	const ctx = tempCtx();
 	try {
 		const originalObj = "Original objective";
-		const newObj = "Tweaked objective after /goal-tweak interview";
+		const newObj = "Tweaked objective after /gx tweak interview";
 
 		// Write the original active goal
 		const goal = makeGoal({ objective: originalObj });
@@ -307,7 +307,7 @@ function tweakedRecord(g: GoalRecord): GoalRecord {
 
 // ─── prompt evolution instruction ────────────────────────────────────────────
 
-test("goal evolution instruction mentions /goal-tweak instead of updatedObjective", async () => {
+test("goal evolution instruction mentions /gx tweak instead of updatedObjective", async () => {
 	const { goalPrompt } = await import("../extensions/prompts/goal-prompts.ts");
 	const goal = makeGoal();
 
@@ -316,5 +316,5 @@ test("goal evolution instruction mentions /goal-tweak instead of updatedObjectiv
 	const goalText = goalPrompt(goal);
 	assert.ok(!goalText.includes("updatedObjective"), "goalPrompt must NOT reference updatedObjective");
 	assert.ok(goalText.includes("immutable"), "goalPrompt must mention the goal is immutable");
-	assert.ok(goalText.includes("/goal-tweak"), "goalPrompt must instruct user to run /goal-tweak");
+	assert.ok(goalText.includes("/gx tweak"), "goalPrompt must instruct user to run /gx tweak");
 });

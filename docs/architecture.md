@@ -23,7 +23,7 @@ handlers from their dedicated modules:
 | `goal-worker-integration.ts` | Three-way worker patch integration, verification, path-scoped commit, and ownership-checked rollback |
 | `goal-integration-git.ts` | Asynchronous Git execution with timeout, output bounds, and process-tree cancellation |
 | `storage/goal-integration-lock.ts` | Fail-fast repository-wide integration lock across processes and worktrees |
-| `goal-commands.ts` | The curated fourteen-command palette and its handlers |
+| `goal-commands.ts` | The configurable `/gx` command tree and its handlers |
 | `goal-events.ts` | Lifecycle and provider event handlers (`context`, `before_provider_request`, `turn_start`, `tool_call`, `tool_execution_end`, `turn_end`, `message_end`, `session_start`, `session_before_compact`, `session_compact`, `session_tree`, `before_agent_start`, `agent_end`, `agent_settled`, `session_shutdown`) |
 | `goal-widget.ts` | Terminal input keybindings (Esc pause / abort-audit, Ctrl+Shift+T overlay) and the hidden debug helpers |
 | `goal-format.ts` | Pure formatting/message-introspection helpers and renderers |
@@ -88,9 +88,9 @@ direct write or ledger calls.
 
 ```text
 /user command or explicit create_goal request
-  ├─ /goal [seed] or /sisyphus [seed]
+  ├─ /gx [seed] or /gx sisyphus [seed]
   │    └─ guided draft: clarify/questionnaire → objective + optional task proposal → explicit confirmation
-  ├─ /goal-direct <objective> or /sisyphus-direct <objective>
+  ├─ /gx direct <objective> or /gx sisyphus direct <objective>
   │    └─ direct creation: objective (1–4000 chars) → active goal file → focused → autoContinue
   ├─ focused active goal
   │    ├─ autoContinue queues checkpoint turns
@@ -98,14 +98,14 @@ direct write or ledger calls.
   │    │   blocker recurs on three consecutive turns
   │    └─ update_goal({status:"complete"}) starts the independent auditor; <approved/> archives
   ├─ paused/blocked goal
-  │    ├─ /goal-resume restarts autoContinue
+  │    ├─ /gx resume restarts autoContinue
   │    └─ update_goal(complete) can complete from existing evidence
   ├─ multiple open goals
-  │    ├─ /goal-list shows the project goal pool
-  │    ├─ /goal-focus chooses the session focus
-  │    ├─ /goal-unfocus clears only the session focus and leaves the shared goal open
+  │    ├─ /gx list shows the project goal pool
+  │    ├─ /gx focus chooses the session focus
+  │    ├─ /gx unfocus clears only the session focus and leaves the shared goal open
   │    └─ unfocused sessions guide the user to choose instead of letting the agent decide
-  └─ /goal-clear archives the focused goal after confirmation (cancel is a durable no-op)
+  └─ /gx clear archives the focused goal after confirmation (cancel is a durable no-op)
 ```
 
 ## Goal pool and session focus
@@ -145,7 +145,7 @@ latest focus entry, scans active goal files, and resolves focus as follows:
 4. If no focus entry exists and `autoSelectSingleGoal` is enabled, auto-focus
    the sole open goal for compatibility. The default is disabled.
 5. Otherwise remain unfocused until the user explicitly selects a goal.
-   `/goal-unfocus` appends a null focus entry so the current session stays
+   `/gx unfocus` appends a null focus entry so the current session stays
    detached without modifying the shared goal or appending a project-global
    focus event.
 
@@ -173,30 +173,30 @@ prompt/criteria level:
 
 ## Creation and tweaking
 
-`/goal [seed]` and `/sisyphus [seed]` begin guided drafting. The temporary
+`/gx [seed]` and `/gx sisyphus [seed]` begin guided drafting. The temporary
 draft profile exposes only question/questionnaire/proposal tools. The agent
 clarifies intent, proposes the full objective and an optional task tree, and
-the user explicitly confirms or continues refining. `/goal-direct` and
-`/sisyphus-direct` bypass this only when the objective is already final.
+the user explicitly confirms or continues refining. `/gx direct` and
+`/gx sisyphus direct` bypass this only when the objective is already final.
 
-`/goal-tweak <change>` starts the same guided-confirmation process for the
+`/gx tweak <change>` starts the same guided-confirmation process for the
 focused goal. It preserves the task list when no replacement is proposed and
 records `goal_tweaked` (plus `task_list_set` if applicable) only after the
 user confirms.
 
 ## Command focus behavior
 
-- `/goal [seed]` starts a regular guided draft; bare `/goal` asks what to accomplish.
-- `/sisyphus [seed]` starts a Sisyphus guided draft.
-- `/goal-direct <objective>` and `/sisyphus-direct <objective>` create directly without drafting.
-- `/goal-list` prints all open goals with id, status, mode, usage, objective title, path, and a focus marker.
-- `/goal-status health` performs a read-only coherence check for focus, lifecycle, goal-file presence, malformed ledger entries, task progress, and token-budget pressure; it never acts as a completion verdict.
-- `/goal-focus` uses `ctx.ui.select` when multiple goals are open and updates only session focus.
-- `/goal-unfocus` writes a null session focus entry, clears continuation/runtime state, aborts in-flight work and audits for that session, and leaves the shared active goal file and project-global focus ledger unchanged. Focus revision tokens prevent pending completion and task-list results from mutating a goal after detachment.
-- `/goal-resume` resumes the focused paused goal; when unfocused with multiple open goals, it asks the user to choose. Choosing an already active goal only focuses it.
-- `/goal-clear` asks for confirmation (with the goal's one-line summary) and archives only the focused/selected goal; cancelling is a byte-for-byte no-op with no file, focus, or ledger change, and headless runs return guidance without mutating anything.
-- `/goal-pause` pauses the focused active goal; it asks the user to choose when unfocused with open goals.
-- `/goal-settings` renders and dispatches every persisted field from one declarative row table: booleans (`disableTasks`, `disableContracts`, `autoSelectSingleGoal`, `disabled`) toggle directly, `provider`/`model` edit and clear, `thinkingLevel` accepts every level and rejects unknown values, and `subtaskDepth` validates the full input string (whole positive safe integers).
+- `/gx [seed]` starts a regular guided draft; bare `/gx` asks what to accomplish.
+- `/gx sisyphus [seed]` starts a Sisyphus guided draft.
+- `/gx direct <objective>` and `/gx sisyphus direct <objective>` create directly without drafting.
+- `/gx list` prints all open goals with id, status, mode, usage, objective title, path, and a focus marker.
+- `/gx status health` performs a read-only coherence check for focus, lifecycle, goal-file presence, malformed ledger entries, task progress, and token-budget pressure; it never acts as a completion verdict.
+- `/gx focus` uses `ctx.ui.select` when multiple goals are open and updates only session focus.
+- `/gx unfocus` writes a null session focus entry, clears continuation/runtime state, aborts in-flight work and audits for that session, and leaves the shared active goal file and project-global focus ledger unchanged. Focus revision tokens prevent pending completion and task-list results from mutating a goal after detachment.
+- `/gx resume` resumes the focused paused goal; when unfocused with multiple open goals, it asks the user to choose. Choosing an already active goal only focuses it.
+- `/gx clear` asks for confirmation (with the goal's one-line summary) and archives only the focused/selected goal; cancelling is a byte-for-byte no-op with no file, focus, or ledger change, and headless runs return guidance without mutating anything.
+- `/gx pause` pauses the focused active goal; it asks the user to choose when unfocused with open goals.
+- `/gx settings` renders and dispatches every persisted field from one declarative row table: booleans (`disableTasks`, `disableContracts`, `autoSelectSingleGoal`, `disabled`) toggle directly, `provider`/`model` edit and clear, `thinkingLevel` accepts every level and rejects unknown values, and `subtaskDepth` validates the full input string (whole positive safe integers).
 
 ## Tool surface
 
@@ -380,9 +380,9 @@ The runtime follow-up
 ([`specs/2026-08-04-goal-runtime-follow-up`](../specs/2026-08-04-goal-runtime-follow-up/TECH.md))
 then shipped the remaining work: guided drafting is restored as a
 first-class, transient user-invoked workflow (questionnaire, proposal
-confirmation, atomic creation, durable draft sessions, `/goal-cancel`,
-`/goal-status`, per-draft auditor selection); the settings menu is fully
-operable; `/goal-clear` confirms; task confirmation uses neutral labels;
+confirmation, atomic creation, durable draft sessions, `/gx cancel`,
+`/gx status`, per-draft auditor selection); the settings menu is fully
+operable; `/gx clear` confirms; task confirmation uses neutral labels;
 completion commits are failure-checked; and cross-process mutations are
 serialized with persisted revisions plus per-goal filesystem locks that
 return typed conflicts to stale writers instead of overwriting blindly.

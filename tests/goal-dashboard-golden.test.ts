@@ -135,9 +135,9 @@ for (const width of WIDTHS) {
 			// Running with tasks.
 			withTasks(fiveTaskTree(), { currentTaskId: "t3", verificationContract: "Run npm test with zero failures." }),
 			// Paused.
-			record({ status: "paused", stopReason: "user", pauseReason: "User is away", pauseSuggestedAction: "Run /goal-resume when back." }),
+			record({ status: "paused", stopReason: "user", pauseReason: "User is away", pauseSuggestedAction: "Run /gx resume when back." }),
 			// Blocked.
-			record({ status: "blocked", pauseReason: "Missing API key", pauseSuggestedAction: "Set the key and run /goal-resume." }),
+			record({ status: "blocked", pauseReason: "Missing API key", pauseSuggestedAction: "Set the key and run /gx resume." }),
 			// Budget limited.
 			record({ status: "budget_limited", tokenBudget: 20000 }),
 			// Complete (pre-archive).

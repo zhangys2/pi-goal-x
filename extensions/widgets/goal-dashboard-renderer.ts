@@ -522,7 +522,7 @@ export function renderExpandedDashboard(
 /**
  * The current-task detail block (§4.2): title, subtask progress, contract,
  * evidence, and the inferred-focus note. Shared by the expanded dashboard and
- * the standard /goal-status output (§13.3).
+ * the standard /gx status output (§13.3).
  */
 export function renderCurrentTaskBlock(
 	model: GoalDashboardModel,

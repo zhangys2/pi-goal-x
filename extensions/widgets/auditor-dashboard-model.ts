@@ -4,7 +4,7 @@
  * Pure derivation from the low-level auditor progress stream: five check
  * stages (objective, verification, tasks, workspace, decision) with explicit
  * pending/running/passed/failed states, plus the approval/rejection result
- * card model. No TUI imports; the renderer and /goal-status share this model.
+ * card model. No TUI imports; the renderer and /gx status share this model.
  */
 
 import type { AuditorProgress } from "../goal-auditor.ts";

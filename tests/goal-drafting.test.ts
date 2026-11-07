@@ -2,7 +2,7 @@
  * Handler-level guided-drafting coverage (follow-up Stage 5, TECH §6):
  * confirmation decisions (confirm / continue / cancel), atomic creation with
  * verification contract and nested task tree, Sisyphus mode fidelity and
- * structural sufficiency, tasks/contracts-disabled variants, /goal-tweak
+ * structural sufficiency, tasks/contracts-disabled variants, /gx tweak
  * guided refinement under focus races, and headless auto-confirm semantics.
  */
 
@@ -148,7 +148,7 @@ test("dialog cancel is a durable no-op and clears the draft", async () => {
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Ship a small feature", h.ctx);
+		await h.commands.get("gx")!.handler("Ship a small feature", h.ctx);
 		const pending = runProposal(h, proposalParams("Ship a small feature.\nSuccess criteria: tests pass."));
 		assert.ok(h.hasDialog(), "confirmation dialog must open");
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CANCEL_ANSWER, wasCustom: false }], cancelled: false });
@@ -177,7 +177,7 @@ test("regression: the proposal emits the complete goal presentation to the trans
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Present the complete goal in the confirmation dialog", h.ctx);
+		await h.commands.get("gx")!.handler("Present the complete goal in the confirmation dialog", h.ctx);
 		const objective = [
 			"=== Goal ===",
 			"Objective: Fix the goal draft so the complete goal is presented.",
@@ -249,14 +249,14 @@ test("renderCall for a tweak without explicit tasks shows the retained current l
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("Initial objective", h.ctx);
 		const pending = runProposal(h, proposalParams("Initial objective.", {
 			tasks: [{ id: "keep-1", title: "Retained task" }, { id: "keep-2", title: "Another task" }],
 		}));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
 		await pending;
 
-		await h.commands.get("goal-tweak")!.handler("Tighten wording", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Tighten wording", h.ctx);
 		const proposal = h.tools.get("propose_goal_draft");
 		assert.ok(proposal, "propose_goal_draft registered during a tweak draft");
 		const theme = createMockTheme();
@@ -291,7 +291,7 @@ test("renderCall for a new draft derives from the same objective text the apply 
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Ship the release", h.ctx);
+		await h.commands.get("gx")!.handler("Ship the release", h.ctx);
 		const objective = "Ship the release.\n1) Implement core\n2) Add tests\n3) Write docs\nVerification contract: npm test (0 failures).";
 		const pending = runProposal(h, proposalParams(objective));
 		const proposal = h.tools.get("propose_goal_draft");
@@ -321,7 +321,7 @@ test("continue refining keeps the draft alive and a second proposal confirms", a
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Build a tiny app", h.ctx);
+		await h.commands.get("gx")!.handler("Build a tiny app", h.ctx);
 		const tasks = [{ id: "setup", title: "Set up" }, { id: "verify", title: "Verify" }];
 		const pending1 = runProposal(h, proposalParams("Build a tiny app.\nSuccess criteria: it runs.", { tasks }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONTINUE_ANSWER, wasCustom: false }], cancelled: false });
@@ -346,7 +346,7 @@ test("confirmed proposal persists verification contract and nested tasks, then r
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Add search", h.ctx);
+		await h.commands.get("gx")!.handler("Add search", h.ctx);
 		const objective = "Add search.\nSuccess criteria: queries return results.\nVerification contract: Run npm test (0 failures)";
 		const tasks = [
 			{ id: "index", title: "Index documents" },
@@ -388,7 +388,7 @@ test("an unrequested token budget is never created: no guideline invites one, an
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Add search", h.ctx);
+		await h.commands.get("gx")!.handler("Add search", h.ctx);
 
 		const proposal = h.tools.get("propose_goal_draft");
 		assert.ok(proposal, "propose_goal_draft must be registered during a draft");
@@ -422,7 +422,7 @@ test("sisyphus mode mismatch and structural sufficiency are validated before con
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("sisyphus")!.handler("Refactor auth", h.ctx);
+		await h.commands.get("gx")!.handler("sisyphus Refactor auth", h.ctx);
 		const wrong = await runProposal(h, proposalParams("Refactor auth cleanly.", { sisyphus: false }));
 		assert.match(wrong.content[0].text, /mode does not match/);
 		const noSteps = await runProposal(h, proposalParams("Refactor auth cleanly.", { sisyphus: true }));
@@ -437,16 +437,16 @@ test("sisyphus mode mismatch and structural sufficiency are validated before con
 	}
 });
 
-test("/sisyphus-direct rejects structurally insufficient objectives", async () => {
+test("/gx sisyphus direct rejects structurally insufficient objectives", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-draft-sisydirect-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("sisyphus-direct")!.handler("Just do the thing", h.ctx);
+		await h.commands.get("gx")!.handler("sisyphus direct Just do the thing", h.ctx);
 		assert.equal(activeGoalFiles(cwd).length, 0, "insufficient sisyphus objective rejected");
 		assert.ok(h.notifications.some((n) => n.includes("ordered steps")), "guidance notification emitted");
-		await h.commands.get("sisyphus-direct")!.handler("Refactor: 1) extract. 2) wire. 3) test.", h.ctx);
+		await h.commands.get("gx")!.handler("sisyphus direct Refactor: 1) extract. 2) wire. 3) test.", h.ctx);
 		const goal = firstGoal(cwd);
 		assert.equal(goal.sisyphus, true);
 	} finally {
@@ -463,7 +463,7 @@ test("tasks-disabled settings reject task proposals and confirm without a task l
 		writeSettings(cwd, { disableTasks: true });
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Write a guide", h.ctx);
+		await h.commands.get("gx")!.handler("Write a guide", h.ctx);
 		const withTasks = await runProposal(h, proposalParams("Write a guide.", { tasks: [{ id: "a", title: "A" }] }));
 		assert.match(withTasks.content[0].text, /disabled by settings/);
 		const ok = await runProposal(h, proposalParams("Write a guide."));
@@ -482,7 +482,7 @@ test("contracts-disabled settings strip the verification contract from a confirm
 		writeSettings(cwd, { disableContracts: true });
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Polish the docs", h.ctx);
+		await h.commands.get("gx")!.handler("Polish the docs", h.ctx);
 		await runProposal(h, proposalParams("Polish the docs.\nVerification contract: Run npm test (0 failures)"));
 		const goal = firstGoal(cwd);
 		assert.equal(goal.verificationContract, undefined, "contract not persisted when contracts disabled");
@@ -494,17 +494,17 @@ test("contracts-disabled settings strip the verification contract from a confirm
 	}
 });
 
-// ── /goal-tweak guided refinement ─────────────────────────────────────────
+// ── /gx tweak guided refinement ─────────────────────────────────────────
 
-test("/goal-tweak confirms a revision under focus validation", async () => {
+test("/gx tweak confirms a revision under focus validation", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-draft-tweak-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
 		const goalBefore = firstGoal(cwd);
-		await h.commands.get("goal-tweak")!.handler("Make it better", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Make it better", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised objective with clarity.", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
 		const result = await pending;
@@ -525,10 +525,10 @@ test("tweak against a changed focus is rejected without mutation", async () => {
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
 		const goalBefore = firstGoal(cwd);
-		await h.commands.get("goal-tweak")!.handler("Revise it", h.ctx);
-		await h.commands.get("goal-unfocus")!.handler("", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise it", h.ctx);
+		await h.commands.get("gx")!.handler("unfocus ", h.ctx);
 		const result = await runProposal(h, proposalParams("Changed objective", { sisyphus: false }));
 		assert.match(result.content[0].text, /goal changed while drafting/);
 		const goalAfter = parseGoalFile(path.join(cwd, ".pi", "goals", activeGoalFiles(cwd)[0]!))!;
@@ -547,7 +547,7 @@ test("headless proposal auto-confirm semantics are explicit", async () => {
 		// Headless with no override: proposal auto-confirms (harness-friendly).
 		const h1 = createHarness(cwd);
 		await h1.sessionStart();
-		await h1.commands.get("goal")!.handler("One thing", h1.ctx);
+		await h1.commands.get("gx")!.handler("One thing", h1.ctx);
 		await runProposal(h1, proposalParams("One thing."));
 		assert.equal(activeGoalFiles(cwd).length, 1, "headless auto-confirms by default");
 
@@ -556,7 +556,7 @@ test("headless proposal auto-confirm semantics are explicit", async () => {
 		process.env.PI_GOAL_AUTO_CONFIRM = "0";
 		try {
 			await h2.sessionStart();
-			await h2.commands.get("goal")!.handler("Another thing", h2.ctx);
+			await h2.commands.get("gx")!.handler("Another thing", h2.ctx);
 			const result = await runProposal(h2, proposalParams("Another thing."));
 			assert.match(result.content[0].text, /refinement requested/);
 			assert.equal(activeGoalFiles(cwd).length, 1, "opt-out must not create a second goal");
@@ -569,7 +569,7 @@ test("headless proposal auto-confirm semantics are explicit", async () => {
 		process.env.PI_GOAL_AUTO_CONFIRM = "1";
 		try {
 			await h3.sessionStart();
-			await h3.commands.get("goal")!.handler("Third thing", h3.ctx);
+			await h3.commands.get("gx")!.handler("Third thing", h3.ctx);
 			await runProposal(h3, proposalParams("Third thing."));
 			assert.equal(h3.hasDialog(), false, "override confirms without opening the dialog");
 			assert.equal(activeGoalFiles(cwd).length, 2);
@@ -593,7 +593,7 @@ test("questionnaire tools require an active draft and return structured answers"
 		assert.ok(questionnaire, "goal_questionnaire registered");
 		const noDraft = await questionnaire.execute("q-1", { questions: [] }, new AbortController().signal, undefined, h.ctx);
 		assert.match(noDraft.content[0].text, /No guided goal draft is active/);
-		await h.commands.get("goal")!.handler("Plan a migration", h.ctx);
+		await h.commands.get("gx")!.handler("Plan a migration", h.ctx);
 		const pending = questionnaire.execute("q-2", {
 			questions: [
 				{ id: "scope", question: "Which systems?", options: ["A", "B"] },
@@ -627,7 +627,7 @@ test("single dependent follow-up question returns a structured answer", async ()
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Automate deploys", h.ctx);
+		await h.commands.get("gx")!.handler("Automate deploys", h.ctx);
 		const question = h.tools.get("goal_question");
 		assert.ok(question, "goal_question registered");
 		const pending = question.execute("q-1", { question: "Which environment first?", options: ["staging", "production"] }, new AbortController().signal, undefined, h.ctx);
@@ -645,17 +645,17 @@ test("single dependent follow-up question returns a structured answer", async ()
 	}
 });
 
-// ── Stage 5.1-A: durable draft state and /goal-cancel ─────────────────────
+// ── Stage 5.1-A: durable draft state and /gx cancel ─────────────────────
 
-test("/goal-cancel clears the draft as a durable no-op", async () => {
+test("/gx cancel clears the draft as a durable no-op", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-draft-cancelcmd-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Build the widget", h.ctx);
+		await h.commands.get("gx")!.handler("Build the widget", h.ctx);
 		assert.ok(h.activeTools().includes("goal_questionnaire"), "drafting profile installed");
-		await h.commands.get("goal-cancel")!.handler("", h.ctx);
+		await h.commands.get("gx")!.handler("cancel ", h.ctx);
 		assert.equal(activeGoalFiles(cwd).length, 0, "cancel writes no goal file");
 		assert.deepEqual(ledgerEvents(cwd).filter((e) => e.type === "goal_created"), [], "cancel writes no ledger event");
 		const tools = h.activeTools();
@@ -667,7 +667,7 @@ test("/goal-cancel clears the draft as a durable no-op", async () => {
 		assert.equal(draftEntries.length, 2, "start entry plus tombstone");
 		assert.ok((draftEntries[1] as any).data.clearedAt, "tombstone carries clearedAt");
 		// A second cancel is a no-op with guidance.
-		await h.commands.get("goal-cancel")!.handler("", h.ctx);
+		await h.commands.get("gx")!.handler("cancel ", h.ctx);
 		assert.ok(h.notifications.some((n) => n.includes("No active draft")), "second cancel guidance");
 	} finally {
 		try { rmSync(cwd, { recursive: true, force: true }); } catch {}
@@ -680,7 +680,7 @@ test("an unconfirmed draft survives session_tree rehydration", async () => {
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Migrate the database", h.ctx);
+		await h.commands.get("gx")!.handler("Migrate the database", h.ctx);
 		// Tree navigation reloads state; the durable draft must come back.
 		await h.sessionTree();
 		assert.ok(h.activeTools().includes("goal_questionnaire"), "drafting profile restored after rehydration");
@@ -706,23 +706,23 @@ test("a second draft offers resume, replace, or cancel and never silently discar
 		// Resume keeps the first draft.
 		const h1 = createHarness(cwd, { hasUI: true });
 		await h1.sessionStart();
-		await h1.commands.get("goal")!.handler("First topic", h1.ctx);
+		await h1.commands.get("gx")!.handler("First topic", h1.ctx);
 		const firstPromptCount = h1.messages.length;
 		h1.selectResult("Resume the existing draft");
-		await h1.commands.get("goal")!.handler("Second topic", h1.ctx);
+		await h1.commands.get("gx")!.handler("Second topic", h1.ctx);
 		assert.equal(h1.messages.length, firstPromptCount, "no new draft prompt when resuming");
 		assert.ok(h1.notifications.some((n) => n.includes("already active; resuming")), "resume notification");
 		assert.ok(h1.activeTools().includes("goal_questionnaire"), "first draft still active");
 
 		// Cancel keeps the first draft.
 		h1.selectResult("Cancel");
-		await h1.commands.get("goal")!.handler("Third topic", h1.ctx);
+		await h1.commands.get("gx")!.handler("Third topic", h1.ctx);
 		assert.equal(h1.messages.length, firstPromptCount, "no new prompt when cancelling");
 		assert.ok(h1.notifications.some((n) => n.includes("existing draft stays active")), "cancel notification");
 
 		// Replace starts the new draft and tombstones the old one.
 		h1.selectResult("Replace it with a new draft");
-		await h1.commands.get("goal")!.handler("Fourth topic", h1.ctx);
+		await h1.commands.get("gx")!.handler("Fourth topic", h1.ctx);
 		assert.ok(h1.messages.length > firstPromptCount, "replacement starts a fresh draft");
 		assert.ok(h1.notifications.some((n) => n.includes("Replacing the active draft")), "replacement notification");
 		const draftEntries = h1.entries().filter((e: any) => e.customType === "pi-goal-draft");
@@ -734,9 +734,9 @@ test("a second draft offers resume, replace, or cancel and never silently discar
 		// Headless: a second draft replaces with an explicit warning (not silent).
 		const h2 = createHarness(cwd);
 		await h2.sessionStart();
-		await h2.commands.get("goal")!.handler("Headless one", h2.ctx);
+		await h2.commands.get("gx")!.handler("Headless one", h2.ctx);
 		const before = h2.messages.length;
-		await h2.commands.get("goal")!.handler("Headless two", h2.ctx);
+		await h2.commands.get("gx")!.handler("Headless two", h2.ctx);
 		assert.ok(h2.messages.length > before, "headless second draft proceeds");
 		assert.ok(h2.notifications.some((n) => n.includes("Replacing the active draft")), "headless replacement is not silent");
 	} finally {
@@ -750,9 +750,9 @@ test("a stale tweak draft is invalidated on rehydration when its target is unfoc
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("Revise it", h.ctx);
-		await h.commands.get("goal-unfocus")!.handler("", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise it", h.ctx);
+		await h.commands.get("gx")!.handler("unfocus ", h.ctx);
 		await h.sessionTree();
 		const tools = h.activeTools();
 		assert.ok(tools.includes("create_goal") && tools.includes("get_goal") && !tools.includes("update_goal"), "unfocused execution profile after stale tweak invalidation");
@@ -772,9 +772,9 @@ test("direct goal creation interrupts and clears an active draft", async () => {
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Drafted topic", h.ctx);
+		await h.commands.get("gx")!.handler("Drafted topic", h.ctx);
 		assert.ok(h.activeTools().includes("goal_questionnaire"), "drafting active");
-		await h.commands.get("goal-direct")!.handler("Immediate goal", h.ctx);
+		await h.commands.get("gx")!.handler("direct Immediate goal", h.ctx);
 		const files = activeGoalFiles(cwd);
 		assert.equal(files.length, 1, "direct creation proceeds");
 		const tools = h.activeTools();
@@ -788,24 +788,24 @@ test("direct goal creation interrupts and clears an active draft", async () => {
 	}
 });
 
-// ── Stage 5.1-B: /goal-status and per-draft auditor selection ─────────────
+// ── Stage 5.1-B: /gx status and per-draft auditor selection ─────────────
 
-test("/goal-status reports state without initiating drafting", async () => {
+test("/gx status reports state without initiating drafting", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-status-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	try {
 		const h = createHarness(cwd);
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Status target", h.ctx);
+		await h.commands.get("gx")!.handler("direct Status target", h.ctx);
 		const messagesBefore = h.messages.length;
-		await h.commands.get("goal-status")!.handler("", h.ctx);
+		await h.commands.get("gx")!.handler("status ", h.ctx);
 		assert.equal(h.messages.length, messagesBefore, "status must not initiate a draft or agent turn");
 		assert.ok(h.notifications.some((n) => n.includes("Status target")), "focused goal reported");
 		assert.equal(h.activeTools().includes("goal_questionnaire"), false, "no drafting profile");
 		// Unfocused with open goals: reports the pool without mutating.
-		await h.commands.get("goal-unfocus")!.handler("", h.ctx);
-		await h.commands.get("goal-status")!.handler("", h.ctx);
-		assert.ok(h.notifications.some((n) => n.includes("open goal") && n.includes("/goal-focus")), "unfocused panel reported");
+		await h.commands.get("gx")!.handler("unfocus ", h.ctx);
+		await h.commands.get("gx")!.handler("status ", h.ctx);
+		assert.ok(h.notifications.some((n) => n.includes("open goal") && n.includes("/gx focus")), "unfocused panel reported");
 	} finally {
 		try { rmSync(cwd, { recursive: true, force: true }); } catch {}
 	}
@@ -817,7 +817,7 @@ test("the auditor choice persists on create and through continue refining", asyn
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Audited work", h.ctx);
+		await h.commands.get("gx")!.handler("Audited work", h.ctx);
 
 		// First proposal: user disables the auditor but keeps refining.
 		const p1 = runProposal(h, proposalParams("Audited work.\nSuccess criteria: done."));
@@ -837,7 +837,7 @@ test("the auditor choice persists on create and through continue refining", asyn
 		assert.equal(goal.skipAuditor, true, "skipAuditor persisted on create");
 
 		// A third goal created with the auditor enabled has no skipAuditor.
-		await h.commands.get("goal")!.handler("Enabled work", h.ctx);
+		await h.commands.get("gx")!.handler("Enabled work", h.ctx);
 		const p3 = runProposal(h, proposalParams("Enabled work."));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false, auditorEnabled: true });
 		await p3;
@@ -856,7 +856,7 @@ test("headless confirmation uses effective settings for the auditor", async () =
 		// Default settings: auditor enabled.
 		const h1 = createHarness(cwd);
 		await h1.sessionStart();
-		await h1.commands.get("goal")!.handler("Headless audited", h1.ctx);
+		await h1.commands.get("gx")!.handler("Headless audited", h1.ctx);
 		await runProposal(h1, proposalParams("Headless audited."));
 		const g1 = firstGoal(cwd);
 		assert.equal(g1.skipAuditor, undefined, "auditor enabled by default in headless");
@@ -865,7 +865,7 @@ test("headless confirmation uses effective settings for the auditor", async () =
 		writeSettings(cwd, { disabled: true });
 		const h2 = createHarness(cwd);
 		await h2.sessionStart();
-		await h2.commands.get("goal")!.handler("Headless unaudited", h2.ctx);
+		await h2.commands.get("gx")!.handler("Headless unaudited", h2.ctx);
 		await runProposal(h2, proposalParams("Headless unaudited."));
 		const goals = activeGoalFiles(cwd).map((f) => parseGoalFile(path.join(cwd, ".pi", "goals", f))!);
 		const g2 = goals.find((g) => g.objective.includes("Headless unaudited"))!;
@@ -881,10 +881,10 @@ test("a tweak confirmation persists the auditor choice in the same transaction",
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
 		const before = firstGoal(cwd);
 		assert.equal(before.skipAuditor, undefined);
-		await h.commands.get("goal-tweak")!.handler("Revise the scope", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise the scope", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised objective", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false, auditorEnabled: false });
 		await pending;
@@ -906,12 +906,12 @@ test("a tweak confirmation resumes a paused goal (active, pause metadata cleared
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-pause")!.handler("", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("pause ", h.ctx);
 		const paused = firstGoal(cwd);
 		assert.equal(paused.status, "paused", "goal paused before the tweak");
 		assert.equal(paused.stopReason, "user", "pause records the stop reason");
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised objective after pause", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
 		const result = await pending;
@@ -941,12 +941,12 @@ test("a tweak confirmation resumes a blocked goal", async () => {
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
 		const update = h.tools.get("update_goal")!;
-		const blockedResult = await (update.execute as any)("update-b", { status: "blocked", reason: "test blocker", suggested_action: "Install the missing SDK, then /goal-resume" }, undefined, undefined, h.ctx);
+		const blockedResult = await (update.execute as any)("update-b", { status: "blocked", reason: "test blocker", suggested_action: "Install the missing SDK, then /gx resume" }, undefined, undefined, h.ctx);
 		assert.ok(blockedResult?.terminate === true, "blocked terminates the turn");
 		assert.equal(firstGoal(cwd).status, "blocked", "goal blocked before the tweak");
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised objective after block", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
 		await pending;
@@ -971,7 +971,7 @@ test("a tweak confirmation leaves a budget_limited goal behind its hard budget g
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
 		assert.equal(firstGoal(cwd).status, "budget_limited", "seeded budget_limited goal focused");
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised while budget-limited", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
 		await pending;
@@ -990,8 +990,8 @@ test("a tweak confirmation on an active goal stays active without a resume event
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised while active", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
 		await pending;
@@ -1013,7 +1013,7 @@ test("tweak drafting defaults the auditor toggle to the goal's persisted skipAud
 		writeActiveGoalFile({ cwd }, seeded);
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const drafts = h.entries().filter((e) => (e as any).customType === DRAFT_ENTRY);
 		assert.ok(drafts.length > 0, "draft session entry recorded");
 		const last = drafts[drafts.length - 1] as any;
@@ -1029,8 +1029,8 @@ test("tweak drafting defaults the auditor toggle on when the goal has no per-goa
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const drafts = h.entries().filter((e) => (e as any).customType === DRAFT_ENTRY);
 		const last = drafts[drafts.length - 1] as any;
 		assert.equal(last?.data?.auditorEnabled, true, "tweak draft defaults the auditor on without a per-goal or global disable");
@@ -1046,8 +1046,8 @@ test("tweak drafting falls back to global settings when the goal has no per-goal
 		writeSettings(cwd, { disabled: true });
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const drafts = h.entries().filter((e) => (e as any).customType === DRAFT_ENTRY);
 		const last = drafts[drafts.length - 1] as any;
 		assert.equal(last?.data?.auditorEnabled, false, "tweak draft falls back to the global auditor-disabled setting");
@@ -1064,8 +1064,8 @@ test("propose_goal_draft accepts long objectives by default (no hard 4000 limit)
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const long = "x".repeat(5000);
 		const pending = runProposal(h, proposalParams(long, { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
@@ -1084,8 +1084,8 @@ test("propose_goal_draft enforces the configured max objective length setting", 
 		writeSettings(cwd, { objectiveMaxChars: 20 });
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("Revise scope", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise scope", h.ctx);
 		const pending = runProposal(h, proposalParams("x".repeat(21), { sisyphus: false }));
 		const result = await pending;
 		assert.match(result.content[0].text, /at most 20 characters \(21 given\)/);
@@ -1101,15 +1101,15 @@ test("propose_goal_draft enforces the configured max objective length setting", 
 	}
 });
 
-test("/goal-tweak command rejects an oversized replacement per the configured limit", async () => {
+test("/gx tweak command rejects an oversized replacement per the configured limit", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-tweak-limit-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	try {
 		writeSettings(cwd, { objectiveMaxChars: 30 });
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
-		await h.commands.get("goal-tweak")!.handler("x".repeat(31), h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("tweak x".repeat(31), h.ctx);
 		assert.equal(h.activeTools().includes("goal_questionnaire"), false, "no draft starts for an oversized replacement");
 		assert.equal(firstGoal(cwd).objective, "Initial objective", "goal unchanged");
 	} finally {
@@ -1125,7 +1125,7 @@ test("confirmed proposal writes the durable summary and the richer confirmation 
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Add CSV export", h.ctx);
+		await h.commands.get("gx")!.handler("Add CSV export", h.ctx);
 		const objective = "Add CSV export to the reports page.\nSuccess criteria: exports use active filters.\nVerification contract: Run npm test (0 failures)";
 		const tasks = [
 			{ id: "review", title: "Review the reports page and data source" },
@@ -1165,7 +1165,7 @@ test("questionnaire answers are captured in the confirmed-goal report (E5 §14)"
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Scope the migration", h.ctx);
+		await h.commands.get("gx")!.handler("Scope the migration", h.ctx);
 		const questionnaire = h.tools.get("goal_questionnaire");
 		const pendingQ = questionnaire.execute("q-echo", {
 			questions: [{ id: "scope", question: "Which systems?", options: ["A", "B"] }],
@@ -1194,7 +1194,7 @@ test("cancel and refine outcomes still carry the durable proposal summary", asyn
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal")!.handler("Ship a feature", h.ctx);
+		await h.commands.get("gx")!.handler("Ship a feature", h.ctx);
 		// Cancel carries the summary.
 		const pendingCancel = runProposal(h, proposalParams("Ship a feature.\nSuccess criteria: tests pass."));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CANCEL_ANSWER, wasCustom: false }], cancelled: false });
@@ -1203,7 +1203,7 @@ test("cancel and refine outcomes still carry the durable proposal summary", asyn
 		assert.match(cancelled.content[0].text, /Draft cancelled/);
 		assert.equal(activeGoalFiles(cwd).length, 0, "cancel must not create a goal");
 		// Refine carries the summary and keeps the draft.
-		await h.commands.get("goal")!.handler("Ship a feature", h.ctx);
+		await h.commands.get("gx")!.handler("Ship a feature", h.ctx);
 		const pendingRefine = runProposal(h, proposalParams("Ship a feature.\nSuccess criteria: tests pass."));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONTINUE_ANSWER, wasCustom: false }], cancelled: false });
 		const refined = await pendingRefine;
@@ -1304,9 +1304,9 @@ test("a tweak merges the proposed task list by id, preserving statuses of surviv
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
 		// Seed a task list on disk with a completed step, a removable step, and
-		// the current task. /goal-tweak reconciles from disk before drafting.
+		// the current task. /gx tweak reconciles from disk before drafting.
 		const goal = firstGoal(cwd);
 		writeActiveGoalFile({ cwd }, {
 			...goal,
@@ -1321,7 +1321,7 @@ test("a tweak merges the proposed task list by id, preserving statuses of surviv
 				proposedAt: "2026-08-05T09:00:00.000Z",
 			},
 		});
-		await h.commands.get("goal-tweak")!.handler("Revise the scope", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Revise the scope", h.ctx);
 		const pending = runProposal(h, proposalParams("Revised objective", {
 			sisyphus: false,
 			tasks: [
@@ -1356,7 +1356,7 @@ test("a tweak with no task list retains the current list and keeps its statuses"
 	try {
 		const h = createHarness(cwd, { hasUI: true });
 		await h.sessionStart();
-		await h.commands.get("goal-direct")!.handler("Initial objective", h.ctx);
+		await h.commands.get("gx")!.handler("direct Initial objective", h.ctx);
 		const goal = firstGoal(cwd);
 		writeActiveGoalFile({ cwd }, {
 			...goal,
@@ -1370,7 +1370,7 @@ test("a tweak with no task list retains the current list and keeps its statuses"
 				proposedAt: "2026-08-05T09:00:00.000Z",
 			},
 		});
-		await h.commands.get("goal-tweak")!.handler("Clarify the wording", h.ctx);
+		await h.commands.get("gx")!.handler("tweak Clarify the wording", h.ctx);
 		// No tasks in the proposal: the current list is retained unchanged.
 		const pending = runProposal(h, proposalParams("Clarified objective", { sisyphus: false }));
 		h.dialogResult({ questions: [], answers: [{ id: "confirm", question: "Confirm Goal Draft", answer: CONFIRM_ANSWER, wasCustom: false }], cancelled: false });
@@ -1392,7 +1392,7 @@ for (const unavailable of [false, true]) {
 		try {
 			const h = createHarness(cwd, { hasUI: true });
 			await h.sessionStart();
-			await h.commands.get("goal")!.handler("Ship a tested feature", h.ctx);
+			await h.commands.get("gx")!.handler("Ship a tested feature", h.ctx);
 			h.ctx.ui.custom = (async () => { if (!unavailable) throw new Error("Host disconnected"); return undefined; }) as typeof h.ctx.ui.custom;
 			delete (h.ctx.ui as Partial<ExtensionContext["ui"]>).select;
 			for (const [name, params] of [

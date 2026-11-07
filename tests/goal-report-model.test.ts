@@ -104,12 +104,12 @@ test("blocks, pauses and resumes become measured spans, and the open one runs to
 	];
 	const model = buildGoalReportModel({
 		now: NOW,
-		goal: goal({ status: "blocked", pauseReason: "MSVC missing", pauseSuggestedAction: "Install the toolchain, then /goal-resume", blockedAttempts: ["unset CC", "clang-cl"] }),
+		goal: goal({ status: "blocked", pauseReason: "MSVC missing", pauseSuggestedAction: "Install the toolchain, then /gx resume", blockedAttempts: ["unset CC", "clang-cl"] }),
 		events,
 	});
 	assert.deepEqual(model.attention.map((s) => [s.kind, s.seconds, s.open]), [["paused", 1800, false], ["blocked", 3600, true]]);
 	const blocked = model.attention[1]!;
-	assert.equal(blocked.suggestedAction, "Install the toolchain, then /goal-resume");
+	assert.equal(blocked.suggestedAction, "Install the toolchain, then /gx resume");
 	assert.deepEqual(blocked.attempts, ["unset CC", "clang-cl"]);
 });
 

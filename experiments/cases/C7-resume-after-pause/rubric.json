@@ -26,7 +26,7 @@
   },
   {
     "id": "no-pause-goal",
-    "desc": "pause_goal is removed (pausing is user-owned via /goal-pause).",
+    "desc": "pause_goal is removed (pausing is user-owned via /gx pause).",
     "kind": "tool-not-called",
     "tool": "pause_goal"
   }

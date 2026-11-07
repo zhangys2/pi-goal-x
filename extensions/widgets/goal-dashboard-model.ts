@@ -3,7 +3,7 @@ import { schedulerSummaryParts } from "../goal-scheduler-state.ts";
 import { taskIndex } from "../goal-task-index.ts";
 /**
  * Shared dashboard view model (plan §6) — the single source of truth for the
- * persistent compact dashboard, the expanded dashboard, `/goal-status`, audit
+ * persistent compact dashboard, the expanded dashboard, `/gx status`, audit
  * transitions, golden tests, and documentation examples.
  *
  * Pure data derivation only: this module must never import TUI rendering
