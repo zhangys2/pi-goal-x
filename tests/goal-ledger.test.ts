@@ -7,9 +7,12 @@ import test from "node:test";
 import {
   appendGoalEvent,
   goalLedgerPath,
+  latestAuditForGoal,
   latestAuditorResultForGoal,
   latestEventsForGoal,
   latestGoalLifecycleEvent,
+  goalRuntimeEvents,
+  invalidateGoalLedgerCache,
   readGoalLedger,
   reconstructGoalLedger,
   type GoalLedgerEvent,
@@ -150,6 +153,36 @@ test("latestAuditorResultForGoal returns most recent result", () => {
   const result = latestAuditorResultForGoal(events, "g1");
   assert.equal(result?.verdict, "approved");
   assert.equal(result?.report, "second");
+});
+
+test("a newer audit attempt supersedes late results from an older attempt", () => {
+  const events: GoalLedgerEvent[] = [
+    { type: "goal_created", goalId: "g1", objective: "goal", sisyphus: false, autoContinue: true, at: "2024-01-01T00:00:00.000Z" },
+    { type: "audit_started", goalId: "g1", auditId: "old", at: "2024-01-01T00:00:00.000Z" },
+    { type: "audit_started", goalId: "g1", auditId: "new", at: "2024-01-01T00:00:01.000Z" },
+    { type: "audit_result", goalId: "g1", auditId: "old", verdict: "approved", report: "stale", at: "2024-01-01T00:00:02.000Z" },
+  ];
+  assert.equal(latestAuditForGoal(events, "g1")?.auditId, "new");
+  assert.equal(latestAuditorResultForGoal(events, "g1"), undefined);
+  events.push({ type: "audit_result", goalId: "g1", auditId: "new", verdict: "disapproved", report: "current", at: "2024-01-01T00:00:03.000Z" });
+  assert.equal(latestAuditorResultForGoal(events, "g1")?.report, "current");
+  assert.equal(reconstructGoalLedger(events).goals.get("g1")?.latestAuditorResult?.report, "current");
+});
+
+test("the current audit start stays pinned beyond the recent-event cap", () => {
+  const ctx = tempCtx();
+  try {
+    appendGoalEvent(ctx, { type: "goal_created", goalId: "g1", objective: "goal", sisyphus: false, autoContinue: true, at: "2024-01-01T00:00:00.000Z" });
+    appendGoalEvent(ctx, { type: "audit_result", goalId: "g1", auditId: "old", verdict: "disapproved", report: "old", at: "2024-01-01T00:00:01.000Z" });
+    appendGoalEvent(ctx, { type: "audit_started", goalId: "g1", auditId: "current", at: "2024-01-01T00:00:02.000Z" });
+    for (let i = 0; i < 14; i++) appendGoalEvent(ctx, { type: "goal_paused", goalId: "g1", reason: `event ${i}`, at: `2024-01-01T00:00:${String(i + 3).padStart(2, "0")}.000Z` });
+    invalidateGoalLedgerCache();
+    const events = goalRuntimeEvents(ctx, "g1");
+    assert.equal(latestAuditForGoal(events, "g1")?.auditId, "current");
+    appendGoalEvent(ctx, { type: "audit_result", goalId: "g1", auditId: "current", verdict: "approved", report: "current", at: "2024-01-01T00:00:30.000Z" });
+    invalidateGoalLedgerCache();
+    assert.equal(latestAuditorResultForGoal(goalRuntimeEvents(ctx, "g1"), "g1")?.report, "current");
+  } finally { cleanup(ctx); }
 });
 
 test("latestEventsForGoal returns capped recent events", () => {

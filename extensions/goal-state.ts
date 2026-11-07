@@ -702,6 +702,8 @@ export function createGoalCore(
 
 	async function loadState(ctx: ExtensionContext): Promise<void> {
 		sessionAbortController.abort();
+		auditRuntime.shutdown();
+		goalModalDepth = 0;
 		sessionAbortController = new AbortController();
 		clearGoalWidget(ctx);
 		focusStorageRoot = goalStorageRoot(ctx);

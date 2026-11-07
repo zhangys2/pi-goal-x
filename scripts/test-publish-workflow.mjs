@@ -26,6 +26,16 @@ async function simulate({existing = false, mismatch = false, unavailable = false
  return result;
 }
 
+test('publication tests the packed tarball before publishing it', () => {
+ const packed = workflow.indexOf('      - name: Pack once and smoke-test recovery CLI');
+ const smoke = workflow.indexOf('      - name: Test the exact publication tarball');
+ const publish = workflow.indexOf('      - name: Publish exact tarball with OIDC and verify registry');
+ assert.ok(packed >= 0 && smoke > packed && publish > smoke);
+ const configuration = workflow.slice(smoke, workflow.indexOf('      - uses:', smoke));
+ assert.ok(configuration.includes('run: PI_GOAL_PACKAGE_TARBALL="$TARBALL" node scripts/package-stabilization-check.mjs'));
+ assert.ok(configuration.includes('PI_GOAL_PACKAGE_EVIDENCE: ${{ runner.temp }}/release/stabilization'));
+});
+
 test('publication tolerates metadata and latest propagation beyond one minute', async () => {
  const r = await simulate({delay: 15});
  assert.equal(r.error, undefined);

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -8,6 +11,7 @@ import type { GoalTask } from "../extensions/goal-record.ts";
 import { createMockTUI, createMockTheme } from "./tui-test-utils.ts";
 import { createGoal } from "../extensions/goal-record.ts";
 import { newGoalScheduler } from "../extensions/goal-scheduler-state.ts";
+import { DEFAULT_GOAL_KEYBINDINGS, saveGoalSettingsFileConfig } from "../extensions/goal-settings.ts";
 import { deriveGoalDashboardModel } from "../extensions/widgets/goal-dashboard-model.ts";
 
 const theme = {
@@ -525,6 +529,7 @@ const CTRL_SHIFT_A = "\u001b[27;6;65~";
 
 function keybindingHarness(initialExpanded = false) {
 	let expanded = initialExpanded;
+	let mainEditorFocused = true;
 	const consumed: string[] = [];
 	let inputCb: ((data: string) => unknown) | undefined;
 	const subscriptions = new Set<(data: string) => unknown>();
@@ -549,7 +554,7 @@ function keybindingHarness(initialExpanded = false) {
 		isDashboardExpanded: () => expanded,
 		toggleDashboardExpanded: () => { expanded = !expanded; consumed.push("toggle"); },
 		toggleGoalAuditor: () => { consumed.push("toggle-auditor"); },
-		goalWidgetComponentRef: { current: { invalidate: () => { consumed.push("invalidate"); } } },
+		goalWidgetComponentRef: { current: { invalidate: () => { consumed.push("invalidate"); }, isMainEditorFocused: () => mainEditorFocused } },
 		terminalInputUnsubscribe: null,
 	} as never;
 	syncTerminalInputPause(core as never, ctx as never);
@@ -559,6 +564,7 @@ function keybindingHarness(initialExpanded = false) {
 		resync: () => syncTerminalInputPause(core as never, ctx as never),
 		listenerCount: () => subscriptions.size,
 		expanded: () => expanded,
+		setMainEditorFocused: (focused: boolean) => { mainEditorFocused = focused; },
 		consumed,
 	};
 }
@@ -570,6 +576,57 @@ test("re-registering terminal input replaces the old listener", () => {
 	assert.equal(h.listenerCount(), 1);
 	h.fire(CTRL_SHIFT_T);
 	assert.deepEqual(h.consumed, ["toggle"]);
+});
+
+test("goal shortcuts do not consume input while a foreign component has focus", () => {
+	const h = keybindingHarness();
+	h.setMainEditorFocused(false);
+	assert.equal(h.fire(CTRL_SHIFT_T), undefined);
+	assert.equal(h.expanded(), false);
+	assert.deepEqual(h.consumed, []);
+});
+
+test("a delayed command shortcut cannot mutate a newly focused goal", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "goal-shortcut-focus-"));
+	let input!: (value: string | undefined) => void;
+	let handler: ((data: string) => unknown) | undefined;
+	let focusRevision = 0;
+	let modalDepth = 0;
+	let invoked = 0;
+	const session = new AbortController();
+	try {
+		saveGoalSettingsFileConfig(cwd, { keybindings: { ...DEFAULT_GOAL_KEYBINDINGS, commands: { "goal-tweak": "f6" } } });
+		const ctx = {
+			cwd,
+			hasUI: true,
+			ui: {
+				onTerminalInput: (callback: (data: string) => unknown) => { handler = callback; return () => {}; },
+				input: () => new Promise<string | undefined>(resolve => { input = resolve; }),
+				notify: () => {},
+			},
+		} as never;
+		const core = {
+			goalModalDepth: modalDepth,
+			get focusRevision() { return focusRevision; },
+			sessionAbortController: session,
+			auditProgress: null,
+			state: { goal: null },
+			isDashboardExpanded: () => false,
+			goalWidgetComponentRef: { current: { invalidate: () => {}, isMainEditorFocused: () => true } },
+			terminalInputUnsubscribe: null,
+			enterGoalModal: () => { modalDepth++; },
+			exitGoalModal: () => { modalDepth = Math.max(0, modalDepth - 1); },
+			invokeGoalCommand: async () => { invoked++; },
+		} as never;
+		syncTerminalInputPause(core as never, ctx as never);
+		assert.deepEqual(handler?.("\x1b[17~"), { consume: true });
+		assert.equal(modalDepth, 1);
+		focusRevision++;
+		input("pause");
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(invoked, 0);
+		assert.equal(modalDepth, 0);
+	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
 test("compact mode is the default and the task shortcut expands and collapses", () => {

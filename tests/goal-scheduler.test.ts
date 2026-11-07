@@ -216,7 +216,7 @@ test("update_goal rejects mixed forms and scheduler cloning protects rollback", 
 	const h = await fixture(t, 5);
 	h.begin();
 	const tool = h.tools.get("update_goal");
-	const mixed = await tool.execute("mixed", { status: "complete", continuation: { kind: "ready" } }, undefined, undefined, h.ctx);
+	const mixed = await tool.execute("mixed", { status: "complete", continuation: { kind: "wait", reason: "later", deadline: "2026-01-01T00:00:00.000Z", depends_on: "producer" } }, undefined, undefined, h.ctx);
 	assert.equal(mixed.terminate, false);
 	h.ready();
 	const before = structuredClone(h.core.state.goal!.scheduler);

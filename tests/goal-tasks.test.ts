@@ -121,6 +121,15 @@ test("taskCompletionBlockWarning: blockCompletion but no pending returns null", 
 	assert.equal(result, null);
 });
 
+test("taskCompletionBlockWarning: skipped tasks are resolved", () => {
+	const result = taskCompletionBlockWarning({
+		tasks: [{ id: "t1", title: "Task 1", status: "skipped" }],
+		blockCompletion: true,
+		proposedAt: "2026-05-27T00:00:00.000Z",
+	});
+	assert.equal(result, null);
+});
+
 test("taskCompletionBlockWarning: blockCompletion with pending returns warning", () => {
 	const result = taskCompletionBlockWarning({
 		tasks: [

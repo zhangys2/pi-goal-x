@@ -6,8 +6,8 @@
  * prompts/goal-prompts, with subtly different shapes. All call sites now use
  * this one walker. `doneIncludesSkipped` is explicit so "skipped counts as
  * done" semantics can never drift silently again: today every call site uses
- * false (skipped is tracked separately, matching prior behavior); the flag
- * exists for surfaces that deliberately want skipped folded into done.
+ * false so displayed completion counts keep completed and skipped separate.
+ * Pending counts exclude skipped tasks because they are resolved outcomes.
  */
 
 import type { GoalTask } from "./goal-record.ts";
@@ -47,7 +47,7 @@ export function countTaskSubtree(
 		total,
 		complete: done,
 		skipped: rawSkipped,
-		pending: total - done,
+		pending: total - rawComplete - rawSkipped,
 		...(opts.collectPending ? { pendingTasks } : {}),
 	};
 }

@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import type { AuditorProgress } from "./goal-auditor.ts";
 import { nowIso } from "./goal-record.ts";
 import type { AuditorWidgetProgress } from "./widgets/goal-widget.ts";
 import type { AuditVerdict } from "./widgets/auditor-dashboard-model.ts";
 
 export interface CompletionAudit {
+	id: string;
 	controller: AbortController;
 	startedAt: number;
 }
@@ -13,6 +15,7 @@ export class GoalAuditRuntime {
 	progress: AuditorWidgetProgress | null = null;
 	animationTimer: ReturnType<typeof setInterval> | null = null;
 	controller: AbortController | null = null;
+	private activeAudit: CompletionAudit | null = null;
 	result: { verdict: AuditVerdict; report: string; at: string } | null = null;
 	aborted = false;
 	private resultClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -22,9 +25,11 @@ export class GoalAuditRuntime {
 
 	start(auditorLabel: string): CompletionAudit {
 		this.stopAnimation();
-		this.controller?.abort();
-		const audit = { controller: new AbortController(), startedAt: Date.now() };
+		this.activeAudit?.controller.abort();
+		const audit = { id: randomUUID(), controller: new AbortController(), startedAt: Date.now() };
+		this.activeAudit = audit;
 		this.controller = audit.controller;
+		this.aborted = false;
 		this.progress = { recentOutput: [], phase: "running", elapsedMs: 0, auditorLabel };
 		this.animationTimer = setInterval(() => {
 			if (this.controller !== audit.controller) return;
@@ -36,15 +41,19 @@ export class GoalAuditRuntime {
 		return audit;
 	}
 
+	isCurrent(audit: CompletionAudit): boolean {
+		return this.activeAudit === audit;
+	}
+
 	update(audit: CompletionAudit, progress: AuditorProgress): void {
-		if (this.controller !== audit.controller) return;
+		if (!this.isCurrent(audit)) return;
 		this.progress = { ...progress, elapsedMs: Date.now() - audit.startedAt };
 		this.invalidate();
 	}
 
 	finish(audit: CompletionAudit, clearProgress: boolean): void {
 		audit.controller.abort();
-		if (this.controller !== audit.controller) return;
+		if (!this.isCurrent(audit)) return;
 		this.controller = null;
 		this.stopAnimation();
 		if (clearProgress) this.progress = null;
@@ -55,11 +64,22 @@ export class GoalAuditRuntime {
 		this.animationTimer = null;
 	}
 
+	/** Retire an attempt replaced by a new request, including non-audited completion. */
+	retire(): void {
+		this.activeAudit?.controller.abort();
+		this.activeAudit = null;
+		this.controller = null;
+		this.stopAnimation();
+		this.progress = null;
+		this.aborted = false;
+		this.clearResult();
+		this.invalidate();
+	}
+
 	/** Escape is an explicit user action, distinct from parent/session cancellation. */
 	abortByUser(): void {
-		if (!this.controller || !this.progress) return;
+		if (!this.activeAudit || !this.controller || !this.progress) return;
 		this.controller.abort();
-		this.controller = null;
 		this.stopAnimation();
 		this.progress = null;
 		this.invalidate();
@@ -67,9 +87,11 @@ export class GoalAuditRuntime {
 	}
 
 	setResult(verdict: AuditVerdict, report: string): void {
-		this.result = { verdict, report, at: nowIso() };
+		const result = { verdict, report, at: nowIso() };
+		this.result = result;
 		if (this.resultClearTimer) clearTimeout(this.resultClearTimer);
 		this.resultClearTimer = setTimeout(() => {
+			if (this.result !== result) return;
 			this.result = null;
 			this.resultClearTimer = null;
 			this.invalidate();
@@ -85,7 +107,8 @@ export class GoalAuditRuntime {
 	}
 
 	shutdown(): void {
-		this.controller?.abort();
+		this.activeAudit?.controller.abort();
+		this.activeAudit = null;
 		this.controller = null;
 		this.stopAnimation();
 		this.clearResult();

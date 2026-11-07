@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type AgentToolResult, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { GOAL_AUDIT_ENTRY, detailedSummary, goalDetails } from "./goal-format.ts";
 import {
@@ -54,6 +55,8 @@ export async function runGoalCompletionFlow(core: GoalCore, ctx: ExtensionContex
 
 	const auditTarget = mergeGoalPromptFromDisk(ctx, core.state.goal);
 	const completionFocus = core.focusedOperationToken(auditTarget.id);
+	core.auditRuntime.retire();
+	const skippedAuditId = randomUUID();
 	// Append ledger: completion requested
 	try {
 		core.goalService.appendEvents(ctx, [{
@@ -144,6 +147,7 @@ if (auditTarget.skipAuditor) {
 		core.goalService.appendEvents(ctx, [{
 			type: "audit_skipped",
 			goalId: auditTarget.id,
+			auditId: skippedAuditId,
 			reason: "disabled",
 			provider: settings.provider,
 			model: settings.model,
@@ -174,6 +178,7 @@ if (settings.disabled === true) {
 		core.goalService.appendEvents(ctx, [{
 			type: "audit_skipped",
 			goalId: auditTarget.id,
+			auditId: skippedAuditId,
 			reason: "disabled",
 			provider: settings.provider,
 			model: settings.model,
@@ -191,6 +196,8 @@ if (settings.disabled === true) {
 }
 
 	// Auditor is enabled — run the normal audit flow
+	const previousAudit = latestAuditorResultForGoal(goalRuntimeEvents(ctx, auditTarget.id), auditTarget.id);
+	const audit = core.auditRuntime.start(auditorLabel);
 	core.auditMessages.enqueue(ctx, {
 		customType: GOAL_AUDIT_ENTRY,
 		content: [
@@ -201,7 +208,8 @@ if (settings.disabled === true) {
 		display: true,
 		details: { phase: "started", goalId: auditTarget.id, auditor: auditorLabel },
 	});
-	if (!core.isFocusedOperationCurrent(completionFocus)) {
+	if (!core.auditRuntime.isCurrent(audit) || !core.isFocusedOperationCurrent(completionFocus)) {
+		core.auditRuntime.retire();
 		return core.focusedOperationCancelledResult("Goal completion", completionFocus);
 	}
 	// Append ledger: audit started
@@ -209,6 +217,7 @@ if (settings.disabled === true) {
 		core.goalService.appendEvents(ctx, [{
 			type: "audit_started",
 			goalId: auditTarget.id,
+			auditId: audit.id,
 			provider: settings.provider,
 			model: settings.model,
 			thinkingLevel: settings.thinkingLevel,
@@ -217,7 +226,6 @@ if (settings.disabled === true) {
 	} catch {
 		// Ledger append failure should not block completion
 	}
-	const audit = core.auditRuntime.start(auditorLabel);
 	const auditStartedAt = audit.startedAt;
 	const auditSignal = combineAbortSignals(signal, audit.controller.signal)!;
 	let auditor: GoalAuditorResult;
@@ -227,7 +235,6 @@ if (settings.disabled === true) {
 		// (recent lifecycle + task evidence) so it does not re-derive session facts.
 		const ledger = goalRuntimeEvents(ctx, auditTarget.id);
 		const warmTail = latestEventsForGoal(ledger, auditTarget.id, 8);
-		const previousAudit = latestAuditorResultForGoal(ledger, auditTarget.id);
 		let warmContext = warmTail.length > 0
 			? `Recent goal events (from the shared ledger):\n${warmTail.map((e) => `- ${e.at} ${e.type}${"taskId" in e ? ` (task ${e.taskId})` : ""}${"evidence" in e && e.evidence ? ` evidence: ${e.evidence}` : ""}`).join("\n")}`
 			: null;
@@ -255,8 +262,11 @@ if (settings.disabled === true) {
 			signal: auditSignal,
 			onProgress: (progress) => core.auditRuntime.update(audit, progress),
 		});
+		signal?.throwIfAborted();
+		if (!core.auditRuntime.isCurrent(audit)) return core.focusedOperationCancelledResult("Goal completion", completionFocus);
 		if (precheck) {
 			const outcome = await precheck;
+			if (!core.auditRuntime.isCurrent(audit)) return core.focusedOperationCancelledResult("Goal completion", completionFocus);
 			if (outcome) {
 				try {
 					core.goalService.appendEvents(ctx, [{ type: "precheck_result", goalId: auditTarget.id, ...outcome, enforced: false, at: nowIso() }]);
@@ -272,7 +282,7 @@ if (settings.disabled === true) {
 	}
 	// Parent cancellation is not the explicit Escape-to-bypass workflow.
 	signal?.throwIfAborted();
-	if (!core.isFocusedOperationCurrent(completionFocus)) {
+	if (!core.auditRuntime.isCurrent(audit) || !core.isFocusedOperationCurrent(completionFocus)) {
 		if (!core.auditAbortController) core.auditProgress = null;
 		core.goalWidgetComponentRef.current?.invalidate();
 		return core.focusedOperationCancelledResult("Goal completion", completionFocus);
@@ -288,14 +298,16 @@ if (settings.disabled === true) {
 		core.goalWidgetComponentRef.current?.invalidate();
 		core.updateUI(ctx);
 
+		const session = core.sessionAbortController;
 		core.enterGoalModal();
 		let userChoice: EscapeDialogResult;
 		try {
 			userChoice = await showEscapeDialog(ctx, auditTarget.objective);
 		} finally {
-			core.exitGoalModal();
+			if (core.sessionAbortController === session) core.exitGoalModal();
 		}
 		signal?.throwIfAborted();
+		if (!core.auditRuntime.isCurrent(audit)) return core.focusedOperationCancelledResult("Goal completion", completionFocus);
 		// Consume the transient abort state recorded by the low-level callback.
 		core.auditAborted = false;
 		if (!core.isFocusedOperationCurrent(completionFocus)) {
@@ -315,6 +327,7 @@ if (settings.disabled === true) {
 				core.goalService.appendEvents(ctx, [{
 					type: "audit_skipped",
 					goalId: auditTarget.id,
+					auditId: audit.id,
 					reason: "user_aborted",
 					provider: settings.provider,
 					model: settings.model,
@@ -362,6 +375,7 @@ if (settings.disabled === true) {
 		core.goalService.appendEvents(ctx, [{
 			type: "audit_result",
 			goalId: auditTarget.id,
+			auditId: audit.id,
 			verdict,
 			report: auditor.output || "Auditor produced no output.",
 			at: nowIso(),

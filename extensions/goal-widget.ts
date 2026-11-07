@@ -125,6 +125,7 @@ export function syncTerminalInputPause(core: GoalCore, ctx: ExtensionContext): v
 		core.terminalInputUnsubscribe = ctx.ui.onTerminalInput((data) => {
 			// The active dialog owns every key, including key capture and Escape.
 			if (core.goalModalDepth > 0) return undefined;
+			if (core.goalWidgetComponentRef.current?.isMainEditorFocused?.() === false) return undefined;
 			const settings = loadGoalSettings(goalCwd);
 			const matches = (path: string): boolean => {
 				const action = KEY_ACTION_BY_PATH.get(path)!;
@@ -164,15 +165,17 @@ export function syncTerminalInputPause(core: GoalCore, ctx: ExtensionContext): v
 			for (const action of COMMAND_KEYS) {
 				if (!bindingKeys(keyActionBinding(settings, action)).some(key => matchesKey(data, key))) continue;
 				const id = action.path[2] as GoalCommandId;
+				const revision = core.focusRevision;
+				const session = core.sessionAbortController;
 				void (async () => {
 					core.enterGoalModal();
 					try {
 						const prompt = GOAL_COMMAND_INPUTS[id];
 						const args = prompt ? await ctx.ui.input(prompt) : "";
-						if (args === undefined || (prompt && !args.trim())) return;
+						if (core.focusRevision !== revision || core.sessionAbortController !== session || args === undefined || (prompt && !args.trim())) return;
 						await core.invokeGoalCommand?.(id, args, ctx);
-					} finally { core.exitGoalModal(); }
-				})().catch(error => ctx.ui.notify(String(error), "error"));
+					} finally { if (core.sessionAbortController === session) core.exitGoalModal(); }
+				})().catch(error => { if (core.sessionAbortController === session) ctx.ui.notify(String(error), "error"); });
 				return { consume: true };
 			}
 
