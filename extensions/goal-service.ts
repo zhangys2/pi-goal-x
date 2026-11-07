@@ -148,6 +148,7 @@ function resolveUpdatedCurrentTaskId(spec: GoalTaskUpdateSpec, current: string |
 
 export class GoalService {
 	private readonly ref: GoalServiceRef;
+	private readonly recordMeasurements: typeof recordGoalMeasurements;
 
 	/**
 	 * The usage this session last wrote to disk for a goal (or the disk usage
@@ -276,8 +277,9 @@ export class GoalService {
 		return this.turn.active;
 	}
 
-	constructor(ref: GoalServiceRef) {
+	constructor(ref: GoalServiceRef, options: { recordMeasurements?: typeof recordGoalMeasurements } = {}) {
 		this.ref = ref;
+		this.recordMeasurements = options.recordMeasurements ?? recordGoalMeasurements;
 	}
 
 	/** Record the usage value the focused goal's in-memory accounting builds on. */
@@ -308,7 +310,7 @@ export class GoalService {
 	private appendLedgerEventsBestEffort(ctx: GoalServiceContext, events: GoalLedgerEvent[]): void {
 		if (events.length === 0) return;
 		if (events.length > 1 && appendGoalEvents(ctx, events).ok) {
-			try { recordGoalMeasurements(ctx.cwd, events); } catch { /* measurements are optional and never affect goal work */ }
+			try { this.recordMeasurements(ctx.cwd, events); } catch { /* measurements are optional and never affect goal work */ }
 			return;
 		}
 		const recorded: GoalLedgerEvent[] = [];
@@ -326,7 +328,7 @@ export class GoalService {
 			}
 		}
 		if (recorded.length) {
-			try { recordGoalMeasurements(ctx.cwd, recorded); } catch { /* measurements are optional and never affect goal work */ }
+			try { this.recordMeasurements(ctx.cwd, recorded); } catch { /* measurements are optional and never affect goal work */ }
 		}
 	}
 

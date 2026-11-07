@@ -15,7 +15,8 @@ import assert from "node:assert/strict";
 import { GoalService, type GoalServiceRef } from "../extensions/goal-service.ts";
 import { cloneGoal, createGoal, type GoalRecord } from "../extensions/goal-record.ts";
 import { writeActiveGoalFile, parseGoalFile, serializeGoalFile } from "../extensions/storage/goal-files.ts";
-import { goalLedgerPath } from "../extensions/goal-ledger.ts";
+import { goalLedgerPath, type GoalLedgerEvent } from "../extensions/goal-ledger.ts";
+import { recordGoalMeasurements } from "../extensions/goal-measurements.ts";
 import { acquireGoalLock } from "../extensions/storage/goal-lock.ts";
 
 // ── Fake ref: in-memory pool + focus mirroring the extension's closure state ─
@@ -73,7 +74,7 @@ function makeRef(goal: GoalRecord): { ref: GoalServiceRef; log: HookLog } {
 	return { ref, log };
 }
 
-function fixture() {
+function fixture(options: { recordMeasurements?: typeof recordGoalMeasurements } = {}) {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-service-"));
 	mkdirSync(path.join(cwd, ".pi", "goals", "archived"), { recursive: true });
 	const goal = createGoal({
@@ -83,7 +84,7 @@ function fixture() {
 	}, Date.UTC(2026, 7, 1, 9, 0, 0));
 	const written = writeActiveGoalFile({ cwd }, goal);
 	const { ref, log } = makeRef(written);
-	const service = new GoalService(ref);
+	const service = new GoalService(ref, options);
 	const cleanup = () => {
 		try { rmSync(cwd, { recursive: true, force: true }); } catch {}
 	};
@@ -166,6 +167,20 @@ describe("GoalService mutation pipeline", () => {
 		} finally {
 			f.cleanup();
 		}
+	});
+
+	it("measurement failure does not roll back goal state or the successful ledger append", () => {
+		const f = fixture({ recordMeasurements: () => { throw new Error("measurement store unavailable"); } });
+		try {
+			const result = f.service.apply({ cwd: f.cwd }, {
+				reconcile: false,
+				mutate: (g) => ({ ...g, objective: "=== Goal ===\\nObjective: Measurement-failed" }),
+				ledger: [{ type: "goal_tweaked", goalId: f.written.id, changeSummary: "test", at: new Date().toISOString() } satisfies GoalLedgerEvent],
+			});
+			assert.ok(result.ok);
+			assert.ok(f.ref.getFocused()?.objective.includes("Measurement-failed"));
+			assert.equal((ledgerEvents(f.cwd)[0] as { type: string }).type, "goal_tweaked");
+		} finally { f.cleanup(); }
 	});
 
 	it("ledger factory failure does not roll back the write or the memory commit", () => {

@@ -14,6 +14,7 @@ import {
 	goalGlobalSettingsPath,
 	loadGoalSettings,
 	loadSettingsSnapshot,
+	defaultAuditorEnabledForNewGoal,
 	mutateSettingsLayer,
 	readSettingsLayer,
 	envOverrideFor,
@@ -222,7 +223,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		core.clearContinuationState();
 		core.clearActiveAccounting();
 		await offerProjectOrchestrationSetup(core, ctx);
-		core.replaceGoal({ objective, autoContinue: true, sisyphus: mode === "sisyphus", skipAuditor: !settings.defaultAuditorEnabled || settings.disabled }, ctx, true, verificationContract);
+		core.replaceGoal({ objective, autoContinue: true, sisyphus: mode === "sisyphus", skipAuditor: !defaultAuditorEnabledForNewGoal(settings) }, ctx, true, verificationContract);
 	}
 
 	async function runGoalRecovery(rawArgs: string, ctx: ExtensionContext): Promise<void> {

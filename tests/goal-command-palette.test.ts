@@ -13,6 +13,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import goalExtension from "../extensions/goal.ts";
 import { parseGoalFile } from "../extensions/storage/goal-files.ts";
 import { mutateSettingsLayer } from "../extensions/goal-settings.ts";
+import { applyGoalPreset } from "../extensions/goal-presets.ts";
 
 const CURATED_COMMANDS = [
 	"goal", "sisyphus", "goal-direct", "sisyphus-direct", "goal-tweak", "goal-pause", "goal-resume",
@@ -188,7 +189,7 @@ test("/goal-direct and /sisyphus-direct create goals immediately", async () => {
 test("project default auditor setting applies to newly created goals only", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "goal-default-auditor-"));
 	try {
-		mutateSettingsLayer({ scope: "project", cwd, mutation: { op: "set", path: ["defaultAuditorEnabled"], value: false } });
+		applyGoalPreset(cwd, "lightweight");
 		const h = createHarness(cwd);
 		await h.commands.get("goal-direct")!.handler("Create a small sample", h.ctx);
 		const files = activeGoalFiles(cwd);

@@ -239,6 +239,11 @@ export type ResolvedGoalSettings = ResolvedGoalSettingsShape;
 /** Compatibility alias: runtime code keeps importing GoalSettings. */
 export type GoalSettings = ResolvedGoalSettings;
 
+/** Effective auditor choice for newly created goals; existing goals keep their saved per-goal value. */
+export function defaultAuditorEnabledForNewGoal(settings: Pick<GoalSettings, "defaultAuditorEnabled" | "disabled">): boolean {
+	return settings.defaultAuditorEnabled !== false && settings.disabled !== true;
+}
+
 export const PI_GOAL_SETTINGS_FILE_ENV = "PI_GOAL_SETTINGS_FILE";
 export const PI_GOAL_GLOBAL_SETTINGS_FILE_ENV = "PI_GOAL_GLOBAL_SETTINGS_FILE";
 
@@ -885,7 +890,6 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 	}));
 	const defaultAuditorEnabled = track("defaultAuditorEnabled", resolveLeaf<boolean>({
 		projectValue: project.layer.defaultAuditorEnabled,
-		globalValue: global.layer.defaultAuditorEnabled,
 		defaultValue: true,
 	}));
 	const measureOutcomes = track("measureOutcomes", resolveLeaf<boolean>({
