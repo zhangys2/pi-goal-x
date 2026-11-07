@@ -61,3 +61,6 @@
 - GitHub `validate` on `0fb0d08` fails at `npm run context:gate`. The same gate fails at base commit `284eaa8` on `current-contracted-task` and `get-goal-default-and-verbose` semantic/breakdown invariants, so those failures predate this PR.
 - The current branch also reports per-fixture breakdown drift after the `/gx` command-path changes. No baseline was regenerated: the context harness requires an active-campaign rationale, and the inherited semantic failures remain unresolved.
 - `git diff --check` passed after this update.
+- The next remote run on `7aff388` passed unit, lifecycle, and package checks but `settings-paths` read `[]` immediately after selecting Use default. The walkthrough now waits for the persisted `["gx pause"]` value instead of assuming a fixed input delay.
+- After that change, local `node scripts/ci-checks.mjs` passed: controls CLI, live Pi lifecycle, 1,365 tests passed with 1 skipped, and installed-package smoke. `npm run lint` also passed.
+- `git diff --check` passed after this update.

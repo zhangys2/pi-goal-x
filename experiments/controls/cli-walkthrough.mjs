@@ -154,7 +154,9 @@ async function settingsPathsWalkthrough(){
   await h.keys('\x15','/work stop',ENTER);assert.deepEqual(h.config().commands['goal-pause'],['work stop']);
   await h.keys(ENTER,DOWN,ENTER,'/hold',ENTER);assert.deepEqual(h.config().commands['goal-pause'],['work stop','hold']);
   await h.keys(ENTER,DOWN,DOWN,ENTER);assert.deepEqual(h.config().commands['goal-pause'],[]);
-  await h.keys(ENTER,DOWN,DOWN,DOWN,ENTER);assert.deepEqual(h.config().commands['goal-pause'],['gx pause']);
+  await h.keys(ENTER,DOWN,DOWN,DOWN,ENTER);
+  await until(()=>JSON.stringify(h.config().commands['goal-pause'])===JSON.stringify(['gx pause']),'default command path saved');
+  assert.deepEqual(h.config().commands['goal-pause'],['gx pause']);
   await h.keys(ESC,'\x1b[F',ENTER,DOWN,ENTER);assert.ok(h.config().commands,'Back preserves overrides');
   await h.keys(ENTER,ESC);assert.ok(h.config().commands,'Escape preserves overrides');
   await h.keys(ENTER,ENTER);assert.equal(h.config().commands,undefined);
