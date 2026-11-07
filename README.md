@@ -13,7 +13,7 @@
 
 # pi-goal-x
 
-Adds `/goal` functionality to [pi](https://pi.dev). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
+Adds the `/gx` command tree to [pi](https://pi.dev). The agent helps you define a goal and plan, continues working on it automatically, and submits the result to an optional independent completion auditor.
 
 The extension saves goal objectives, tasks, and progress across sessions. You can pause, resume, revise, or switch goals as your work changes.
 
@@ -26,14 +26,14 @@ pi install npm:pi-goal-x
 ## Create a goal
 
 ```text
-/goal Add CSV export to the reports page, with documentation and tests.
+/gx Add CSV export to the reports page, with documentation and tests.
 ```
 
 The agent discusses the goal with you, asks focused questions where needed, and proposes an objective, task plan, and completion requirements. You review the proposal and choose whether to use the completion auditor. Once you confirm, the agent starts working and continues automatically while the goal is active.
 
 You can specify completion requirements, such as passing the test suite or producing a report with every required section. The agent tracks tasks and subtasks, records evidence, and works toward those requirements. If it gets blocked and needs your input, you can resolve the issue and resume.
 
-If you already have a complete objective, use `/goal-direct <objective>` to create the goal and start immediately without drafting.
+If you already have a complete objective, use `/gx direct <objective>` to create the goal and start immediately without drafting.
 
 ### Project setup check
 
@@ -49,20 +49,20 @@ Background (async) worker runs keep their worktree only with pi-subagents 0.69.0
 
 | Type | Behaviour | Example uses |
 | --- | --- | --- |
-| **Regular** — `/goal` | An outcome to achieve, with the agent choosing and adapting the plan. | Features, debugging, research, and documentation. |
-| **Sisyphus** — `/sisyphus` | An ordered plan that the agent follows one step at a time. | Migrations, staged refactors, and release procedures. |
+| **Regular** — `/gx` | An outcome to achieve, with the agent choosing and adapting the plan. | Features, debugging, research, and documentation. |
+| **Sisyphus** — `/gx sisyphus` | An ordered plan that the agent follows one step at a time. | Migrations, staged refactors, and release procedures. |
 
 For an ordered goal, you can provide the steps or define them with the agent:
 
 ```text
-/sisyphus Migrate authentication in this order:
+/gx sisyphus Migrate authentication in this order:
 1. Add the new token validator.
 2. Update login and session refresh to use it.
 3. Remove the old validator.
 4. Run the authentication tests.
 ```
 
-Use `/sisyphus-direct <objective>` to start an ordered goal without drafting.
+Use `/gx sisyphus direct <objective>` to start an ordered goal without drafting.
 
 ## Tasks and subtasks
 
@@ -113,19 +113,19 @@ goal-x applies the patch on top of the current branch with a three-way merge, so
 
 Mark tasks done by isolated workers `isolated: true`. Their changes arrive only through integration, so two isolated tasks may run at once. An isolated task cannot be completed before something is integrated; skip it with a reason if no change is needed. Completing it runs its checks again, because other tasks may have landed since.
 
-Use `/goal-tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/goal-settings`.
+Use `/gx tweak <change>` to discuss revisions to the goal and its plan. Task tracking, completion requirements, and subtask depth are configurable in `/gx settings`.
 
 ## Goal report
 
 Each goal keeps one Markdown report under `.pi/goals/reports/`, rewritten once per turn that changes the goal. It holds the plan as a Mermaid DAG, the same graph again coloured by current status, a task table with timings and attempt counts, audit history and completion evidence quoted as claims rather than re-run, every block, pause and wait with how long it lasted, subagent artifacts observed during the goal, a timeline, and recommendations derived from that data — overlapping code tasks, changes outside a task's declared scope, a wait that expired, or a completion that names no verification command.
 
-Run `/goal-report` to write it immediately and see its path. Set `disableGoalReport: true` to turn it off. The report is derived state: deleting it loses nothing, and it is never added to the model's prompt. Per-task tokens and cost are not recorded yet, so the table reports time only.
+Run `/gx report` to write it immediately and see its path. Set `disableGoalReport: true` to turn it off. The report is derived state: deleting it loses nothing, and it is never added to the model's prompt. Per-task tokens and cost are not recorded yet, so the table reports time only.
 
 ## Completion auditor
 
 When enabled, a separate agent reviews the work before the goal is accepted as complete. It checks the objective, tasks, recorded evidence, completion requirements, and workspace.
 
-If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. You can choose the auditor model in `/goal-settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
+If the auditor approves, the goal is archived as complete. If it identifies unmet requirements, the goal remains open with feedback describing the work still needed. You can choose the auditor model in `/gx settings` and toggle auditing for the focused goal with `Ctrl+Shift+A`.
 
 If the work spans more than the project directory, such as a second repository, or is verified somewhere the auditor cannot run commands directly, such as WSL, tell the auditor in the settings file. `auditorWorkspaces` lists extra directories it may inspect, and `auditorEnvironment` describes how to run verification:
 
@@ -142,46 +142,53 @@ The auditor treats both as guidance for where to look, never as evidence.
 
 When the auditor starts, goal-x can also ask [TypeSafe](https://docs.typesafe.ai)'s Jev model, for each complete task with a completion requirement, whether the task's recorded evidence says the requirement was met. The answer is written to the goal ledger (`.pi/goals/goal_events.jsonl`) as a `precheck_result` event next to the auditor's verdict. It never changes the outcome and is not shown in the conversation. The aim is to learn whether it would reliably catch completion claims made before any evidence was recorded, so a later release can reject those without starting an audit.
 
-It is off by default. Turn it on with `precheck enabled` in `/goal-settings`, and set `TYPESAFE_API_KEY` in the environment; the key is never read from a settings file. Enabling it sends the objective, task titles, requirements, evidence, and completion summary to `api.typesafe.ai`. `precheck.model` (default `jev-1.13.0`) and `precheck.rejectBelow` (default `0.15`) can be changed in the settings file.
+It is off by default. Turn it on with `precheck enabled` in `/gx settings`, and set `TYPESAFE_API_KEY` in the environment; the key is never read from a settings file. Enabling it sends the objective, task titles, requirements, evidence, and completion summary to `api.typesafe.ai`. `precheck.model` (default `jev-1.13.0`) and `precheck.rejectBelow` (default `0.15`) can be changed in the settings file.
 
 ## Progress and goal controls
 
 The dashboard above the editor shows the goal's status, task progress, current task, elapsed time, and token usage. Press `Ctrl+Shift+T` to expand it for the full task tree, completion requirements, evidence, and recent activity. Audit progress and results appear there too.
 
-A project can have several open goals, with one focused goal per session. Switch with `/goal-focus`, pause with `/goal-pause`, or use `/goal-tweak` to discuss changes to the current goal. Pressing `Esc` during active work also pauses the goal; in the expanded dashboard, it collapses the view.
+A project can have several open goals, with one focused goal per session. Switch with `/gx focus`, pause with `/gx pause`, or use `/gx tweak` to discuss changes to the current goal. Pressing `Esc` during active work also pauses the goal; in the expanded dashboard, it collapses the view.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `/goal [idea]` | Discuss, plan, and confirm a regular goal. |
-| `/sisyphus [idea]` | Discuss, plan, and confirm an ordered goal. |
-| `/goal-direct <objective>` | Create and start a regular goal immediately. |
-| `/sisyphus-direct <objective>` | Create and start an ordered goal immediately. |
-| `/goal-list` | List open goals. |
-| `/goal-status` | Show the focused goal and its progress. |
-| `/goal-focus` | Choose an open goal to work on. |
-| `/goal-unfocus` | Leave the current goal open without focusing on it. |
-| `/goal-tweak <change>` | Revise the current goal with the agent. |
-| `/goal-pause` | Pause work on the focused goal. |
-| `/goal-resume` | Resume a paused or blocked goal. |
-| `/goal-clear` | Archive the focused goal after confirmation. |
-| `/goal-cancel` | Cancel an unconfirmed draft. |
-| `/goal-settings` | Configure goal behaviour and the auditor. |
+| `/gx [idea]` | Discuss, plan, and confirm a regular goal. |
+| `/gx sisyphus [idea]` | Discuss, plan, and confirm an ordered goal. |
+| `/gx direct <objective>` | Create and start a regular goal immediately. |
+| `/gx sisyphus direct <objective>` | Create and start an ordered goal immediately. |
+| `/gx tweak <change>` | Revise the current goal with the agent. |
+| `/gx pause` | Pause work on the focused goal. |
+| `/gx resume` | Resume a paused or blocked goal. |
+| `/gx clear` | Archive the focused goal after confirmation. |
+| `/gx cancel` | Cancel an unconfirmed draft. |
+| `/gx list` | List open goals. |
+| `/gx list recovery` | Show read-only lifecycle recovery information. |
+| `/gx status [verbose|health]` | Show the focused goal and optional diagnostics. |
+| `/gx refresh` | Reload saved goals and settings. |
+| `/gx recovery [repair]` | Check storage integrity; repair after confirmation. |
+| `/gx focus` | Choose an open goal to work on. |
+| `/gx unfocus` | Leave the current goal open without focusing on it. |
+| `/gx settings [controls]` | Configure goal behaviour, auditor, and command controls. |
+| `/gx report` | Write the focused goal report immediately. |
+| `/gx onboarding` | Reopen the getting-started walkthrough. |
 | `/loop <interval> [deadline] [prompt]` | Repeat a prompt on an interval until `/loop stop`. |
+
+When a draft objective matches a valid subcommand form, prefix it with `--`, for example `/gx -- status page redesign`.
 
 `/loop` needs no goal. `/loop 5m check the deploy` asks that every five minutes, `/loop 30s --until 10m` adds a deadline, and `/loop 5m` on its own repeats your last message. The next run is timed from the moment the agent finishes the previous one, so runs never overlap.
 
-For troubleshooting, use `/goal-status verbose` for more detail, `/goal-status health` or `/goal-recovery` to check for problems, and `/goal-refresh` to reload saved goals and settings after external changes. `/goal-recovery repair` offers repairs after confirmation.
+For troubleshooting, use `/gx status verbose` for more detail, `/gx status health` or `/gx recovery` to check for problems, and `/gx refresh` to reload saved goals and settings after external changes. `/gx recovery repair` offers repairs after confirmation.
 
 ## Settings
 
-Open `/goal-settings` to change these options. You can save defaults for all projects, override them for the current project, or remove an override to use the inherited value.
+Open `/gx settings` to change these options. You can save defaults for all projects, override them for the current project, or remove an override to use the inherited value.
 
 | Setting | What it controls |
 | --- | --- |
 | Explicit execution contracts (`strictExecutionContract`) | Opt-in ready/wait protocol with one missing-decision repair, then pause. Defaults to `false`: successful executions continue automatically. |
-| Autonomous run allowance (`maxAutonomousRuns`) | Positive whole number of extension-started runs per creation or `/goal-resume` period. **Unset means unlimited; zero disables automatic continuation.** Settings edits change the limit without resetting usage. |
+| Autonomous run allowance (`maxAutonomousRuns`) | Positive whole number of extension-started runs per creation or `/gx resume` period. **Unset means unlimited; zero disables automatic continuation.** Settings edits change the limit without resetting usage. |
 | Autonomous runs line (`showAutonomousRuns`) | Controls the `Autonomous runs: N/limit` line that appears for a finite allowance. Defaults to `true`. |
 | Task tracking (`disableTasks`) | Turn task lists on or off. Set to `true` to disable them. |
 | Subtask depth (`subtaskDepth`) | Limit how many levels of subtasks the agent can create. |
@@ -197,21 +204,21 @@ Open `/goal-settings` to change these options. You can save defaults for all pro
 
 Active goals continue automatically after successful executions, including reasoning-only responses and final-task verification. No tool call, task update, scheduling declaration, or cooldown is required. Unproductive loops remain possible; optional run limits and token budgets still apply.
 
-Enable `strictExecutionContract: true` in `/goal-settings` or your global/project settings to require explicit ready/wait decisions. In that mode, a missing decision permits one repair prompt within the remaining allowance, then pauses. This is a user preference; agents should not enable it merely to continue.
+Enable `strictExecutionContract: true` in `/gx settings` or your global/project settings to require explicit ready/wait decisions. In that mode, a missing decision permits one repair prompt within the remaining allowance, then pauses. This is a user preference; agents should not enable it merely to continue.
 
-When a goal blocks, you are notified immediately with why it stopped, what the agent already tried, and what you can do about it, followed by `/goal-resume`, `/goal-tweak` and `/goal-clear`. The same details appear in the dashboard, and a blocked goal is restated when a session starts, so it cannot go unnoticed. Blocking therefore requires the agent to supply `suggested_action` addressed to you.
+When a goal blocks, you are notified immediately with why it stopped, what the agent already tried, and what you can do about it, followed by `/gx resume`, `/gx tweak` and `/gx clear`. The same details appear in the dashboard, and a blocked goal is restated when a session starts, so it cannot go unnoticed. Blocking therefore requires the agent to supply `suggested_action` addressed to you.
 
 A new wait must say what it depends on. `depends_on: "producer"` is an external condition that resolves on its own, such as a remote build. `depends_on: "user"` is rejected: anything only you can do, such as installing a tool, supplying credentials, or making a decision, is a blocker, so the goal is blocked and asks you instead of parking itself until a deadline.
 
 Waits are announced when declared, and one lasting longer than 30 minutes reminds you every 30 minutes with the time left and any remaining checks. The reminders only notify: no model turn runs and no autonomous allowance is spent. If the deadline passes without the expected signal, the goal pauses with the reason and the next step.
 
-Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.json`:
+Set an appropriate allowance in `/gx settings`, or in `.pi/pi-goal-x-settings.json`:
 
 ```json
 { "maxAutonomousRuns": 20 }
 ```
 
-Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/goal-resume` renews the period and continues now, including from a waiting goal. No configured allowance is required unless the effective limit is zero, which disables resume. Tool calls within a run are not separate runs. Existing token budgets still apply.
+Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/gx resume` renews the period and continues now, including from a waiting goal. No configured allowance is required unless the effective limit is zero, which disables resume. Tool calls within a run are not separate runs. Existing token budgets still apply.
 
 Explicit `ready` is optional in default mode. New `wait` declarations require strict mode; otherwise they return a non-terminating error. Previously saved waits retain their deadline, checks, and repair rules when upgrading or disabling strict mode, and may be re-declared with the same identity. Mode changes never resume a paused goal or renew consumed runs.
 
@@ -226,7 +233,7 @@ update_goal({ continuation: {
 
 Use a future deadline appropriate to the task. Omit `polling` for an event-only wait. Successful declarations terminate the execution segment. On a scheduled check, reuse the returned `wait_id` and original deadline, omitting `polling`; remaining checks cannot be reset. A ready decision ends the wait. Time spent waiting is not active execution time.
 
-The dashboard, `/goal-status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
+The dashboard, `/gx status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
 
 ### Background producer integration
 

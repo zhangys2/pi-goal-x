@@ -100,7 +100,7 @@ function latestFocusEntry(entries: Array<{ customType: string; data: unknown }>)
 	return [...entries].reverse().find((entry) => entry.customType === "pi-goal-focus");
 }
 
-test("/goal-unfocus is idempotent, session-local, and leaves the active goal byte-for-byte unchanged", async () => {
+test("/gx unfocus is idempotent, session-local, and leaves the active goal byte-for-byte unchanged", async () => {
 	const fixture = createFixture();
 	const originalGoalFile = readFileSync(fixture.activePath);
 	const harness = createHarness({
@@ -110,9 +110,9 @@ test("/goal-unfocus is idempotent, session-local, and leaves the active goal byt
 
 	try {
 		await harness.handlers.get("session_start")?.({ reason: "startup" }, harness.ctx);
-		const command = harness.commands.get("goal-unfocus");
-		assert.ok(command, "/goal-unfocus must be registered");
-		await command.handler("", harness.ctx);
+		const command = harness.commands.get("gx");
+		assert.ok(command, "/gx unfocus must be registered");
+		await command.handler("unfocus", harness.ctx);
 
 		assert.deepEqual(latestFocusEntry(harness.appendedEntries)?.data, {
 			version: 1,
@@ -126,7 +126,7 @@ test("/goal-unfocus is idempotent, session-local, and leaves the active goal byt
 		assert.match(harness.notifications.at(-1) ?? "", /remains open in \.pi\/goals/);
 
 		const focusEntryCount = harness.appendedEntries.filter((entry) => entry.customType === "pi-goal-focus").length;
-		await command.handler("", harness.ctx);
+		await command.handler("unfocus", harness.ctx);
 		const repeatedFocusEntries = harness.appendedEntries.filter((entry) => entry.customType === "pi-goal-focus");
 		assert.equal(repeatedFocusEntries.length, focusEntryCount + 1);
 		assert.deepEqual(repeatedFocusEntries.at(-1)?.data, {
@@ -223,7 +223,7 @@ test("hideUnfocusedPrompt never suppresses stale-checkpoint rejection", async ()
 	}
 });
 
-test("/goal-unfocus aborts a busy goal turn, blocks later tools, and prevents abort handlers from pausing it", async () => {
+test("/gx unfocus aborts a busy goal turn, blocks later tools, and prevents abort handlers from pausing it", async () => {
 	const fixture = createFixture();
 	const originalGoalFile = readFileSync(fixture.activePath);
 	const harness = createHarness({
@@ -233,7 +233,7 @@ test("/goal-unfocus aborts a busy goal turn, blocks later tools, and prevents ab
 	});
 	try {
 		await harness.handlers.get("session_start")?.({ reason: "startup" }, harness.ctx);
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		assert.equal(harness.abortCount, 1);
 		const gate = await harness.handlers.get("tool_call")?.({ toolName: "write", input: { path: "late.txt", content: "late" } }, harness.ctx);
 		assert.equal(gate?.block, true);
@@ -249,7 +249,7 @@ test("/goal-unfocus aborts a busy goal turn, blocks later tools, and prevents ab
 	}
 });
 
-test("/goal-unfocus preserves a paused goal and does not archive it", async () => {
+test("/gx unfocus preserves a paused goal and does not archive it", async () => {
 	const fixture = createFixture({ status: "paused", autoContinue: false, pauseReason: "waiting" });
 	const originalGoalFile = readFileSync(fixture.activePath);
 	const harness = createHarness({
@@ -258,7 +258,7 @@ test("/goal-unfocus preserves a paused goal and does not archive it", async () =
 	});
 	try {
 		await harness.handlers.get("session_start")?.({ reason: "startup" }, harness.ctx);
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		assert.deepEqual(readFileSync(fixture.activePath), originalGoalFile);
 		assert.equal(readdirSync(path.join(fixture.cwd, ".pi", "goals", "archived")).length, 0);
 	} finally {
@@ -266,7 +266,7 @@ test("/goal-unfocus preserves a paused goal and does not archive it", async () =
 	}
 });
 
-test("/goal-unfocus records explicit null focus when the active goal file disappeared", async () => {
+test("/gx unfocus records explicit null focus when the active goal file disappeared", async () => {
 	const fixture = createFixture();
 	const harness = createHarness({
 		cwd: fixture.cwd,
@@ -275,7 +275,7 @@ test("/goal-unfocus records explicit null focus when the active goal file disapp
 	try {
 		await harness.handlers.get("session_start")?.({ reason: "startup" }, harness.ctx);
 		rmSync(fixture.activePath);
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		assert.deepEqual(latestFocusEntry(harness.appendedEntries)?.data, {
 			version: 1,
 			focusedGoalId: null,
@@ -296,7 +296,7 @@ test("busy missing-file detachment still aborts and blocks the former goal turn"
 	try {
 		await harness.handlers.get("session_start")?.({ reason: "startup" }, harness.ctx);
 		rmSync(fixture.activePath);
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		assert.equal(harness.abortCount, 1);
 		const gate = await harness.handlers.get("tool_call")?.({ toolName: "bash", input: { command: "echo late" } }, harness.ctx);
 		assert.equal(gate?.block, true);
@@ -314,7 +314,7 @@ test("already-unfocused command does not abort unrelated busy work", async () =>
 	});
 	try {
 		await harness.handlers.get("session_start")?.({ reason: "startup" }, harness.ctx);
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		assert.equal(harness.abortCount, 0);
 		assert.deepEqual(latestFocusEntry(harness.appendedEntries)?.data, {
 			version: 1,
@@ -338,7 +338,7 @@ test("one session can unfocus while another remains focused on the shared goal",
 	try {
 		await first.handlers.get("session_start")?.({ reason: "startup" }, first.ctx);
 		await second.handlers.get("session_start")?.({ reason: "startup" }, second.ctx);
-		await first.commands.get("goal-unfocus")!.handler("", first.ctx);
+		await first.commands.get("gx")!.handler("unfocus", first.ctx);
 
 		await first.handlers.get("before_agent_start")?.({ systemPrompt: "base", prompt: "hello" }, first.ctx);
 		const firstPrompt = await first.handlers.get("context_with_system")?.({ messages: [] }, first.ctx);
@@ -374,7 +374,7 @@ test("the null entry produced by unfocus survives resume/tree and suppresses opt
 	});
 	try {
 		await producer.handlers.get("session_start")?.({ reason: "startup" }, producer.ctx);
-		await producer.commands.get("goal-unfocus")!.handler("", producer.ctx);
+		await producer.commands.get("gx")!.handler("unfocus", producer.ctx);
 		const producedEntry = latestFocusEntry(producer.appendedEntries);
 		assert.ok(producedEntry);
 		const sessionEntries = [{ type: "custom", customType: producedEntry.customType, data: producedEntry.data }];
@@ -456,7 +456,7 @@ test("an approved completion audit cannot complete or archive a goal after unfoc
 			status: "complete",
 		}, undefined, undefined, harness.ctx);
 		await started;
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		assert.equal(auditSignal?.aborted, true);
 		resolveAudit({ approved: true, disapproved: false, output: "Looks good\n<approved/>", model: "mock" });
 		const result = await completionPromise;
@@ -493,7 +493,7 @@ test("an async task-list confirmation cannot mutate the goal after unfocus", asy
 			block_completion: false,
 		}, undefined, undefined, harness.ctx);
 		await new Promise((resolve) => setImmediate(resolve));
-		await harness.commands.get("goal-unfocus")!.handler("", harness.ctx);
+		await harness.commands.get("gx")!.handler("unfocus", harness.ctx);
 		resolveDialog({
 			cancelled: false,
 			questions: [],

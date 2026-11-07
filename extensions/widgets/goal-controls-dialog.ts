@@ -17,7 +17,7 @@ type Tab = "Commands" | "Keys" | "Pausing";
 type Row = { label: string; path: string[]; help: string; kind: "commands" | "keys" | "order" | "reset"; defaults: unknown; action?: GoalKeyAction };
 const TABS: Tab[] = ["Commands", "Keys", "Pausing"];
 const rowsFor = (tab: Tab): Row[] => tab === "Commands"
-	? GOAL_COMMANDS.map(([id, label, help]) => ({ label, path: ["commands", id], help, kind: "commands", defaults: [id] }))
+	? GOAL_COMMANDS.map(([id, label, help]) => ({ label, path: ["commands", id], help, kind: "commands", defaults: commandPaths(undefined, id) }))
 	: tab === "Keys"
 		? GOAL_KEY_ACTIONS.map(action => ({ label: action.path[1] === "commands" ? `Command: ${action.label}` : action.label, path: action.path, help: action.help, kind: "keys", defaults: action.defaults, action }))
 		: [{ label: "Pause order", path: ["pauseOrder"], help: "Choose what happens on the first and second press of the pause key.", kind: "order", defaults: "together" }];
@@ -79,7 +79,7 @@ export class GoalControlsDialog implements Component {
 		return "default";
 	}
 	private display(row: Row, value: unknown): string {
-		if (row.kind === "commands") return (value as string[]).map(route => `/${route}`).join(", ") || (row.path[1] === "goal-settings" ? "/goal-settings (recovery only)" : "Disabled");
+		if (row.kind === "commands") return (value as string[]).map(route => `/${route}`).join(", ") || (row.path[1] === "goal-settings" ? "/gx settings (recovery only)" : "Disabled");
 		if (row.kind === "keys") return formatGoalKeybinding(value as GoalKeybinding);
 		if (row.kind === "order") return PAUSE_ORDERS.find(order => order.id === value)?.label ?? "Goal and turn together";
 		return "";
@@ -101,7 +101,7 @@ export class GoalControlsDialog implements Component {
 		if (option === "Back") return "Return without changing this control.";
 		if (row.kind === "order") return PAUSE_ORDERS[this.actionIndex]!.help;
 		if (row.kind === "reset") return row.help;
-		if (option === "Recovery entry only") return "Remove additional settings commands. /goal-settings always remains available.";
+		if (option === "Recovery entry only") return "Remove additional settings commands. /gx settings always remains available.";
 		if (option === "Disable") return row.kind === "commands" ? "Remove slash commands for this action. Any command shortcut still works." : "Remove this action's keys in the selected scope.";
 		if (option === "Add an alias") return "Keep the current names and add another command. The first name stays preferred.";
 		return row.help;
@@ -168,7 +168,7 @@ export class GoalControlsDialog implements Component {
 		const parts = text.split(",").map(part => part.trim());
 		if (row.kind === "commands") {
 			const routes = parseCommandPaths(parts);
-			if (!routes) { this.error = "Use command words such as /goal edit. Separate aliases with commas."; return; }
+			if (!routes) { this.error = "Use command words such as /gx edit. Separate aliases with commas."; return; }
 			this.save(this.adding ? [...new Set([...(this.setting(row) as string[]), ...routes])] : routes);
 		} else {
 			let keys = parseGoalKeybinding(text) ?? parseGoalKeybinding(parts);
@@ -291,7 +291,7 @@ export class GoalControlsDialog implements Component {
 			} else if (this.view === "input") {
 				lines.push(dim(this.row!.kind === "commands" ? "Command paths, separated by commas:" : "Pi key names, separated by commas:"));
 				lines.push(...this.editor.render(inner - 2));
-				help.unshift(this.row!.kind === "commands" ? "First path is preferred; additional paths are aliases. Example: /goal-tweak, /goal edit." : this.editor.getValue().startsWith("[") ? 'JSON key list keeps comma keys intact. Example: ["ctrl+,", "f6"].' : "Example: ctrl+alt+p, f6. Use Disable to leave this action unbound.");
+				help.unshift(this.row!.kind === "commands" ? "First path is preferred; additional paths are aliases. Example: /gx tweak, /gx edit." : this.editor.getValue().startsWith("[") ? 'JSON key list keeps comma keys intact. Example: ["ctrl+,", "f6"].' : "Example: ctrl+alt+p, f6. Use Disable to leave this action unbound.");
 			} else if (this.view === "capture") {
 				lines.push("", accent("Press the key you want to use…"));
 				help.unshift("Esc cancels. To bind Escape, use Edit key names.");
@@ -319,7 +319,7 @@ export class GoalControlsDialog implements Component {
 }
 
 export async function showGoalControls(core: GoalCore, ctx: ExtensionContext, scope: SettingsScope = "project"): Promise<boolean> {
-	if (!ctx.hasUI) { ctx.ui.notify("Open /goal-settings controls in an interactive Pi session to customize controls.", "info"); return false; }
+	if (!ctx.hasUI) { ctx.ui.notify("Open /gx settings controls in an interactive Pi session to customize controls.", "info"); return false; }
 	core.enterGoalModal();
 	let reload: "reload" | undefined;
 	try { reload = await ctx.ui.custom((tui, theme, keymap, done) => new GoalControlsDialog(core, ctx, tui, theme, keymap, done, scope)); }

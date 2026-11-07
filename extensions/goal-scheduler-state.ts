@@ -83,7 +83,7 @@ export function buildWaitNotice(wait: GoalWait, kind: "declared" | "heartbeat", 
 	const head = kind === "declared" ? "⏳ Goal waiting" : "⏳ Goal still waiting";
 	const lines = [`${head}: ${wait.reason}`, `Deadline ${new Date(wait.deadline).toISOString()} (in ${formatWaitRemaining(wait.deadline - now)}).`];
 	if (wait.nextCheckAt !== undefined) lines.push(`Next check in ${formatWaitRemaining(wait.nextCheckAt - now)}; ${wait.remainingChecks} left.`);
-	lines.push("/goal-resume to continue now, /goal-pause to stop waiting.");
+	lines.push("/gx resume to continue now, /gx pause to stop waiting.");
 	return lines.join("\n");
 }
 

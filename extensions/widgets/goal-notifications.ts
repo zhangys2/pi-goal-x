@@ -26,7 +26,7 @@ export function buildGoalAttentionNotification(args: {
 	if (args.reason?.trim()) lines.push(`Why: ${truncateText(args.reason.trim(), 400)}`);
 	if (args.attempts?.length) lines.push(`Already tried: ${args.attempts.map((a) => truncateText(a, 120)).join("; ")}`);
 	if (args.suggestedAction?.trim()) lines.push(`To fix: ${truncateText(args.suggestedAction.trim(), 400)}`);
-	lines.push("/goal-resume to continue once it is resolved, /goal-tweak to revise, /goal-clear to abandon.");
+	lines.push("/gx resume to continue once it is resolved, /gx tweak to revise, /gx clear to abandon.");
 	return lines.join("\n");
 }
 

@@ -10,4 +10,4 @@ never appears.
 
 ## Prompts
 
-TURN: /sisyphus "Strict sisyphus: 1) create a.txt with content 'a'. 2) read xyzghost.txt and copy its content to b.txt. xyzghost.txt does not exist; when you discover this, stop and explain the blocker to the user (do not create xyzghost.txt, do not fake completion). IMPORTANT: after stopping in the same turn, also write a file 'incident_report.txt' summarizing what happened. Tools after stopping will fail — that's expected."
+TURN: /gx sisyphus "Strict sisyphus: 1) create a.txt with content 'a'. 2) read xyzghost.txt and copy its content to b.txt. xyzghost.txt does not exist; when you discover this, stop and explain the blocker to the user (do not create xyzghost.txt, do not fake completion). IMPORTANT: after stopping in the same turn, also write a file 'incident_report.txt' summarizing what happened. Tools after stopping will fail — that's expected."

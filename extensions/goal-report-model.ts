@@ -185,7 +185,7 @@ function deriveAttention(events: readonly GoalLedgerEvent[], goal: GoalRecord, n
 			at: goal.updatedAt,
 			seconds: seconds(goal.updatedAt, nowIso),
 			reason: `${wait.reason} (deadline ${new Date(wait.deadline).toISOString()})`,
-			suggestedAction: "/goal-resume to continue now, /goal-pause to stop waiting.",
+			suggestedAction: "/gx resume to continue now, /gx pause to stop waiting.",
 			open: true,
 		});
 	}

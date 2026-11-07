@@ -1,5 +1,5 @@
 /**
- * /goal-status tests (plan §13): standard mode composes the compact dashboard
+ * /gx status tests (plan §13): standard mode composes the compact dashboard
  * + current-task details + recent activity + last audit from the shared model;
  * verbose mode carries the full diagnostic detail; neither mode emits lines
  * wider than the configured rendering width.
@@ -175,7 +175,7 @@ test("no rendered line of the boxed standard output exceeds the rendering width"
 test("unfocused and no-goal states render correctly", () => {
 	const unfocused = buildGoalStatusText({ goal: null, focused: false, otherOpenGoals: 3 });
 	assert.match(unfocused, /3 open goals are available/);
-	assert.match(unfocused, /\/goal-focus/);
+	assert.match(unfocused, /\/gx focus/);
 	const none = buildGoalStatusText({ goal: null, focused: false, otherOpenGoals: 0 });
 	assert.match(none, /No goal is set/);
 });

@@ -16,4 +16,4 @@ Expected:
 
 ## Prompts
 
-TURN: /goal Create a new file called hello.txt containing "Hello" in the sandbox current directory. Do not modify any other files.
+TURN: /gx Create a new file called hello.txt containing "Hello" in the sandbox current directory. Do not modify any other files.

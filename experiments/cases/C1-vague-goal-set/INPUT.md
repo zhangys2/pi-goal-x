@@ -8,4 +8,4 @@ any `create_goal` call.
 
 ## Prompts (one turn per line)
 
-TURN: /goal help me organize my notes
+TURN: /gx help me organize my notes

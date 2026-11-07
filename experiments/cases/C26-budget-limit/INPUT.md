@@ -19,4 +19,4 @@ Expected:
 
 ## Prompts
 
-TURN: /goal Create a file main.txt containing "main" and list the directory. token_budget: 1500. When the budget is reached, wrap up in one final response: summarize what was accomplished and what remains. Do not claim completion unless the objective is actually satisfied.
+TURN: /gx Create a file main.txt containing "main" and list the directory. token_budget: 1500. When the budget is reached, wrap up in one final response: summarize what was accomplished and what remains. Do not claim completion unless the objective is actually satisfied.

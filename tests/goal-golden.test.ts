@@ -369,7 +369,7 @@ test("golden: compaction summary text for a focused active goal", () => {
 			"  Time: 1h00m00s",
 			"",
 			"[INSTRUCTION]",
-			"Continue from the focused goal above, or ask the user to run /goal-focus.",
+			"Continue from the focused goal above, or ask the user to run /gx focus.",
 			"Do not rely on chat memory for goal state; use the facts above.",
 		].join("\n"));
 	} finally {
@@ -413,7 +413,7 @@ test("golden: compaction summary for an empty session", () => {
 		"[NO GOALS]",
 		"No open or terminal goals recorded in this session.",
 		"[INSTRUCTION]",
-		"Continue from the focused goal above, or ask the user to run /goal-focus.",
+		"Continue from the focused goal above, or ask the user to run /gx focus.",
 		"Do not rely on chat memory for goal state; use the facts above.",
 	].join("\n"));
 });

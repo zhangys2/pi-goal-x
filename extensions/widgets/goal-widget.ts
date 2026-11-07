@@ -166,7 +166,7 @@ export const WIDGET_HEIGHT_RESERVE = 6;
  * index function — stable across renders, so the widget never shrinks on its
  * own and can never trigger pi-tui's clearOnShrink full-render
  * (`\x1b[2J\x1b[H\x1b[3J` scrollback wipe). No-op (unbounded) when
- * terminalRows is missing (mock TUI, headless contexts, /goal-status text).
+ * terminalRows is missing (mock TUI, headless contexts, /gx status text).
  *
  * This pure head-slice is the terminal bound for direct callers. The live
  * component additionally applies the stable-height bound

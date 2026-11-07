@@ -76,6 +76,7 @@ export function registerGoalEvents(core: GoalCore): void {
 	pi.on("before_provider_request", (event, ctx) => cacheGoalHistory(event.payload, liveRetention.contents(sessionKeyFor(ctx as ExtensionContext | undefined))));
 	let continuationAfterSettleFor: string | null = null;
 	let networkErrorRecoveryAfterSettleFor: string | null = null;
+	let commandNamespaceNoticeShown = false;
 
 	registerGoalContext(pi, (input, ctx) => {
 		// Reassert startup rejection at the awaited provider boundary, before
@@ -301,14 +302,18 @@ export function registerGoalEvents(core: GoalCore): void {
 		invalidateGoalPoolCache();
 		invalidateGoalLedgerCache();
 		core.refreshGoalCommands?.(ctx);
-		if (core.controlWarnings?.length) ctx.ui.notify(`Goal command settings were not applied: ${core.controlWarnings.join(" ")} Open /goal-settings controls to correct them.`, "warning");
+		if (core.controlWarnings?.length) ctx.ui.notify(`Goal command settings were not applied: ${core.controlWarnings.join(" ")} Open ${commandHint("goal-settings", core.loadedCommands)} controls to correct them.`, "warning");
 		core.goalService.flushTurn(ctx); // P1-3: persist any buffered transaction before reload
 		await core.loadState(ctx);
 		core.installGoalToolProfile(!loadGoalSettings(ctx.cwd).disableTasks);
 		rehydrateDraft(core, ctx);
 		syncTerminalInputPause(core, ctx);
+		if (ctx.hasUI && !commandNamespaceNoticeShown) {
+			commandNamespaceNoticeShown = true;
+			ctx.ui.notify(`Goal commands now use /gx by default. Former /goal, /goal-* and /sisyphus* commands are not registered unless configured as aliases. Start a guided goal with ${commandHint("goal", core.loadedCommands)} and open controls with ${commandHint("goal-settings", core.loadedCommands)}. Configured aliases remain active; /loop is unchanged.`, "info");
+		}
 		if (event.reason === "resume" && !core.state.goal && !core.hasExplicitSessionFocus && otherOpenGoalCount(core.goalsById, null) > 1 && ctx.hasUI) {
-			// Prompt the user to pick which open goal to focus (mirrors /goal-focus).
+			// Prompt the user to pick which open goal to focus (mirrors /gx focus).
 			const open = core.openGoals();
 			const labels = open.map((item) => goalSelectorLabel(item, core.focusedGoalId));
 			const byLabel = new Map(labels.map((label, index) => [label, open[index]?.id]));

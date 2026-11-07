@@ -5,7 +5,7 @@
  * `pi --mode rpc` process with the extension loaded, backed by a local fake
  * OpenAI-completions provider, and walking one goal through
  *
- *     /goal  ->  propose_goal_draft  ->  Confirm dialog  ->  execution
+ *     /gx  ->  propose_goal_draft  ->  Confirm dialog  ->  execution
  *             ->  update_goal(complete)  ->  independent audit  ->  archived
  *
  * It asserts the lifecycle milestones from the observed RPC event stream and
@@ -192,7 +192,7 @@ child.stdout.on("data", (chunk) => {
 child.stdin.write(JSON.stringify({
 	id: "p1",
 	type: "prompt",
-	message: `/goal Confirm Pi ${HOST_VERSION} compatibility with one live lifecycle`,
+	message: `/gx Confirm Pi ${HOST_VERSION} compatibility with one live lifecycle`,
 }) + "\n");
 
 const deadline = Date.now() + TIMEOUT_MS;

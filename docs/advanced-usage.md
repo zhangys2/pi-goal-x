@@ -6,15 +6,15 @@ For installation, goal workflows, commands and the settings overview, see the [R
 
 Active goals continue automatically after successful executions, including reasoning-only responses and final-task verification. No tool call, task update, or scheduling declaration is required.
 
-Default continuation is immediate. To slow repeated replies without recognized work, enable **slow repeated idle replies (opt-in)** under Advanced execution in `/goal-settings` (`idleContinuationBackoff: true`). Use the scope switch to choose a global default or a project override. An explicit project `false` overrides global `true`; removing the override restores inheritance.
+Default continuation is immediate. To slow repeated replies without recognized work, enable **slow repeated idle replies (opt-in)** under Advanced execution in `/gx settings` (`idleContinuationBackoff: true`). Use the scope switch to choose a global default or a project override. An explicit project `false` overrides global `true`; removing the override restores inheritance.
 
 When enabled, one execution without recognized work continues immediately. Further such executions wait 30, 60, 120, 240, then 300 seconds between attempts. Work observed anywhere in the execution or a change to the objective, requirements or tasks resets the delay. Goal inspection, echo-only calls, accounting and scheduling declarations alone do not reset it. This heuristic may delay reasoning or unfamiliar custom tools, and repeated recognized tool calls can bypass it. It reduces request rate; it does not guarantee progress or finite spending. Use a run allowance or token budget for a hard limit.
 
-The delay survives reloads and shows a relative time, local clock time and resume command. Waiting spends no autonomous runs or active time. Turning the option off cancels a pending delay promptly without renewing spent runs or resuming a paused goal. Turning it on starts observing a subsequent execution, rather than classifying work retroactively. Old saved delay metadata has no effect without opt-in. `/goal-resume` renews the run allowance and continues now; incoming user/producer messages remain ordinary host work outside that allowance. Strict waits and provider-error recovery keep their separate timing.
+The delay survives reloads and shows a relative time, local clock time and resume command. Waiting spends no autonomous runs or active time. Turning the option off cancels a pending delay promptly without renewing spent runs or resuming a paused goal. Turning it on starts observing a subsequent execution, rather than classifying work retroactively. Old saved delay metadata has no effect without opt-in. `/gx resume` renews the run allowance and continues now; incoming user/producer messages remain ordinary host work outside that allowance. Strict waits and provider-error recovery keep their separate timing.
 
-Enable `strictExecutionContract: true` in `/goal-settings` or your global/project settings to require explicit ready/wait decisions. In that mode, a missing decision permits one repair prompt within the remaining allowance, then pauses. This is a user preference; agents should not enable it merely to continue.
+Enable `strictExecutionContract: true` in `/gx settings` or your global/project settings to require explicit ready/wait decisions. In that mode, a missing decision permits one repair prompt within the remaining allowance, then pauses. This is a user preference; agents should not enable it merely to continue.
 
-Set an appropriate allowance in `/goal-settings`, or in `.pi/pi-goal-x-settings.json`:
+Set an appropriate allowance in `/gx settings`, or in `.pi/pi-goal-x-settings.json`:
 
 ```json
 { "maxAutonomousRuns": 20 }
@@ -24,7 +24,7 @@ The `Autonomous runs: used/limit` line reports a finite allowance and is left ou
 allowance is unlimited. Set `showAutonomousRuns` to `false` to drop it for a finite
 allowance as well; it defaults to `true`.
 
-Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/goal-resume` renews the period and continues now, including from a waiting goal. No configured allowance is required unless the effective limit is zero, which disables resume. Tool calls within a run are not separate runs. Existing token budgets still apply.
+Agents may edit this setting. Changing it does not replenish consumed runs; explicit `/gx resume` renews the period and continues now, including from a waiting goal. No configured allowance is required unless the effective limit is zero, which disables resume. Tool calls within a run are not separate runs. Existing token budgets still apply.
 
 Explicit `ready` is optional in default mode. A goal saved before next actions were
 removed still loads, with its `nextAction` field stripped during normalization.
@@ -41,7 +41,7 @@ update_goal({ continuation: {
 
 Use a future deadline appropriate to the task. Omit `polling` for an event-only wait. Successful declarations terminate the execution segment. On a scheduled check, reuse the returned `wait_id` and original deadline, omitting `polling`; remaining checks cannot be reset. A ready decision ends the wait. Time spent waiting is not active execution time.
 
-The dashboard, `/goal-status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
+The dashboard, `/gx status`, and `get_goal` show scheduling state, timing, checks, and allowance consumption. Expired waits and exhausted checks or allowance pause without another model call. Waits survive reopening the same session, without replaying missed checks; Pi must remain open for timers to execute. Another session requires explicit resume to take ownership. An ambiguous interrupted dispatch requires resume instead of automatic replay.
 
 ## Background producer integration
 
@@ -57,13 +57,13 @@ Existing producers that directly send `triggerTurn`/`followUp` messages still ru
 
 ## First goal and interrupted work
 
-On a first bare `/goal`, goal-x offers a short getting-started prompt with an example goal. Choosing the example starts the existing guided draft; it does not create a goal until you confirm the proposal. Choosing your own goal continues the usual drafting flow. `/goal-onboarding` reopens the walkthrough. `/goal-list recovery` summarizes paused, blocked (awaiting user action), waiting, and interrupted-checkpoint goals with suggested next steps when persisted state provides them; it is read-only, and focus/resume remain explicit actions. `/goal-recovery` remains the separate storage-integrity diagnostic and repair command.
+On a first bare `/gx`, goal-x offers a short getting-started prompt with an example goal. Choosing the example starts the existing guided draft; it does not create a goal until you confirm the proposal. Choosing your own goal continues the usual drafting flow. `/gx onboarding` reopens the walkthrough. `/gx list recovery` summarizes paused, blocked (awaiting user action), waiting, and interrupted-checkpoint goals with suggested next steps when persisted state provides them; it is read-only, and focus/resume remain explicit actions. `/gx recovery` remains the separate storage-integrity diagnostic and repair command.
 
 ## Process presets and local outcome measurements
 
-In `/goal-settings` at project scope, **Process preset** applies one of three profiles to newly created goals: lightweight disables task/contracts and the auditor; structured enables tasks/contracts and leaves the auditor off for new goals; audited enables tasks/contracts and the auditor. Existing goals and unrelated settings are unchanged, and precheck stays off. Presets are explicit and can be customized afterward.
+In `/gx settings` at project scope, **Process preset** applies one of three profiles to newly created goals: lightweight disables task/contracts and the auditor; structured enables tasks/contracts and leaves the auditor off for new goals; audited enables tasks/contracts and the auditor. Existing goals and unrelated settings are unchanged, and precheck stays off. Presets are explicit and can be customized afterward.
 
-**Outcome measurements** are disabled by default. Opt in per project from `/goal-settings` to store local daily aggregate counts for goal starts/completions/abandonments, blocks/resumes, check results, and auditor verdicts. The store contains no goal IDs, text, paths, prompts, or per-goal records; it is never sent over the network and rolls off after 90 days. The settings menu can inspect or reset the counts and disable future recording.
+**Outcome measurements** are disabled by default. Opt in per project from `/gx settings` to store local daily aggregate counts for goal starts/completions/abandonments, blocks/resumes, check results, and auditor verdicts. The store contains no goal IDs, text, paths, prompts, or per-goal records; it is never sent over the network and rolls off after 90 days. The settings menu can inspect or reset the counts and disable future recording.
 
 ## Prompt caching
 
@@ -71,7 +71,7 @@ Goal state is refreshed at the request tail while the system prompt and conversa
 
 ## Changing a token budget
 
-Use the existing tweak flow: `/goal-tweak remove the token budget` or `/goal-tweak set the token budget to 50000`. The proposal shows the current and proposed limits before confirmation. A budget is a total lifetime limit, not an additional allocation; consumed tokens and completed work are preserved. Omitting a budget change retains the current limit.
+Use the existing tweak flow: `/gx tweak remove the token budget` or `/gx tweak set the token budget to 50000`. The proposal shows the current and proposed limits before confirmation. A budget is a total lifetime limit, not an additional allocation; consumed tokens and completed work are preserved. Omitting a budget change retains the current limit.
 
 After confirmation, a goal stopped only by its budget can continue if the revised limit allows it and scheduling permits. A still-exhausted budget keeps it stopped. Other-session ownership, interrupted execution and exhausted autonomous-run allowances still require their existing recovery steps. Creation and tweak results always show the effective budget.
 
@@ -103,7 +103,7 @@ By default goals stay in `<cwd>/.pi/goals`. Set `goalsRoot` in your project or g
 { "goalsRoot": "~/work/project-goals" }
 ```
 
-Worktrees pointing to the same root share goals, archives, ledger and locks; focus remains session-local and execution ownership still requires explicit resume. The working directory for tools and audits is unchanged. Existing goals are not moved automatically. Reload/reopen the session after changing roots; `/goal-refresh` refreshes the selected pool. `/goal-status verbose` shows the effective location. Saved goal paths remain logical `.pi/goals/...` paths within that selected pool.
+Worktrees pointing to the same root share goals, archives, ledger and locks; focus remains session-local and execution ownership still requires explicit resume. The working directory for tools and audits is unchanged. Existing goals are not moved automatically. Reload/reopen the session after changing roots; `/gx refresh` refreshes the selected pool. `/gx status verbose` shows the effective location. Saved goal paths remain logical `.pi/goals/...` paths within that selected pool.
 
 `hideUnfocusedPrompt: true` suppresses ordinary unfocused reminders to the model independently of `hideUnfocusedBanner`; neither changes focus or bypasses stale-checkpoint checks.
 
@@ -133,4 +133,4 @@ restriction. Neither setting confines bash or prevents access elsewhere on the h
 
 ## Diagnostics and recovery
 
-Use `/goal-status verbose` for effective settings and storage location, `/goal-status health` or `/goal-recovery` to check for problems, and `/goal-refresh` to reload saved goals and settings after external changes. `/goal-recovery repair` offers repairs after confirmation.
+Use `/gx status verbose` for effective settings and storage location, `/gx status health` or `/gx recovery` to check for problems, and `/gx refresh` to reload saved goals and settings after external changes. `/gx recovery repair` offers repairs after confirmation.

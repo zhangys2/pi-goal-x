@@ -325,7 +325,7 @@ export function isMeaningfulProgressToolCall(toolName: string, args: unknown): b
 
 /**
  * E1: per-goal history block (last audit verdict + recent lifecycle events)
- * surfaced by get_goal and /goal-status; the ledger already records it.
+ * surfaced by get_goal and /gx status; the ledger already records it.
  */
 export function buildGoalHistoryBlock(goal: GoalRecord | null, ledgerEvents: GoalLedgerEvent[]): string {
 	if (!goal) return "";

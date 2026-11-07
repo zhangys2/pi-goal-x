@@ -3,7 +3,7 @@ import { normalizeGoalScheduler, type GoalSchedulerState } from "./goal-schedule
 export type GoalStatus = "active" | "paused" | "blocked" | "budget_limited" | "complete";
 export type StopReason = "user" | "agent";
 export type GoalEventKind = "checkpoint" | "stale";
-/** Goal creation mode used by the /goal and /sisyphus commands. */
+/** Goal creation mode used by the /gx and /gx sisyphus commands. */
 export type GoalMode = "goal" | "sisyphus";
 export type GoalFocusReason = "created" | "selected" | "unfocused" | "resumed" | "completed" | "cleared" | "aborted" | "migrated";
 

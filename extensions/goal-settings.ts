@@ -32,7 +32,7 @@ import type { KeyId } from "@earendil-works/pi-tui";
 import type { PrecheckSettings } from "./goal-precheck.ts";
 
 import { renameAtomicSync } from "./storage/atomic-rename.ts";
-import { GOAL_COMMANDS, GOAL_KEY_ACTIONS, PAUSE_ORDERS, parseCommandPaths, parseGoalKeybinding, type GoalCommands, type GoalKeybinding, type PauseOrder } from "./goal-controls.ts";
+import { GOAL_COMMANDS, GOAL_KEY_ACTIONS, PAUSE_ORDERS, commandPaths, parseCommandPaths, parseGoalKeybinding, type GoalCommands, type GoalKeybinding, type PauseOrder } from "./goal-controls.ts";
 
 
 export const GOAL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -1039,7 +1039,7 @@ function resolvedSettingsSnapshot(cwd: string, env: NodeJS.ProcessEnv): Settings
 		target[action.path.at(-1)!] = resolved;
 	}
 	const commands: GoalCommands = {};
-	for (const [id] of GOAL_COMMANDS) commands[id] = track(`commands.${id}`, resolveLeaf<string[]>({ projectValue: project.layer.commands?.[id], globalValue: global.layer.commands?.[id], defaultValue: [id] }));
+	for (const [id] of GOAL_COMMANDS) commands[id] = track(`commands.${id}`, resolveLeaf<string[]>({ projectValue: project.layer.commands?.[id], globalValue: global.layer.commands?.[id], defaultValue: commandPaths(undefined, id) }));
 	const pauseOrder = track("pauseOrder", resolveLeaf<PauseOrder>({ projectValue: project.layer.pauseOrder, globalValue: global.layer.pauseOrder, defaultValue: "together" }));
 
 	const value: ResolvedGoalSettings = {

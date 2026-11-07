@@ -14,3 +14,53 @@
 - Focused feature/regression tests passed: onboarding, recovery, report, settings, presets, measurements, and service failure isolation. Coverage includes corrupt bucket sanitation, unusable measurement storage, project-only auditor defaults, preset-to-new-goal behavior, and preserving goal/ledger success when measurement recording throws.
 - `npm run check`, `npm run lint`, `npm run test:selfcheck`, `git diff --check`, and `npm pack --dry-run --ignore-scripts` passed. Final `npm run test:all`: 1,360 passed, 1 skipped, 0 failed (1,361 total).
 - Earlier PR CI failures were traced to a new test writing global settings into the CI home directory; the test now uses an isolated global settings path.
+
+## 2026-11-07 — Renamed the command tree to /gx
+
+- Migrated the public goal command and its subcommands to the /gx root; /loop remains separate. Legacy goal roots are not registered by default. Stable action IDs and configurable aliases remain unchanged.
+- Updated command guidance, worker prompts, tests, documentation, README command table, changelog, and active experiment assets. Added route tests for nested subcommands and argument preservation.
+
+### Validation
+
+- Focused command/lifecycle checks passed: 491 tests, 491 passed.
+- `npm run check`, `npm run lint`, `npm run test:selfcheck` (93 unit, 1 integration, 9 e2e manifest entries), and `npm pack --dry-run --ignore-scripts` passed.
+- Full suite passed: 1,356 passed, 1 skipped (1,357 total). Run with an isolated `HOME` and `PI_GOAL_GLOBAL_SETTINGS_FILE` unset so tests do not read or inherit the user settings file. An earlier run passed a global-settings override into child Pi processes, disabling the recovery E2E's per-agent auto-focus; rerunning with isolated `HOME` and no override passed the real Pi recovery scenarios.
+- `git diff --check` passed after the milestone update.
+
+
+## 2026-11-08 — Addressed PR #39 review
+
+- Keep subcommand-like objectives on guided drafting when their trailing text is not a valid action argument; preserve recognized status/list/recovery/settings arguments, free-form tweak text, and the explicit `/gx -- <objective>` escape.
+- Preserve `/goal/` paths and ordinary `/goal.` prose in command-reference rewriting. Add a one-time interactive notice that former roots require explicit aliases; test former report/onboarding roots as configured aliases.
+- Documented the routing and escape syntax. Confirmed surface contracts remain covered by the exact command-palette test and the tool-name/visibility suites. The deleted characterization test's registration-order and duplicate-registration assertions were not retained because they test internal wiring rather than consumer behavior.
+
+### Validation
+
+- Focused routing and drafting tests: 105 passed.
+- `npm run check` and `npm run lint` passed.
+- Headless extension smoke: `/gx status page redesign` started guided drafting.
+- Full `npm run test:all`: 1,364 passed, 1 skipped, 0 failed (1,365 total; 103 test files discovered).
+
+
+## 2026-11-08 — Restored CI after the /gx command rename
+
+- Moved active controls, lifecycle, and continuation workflows from removed legacy command roots to `/gx`; retained `/goal edit` only as explicit-alias coverage.
+- CI exposed partial command settings resolving unconfigured actions to legacy roots. Unset actions now keep canonical `/gx` paths, with regression coverage that a partial override still exposes `/gx direct`.
+- A full-suite regression showed that a recognized default subcommand whose action was remapped could fall through to goal drafting. Such forms now show configured command choices; invalid trailing objective text remains draftable.
+- Updated the product/technical contract and changelog for partial command overrides and remapped subcommands.
+
+### Validation
+
+- `node scripts/ci-checks.mjs` passed: manifest self-check, controls CLI, live Pi lifecycle, tests (1,365 passed, 1 skipped), and installed-package smoke.
+- `npm run check`, `npm run lint`, and both focused command-control regressions passed.
+- `git diff --check` passed after this entry.
+
+
+### Remote CI follow-up
+
+- GitHub `validate` on `0fb0d08` fails at `npm run context:gate`. The same gate fails at base commit `284eaa8` on `current-contracted-task` and `get-goal-default-and-verbose` semantic/breakdown invariants, so those failures predate this PR.
+- The current branch also reports per-fixture breakdown drift after the `/gx` command-path changes. No baseline was regenerated: the context harness requires an active-campaign rationale, and the inherited semantic failures remain unresolved.
+- `git diff --check` passed after this update.
+- The next remote run on `7aff388` passed unit, lifecycle, and package checks but `settings-paths` read `[]` immediately after selecting Use default. The walkthrough now waits for the persisted `["gx pause"]` value instead of assuming a fixed input delay.
+- After that change, local `node scripts/ci-checks.mjs` passed: controls CLI, live Pi lifecycle, 1,365 tests passed with 1 skipped, and installed-package smoke. `npm run lint` also passed.
+- `git diff --check` passed after this update.

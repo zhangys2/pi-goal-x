@@ -8,8 +8,8 @@ import { visibleWidth, getKeybindings } from "@earendil-works/pi-tui";
 import goalExtension from "../extensions/goal.ts";
 import type { GoalCore } from "../extensions/goal-state.ts";
 import {
-	GOAL_COMMANDS, GOAL_KEY_ACTIONS, commandProblems, commandRoutes, matchCommandRoute,
-	normalizeGoalKey, sameGoalKey, parseCommandPaths, parseGoalKeybinding, keybindingProblems, commandHint,
+	GOAL_COMMANDS, GOAL_KEY_ACTIONS, commandPaths, commandProblems, commandRoutes, matchCommandRoute,
+	normalizeGoalKey, sameGoalKey, parseCommandPaths, parseGoalKeybinding, keybindingProblems, commandHint, commandInstructions,
 } from "../extensions/goal-controls.ts";
 import { loadSettingsSnapshot, mutateSettingsLayer, SettingsMutationError, invalidateGoalSettingsCache } from "../extensions/goal-settings.ts";
 import { syncTerminalInputPause } from "../extensions/goal-widget.ts";
@@ -92,24 +92,31 @@ test("control grammar normalizes aliases/modifiers, preserves disabled lists and
 	assert.equal(parseGoalKeybinding(["ctrl+p", "bad"]), undefined);
 	assert.equal(sameGoalKey("ctrl+[", "escape"), true);
 	assert.equal(sameGoalKey("ctrl+[", "escape", true), false);
-	assert.deepEqual(parseCommandPaths(["/goal   edit", "goal edit"]), ["goal edit"]);
-	assert.equal(parseCommandPaths(["/goal edit; bash"]), undefined);
-	assert.equal(commandHint("goal-settings", { "goal-settings": [] }), "/goal-settings");
+	assert.deepEqual(parseCommandPaths(["/gx   edit", "gx edit"]), ["gx edit"]);
+	assert.equal(parseCommandPaths(["/gx edit; bash"]), undefined);
+	assert.equal(commandHint("goal-settings", { "goal-settings": [] }), "/gx settings");
 });
 
 test("routes match whole words, prefer subcommands and preserve objective whitespace", () => {
-	const routes = commandRoutes({ "goal-tweak": ["goal edit", "revise"], "goal-pause": [] });
-	assert.deepEqual(matchCommandRoute(routes, "goal", "edit  Keep  the spacing"), { id: "goal-tweak", args: "Keep  the spacing" });
-	assert.deepEqual(matchCommandRoute(routes, "goal", "editor improvements"), { id: "goal", args: "editor improvements" });
+	const routes = commandRoutes({ "goal-tweak": ["gx edit", "revise"], "goal-pause": [] });
+	assert.deepEqual(matchCommandRoute(routes, "gx", "edit  Keep  the spacing"), { id: "goal-tweak", args: "Keep  the spacing" });
+	assert.deepEqual(matchCommandRoute(routes, "gx", "editor improvements"), { id: "goal", args: "editor improvements" });
 	assert.equal(matchCommandRoute(routes, "goal-pause", ""), undefined);
 	assert.equal(commandRoutes(undefined).length, GOAL_COMMANDS.length);
 	assert.notEqual(commandControlsFingerprint({ goal: ["goal", "work new"] }), commandControlsFingerprint({ goal: ["work new", "goal"] }), "changing only the preferred alias still needs reload");
 	assert.ok(commandProblems({ goal: ["reload"] }).length);
-	assert.ok(commandProblems({ "goal-tweak": ["goal"] }).length);
-	assert.ok(commandProblems({ goal: ["goal-settings"] }).length);
+	assert.ok(commandProblems({ "goal-tweak": ["gx"] }).length);
+	assert.ok(commandProblems({ "goal-status": ["gx settings"] }).length);
 	assert.ok(commandProblems({ goal: ["team goal"] }, ["team"]).length);
 	assert.ok(commandProblems({ goal: ["loop"] }).some(problem => problem.includes("/loop")));
-	assert.ok(commandProblems({ "goal-status": ["goal-report"] }).some(problem => problem.includes("/goal-report")));
+	assert.ok(commandProblems({ "goal-status": ["gx report"] }).some(problem => problem.includes("/gx report")));
+});
+
+test("command reference rewriting leaves paths and ordinary prose untouched", () => {
+	assert.equal(
+		commandInstructions("Keep /goal/path and /goal. literal; use /goal-resume."),
+		"Keep /goal/path and /goal. literal; use /gx resume.",
+	);
 });
 
 test("controls inherit per leaf, explicit empty lists override and resolved arrays are caller-owned", () => {
@@ -135,7 +142,7 @@ test("controls inherit per leaf, explicit empty lists override and resolved arra
 		assert.deepEqual(loadSettingsSnapshot(h.cwd).provenance.get("keybindings.pause")!.value, ["f6", "ctrl+alt+p"]);
 		assert.throws(() => h.mutate("project", "set", ["keybindings", "pause"], "misspelled"), SettingsMutationError);
 		assert.throws(() => h.mutate("project", "set", ["pauseOrder"], "taskMaybe"), SettingsMutationError);
-		assert.throws(() => h.mutate("project", "set", ["commands", "goal"], "/goal"), SettingsMutationError);
+		assert.throws(() => h.mutate("project", "set", ["commands", "goal"], "/gx"), SettingsMutationError);
 		assert.equal(loadSettingsSnapshot(h.cwd).value.pauseOrder, "goal-first");
 	} finally { h.close(); }
 });
@@ -158,12 +165,13 @@ test("session project cwd controls command aliases and fixed command collisions 
 		assert.deepEqual(reloadedCore.loadedCommands?.["goal-status"], ["project-progress"], "extension reload reuses the active session cwd");
 		reloadedCore.scheduler.shutdown();
 		reloadedCore.runtime.clearContinuationState();
-		assert.equal(h.commands.has("goal"), true);
-		await h.commands.get("goal-status").handler("", h.ctx);
-		assert.match(h.notifications.at(-1) ?? "", /not configured as a goal command in this project/);
+		assert.equal(h.commands.has("gx"), true);
+		assert.equal(h.commands.get("gx").getArgumentCompletions("").some((item: { value: string }) => item.value === "list"), false);
+		await h.commands.get("gx").handler("status", h.ctx);
+		assert.match(h.notifications.at(-1) ?? "", /Choose a goal command/);
 	} finally { h.close(); rmSync(cwd, { recursive: true, force: true }); }
 
-	for (const commands of [{ goal: ["loop"] }, { "goal-status": ["goal-report"] }]) {
+	for (const commands of [{ goal: ["loop"] }]) {
 		const collision = fixture({ commands });
 		try {
 			await collision.emit("session_start");
@@ -171,6 +179,68 @@ test("session project cwd controls command aliases and fixed command collisions 
 			assert.ok(collision.core.controlWarnings?.some(warning => /belongs to Pi or another command/.test(warning)));
 		} finally { collision.close(); }
 	}
+});
+
+test("partial command overrides retain /gx defaults for unconfigured actions", async () => {
+	const h = fixture({ commands: { "goal-tweak": ["gx tweak", "goal edit"] } });
+	try {
+		await h.emit("session_start");
+		assert.equal(h.commands.has("goal-direct"), false);
+		const completions = h.commands.get("gx")!.getArgumentCompletions("").map((item: { value: string }) => item.value);
+		assert.ok(completions.includes("direct"));
+		await h.commands.get("gx")!.handler("direct Create a small verified artifact.", h.ctx);
+		assert.equal(h.core.state.goal?.objective, "Create a small verified artifact.");
+	} finally { h.close(); }
+});
+
+test("former report and onboarding roots remain available as explicit aliases", async () => {
+	const h = fixture({ commands: { "goal-report": ["goal-report"], "goal-onboarding": ["goal-onboarding"] } });
+	try {
+		await h.emit("session_start");
+		assert.deepEqual(h.core.loadedCommands?.["goal-report"], ["goal-report"]);
+		assert.deepEqual(h.core.loadedCommands?.["goal-onboarding"], ["goal-onboarding"]);
+		assert.equal(h.commands.has("goal-report"), true);
+		assert.equal(h.commands.has("goal-onboarding"), true);
+		assert.equal(h.core.controlWarnings?.length ?? 0, 0);
+	} finally { h.close(); }
+});
+
+test("the first interactive session shows the /gx migration notice once", async () => {
+	const h = fixture();
+	try {
+		const notices = () => h.notifications.filter(message => message.includes("Goal commands now use /gx"));
+		await h.emit("session_start");
+		assert.equal(notices().length, 1);
+		assert.match(notices()[0]!, /not registered unless configured as aliases/);
+		await h.emit("session_start");
+		assert.equal(notices().length, 1);
+	} finally { h.close(); }
+});
+
+test("/gx tweak free-form text reaches the revision draft without a separator", async () => {
+	const h = fixture();
+	try {
+		await h.start();
+		await h.commands.get("gx")!.handler("tweak revise the goal target", h.ctx);
+		const prompt = h.messages.map(String).join("\n");
+		assert.ok(prompt.includes("[GOAL TWEAK DRAFT]"));
+		assert.ok(prompt.includes("User request:\nrevise the goal target"));
+	} finally { h.close(); }
+});
+
+test("/gx tweak -- passes only the change text to the revision draft", async () => {
+	const h = fixture();
+	try {
+		await h.start();
+		const goalId = h.core.state.goal?.id;
+		assert.ok(goalId);
+		await h.commands.get("gx")!.handler("tweak -- revise the goal target", h.ctx);
+		const prompt = h.messages.map(String).join("\n");
+		assert.ok(prompt.includes("[GOAL TWEAK DRAFT]"));
+		assert.ok(prompt.includes("User request:\nrevise the goal target"));
+		assert.ok(!prompt.includes("User request:\n-- revise"));
+		assert.equal(h.core.state.goal?.id, goalId);
+	} finally { h.close(); }
 });
 
 test("shortcut conflicts use overlapping contexts, preserving Escape view priority", () => {
@@ -187,7 +257,8 @@ test("custom command roots register once, complete subcommands and keep settings
 		assert.equal(h.commands.has("goal"), false);
 		assert.equal(h.commands.has("goal-tweak"), false);
 		assert.equal(h.commands.has("goal-pause"), false);
-		assert.ok(h.commands.has("goal-settings"));
+		assert.equal(h.commands.has("goal-settings"), false);
+		assert.ok(h.commands.has("gx"));
 		assert.ok(h.commands.has("preferences"));
 		assert.deepEqual(h.commands.get("work").getArgumentCompletions("e").map((item: { value: string }) => item.value), ["edit"]);
 		await h.commands.get("work").handler("unknown", h.ctx);
@@ -315,13 +386,13 @@ test("goal-first stops at the turn boundary; a user resume cancels that pending 
 });
 
 test("preferred command spellings reach the policy without changing user objective text", async () => {
-	const h = fixture({ commands: { "goal-resume": ["work continue"], "goal-tweak": ["goal edit"] } });
+	const h = fixture({ commands: { "goal-resume": ["work continue"], "goal-tweak": ["gx edit"] } });
 	try {
-		await h.core.invokeGoalCommand!("goal-direct", "Document the literal /goal-resume command in a fixture.", h.ctx);
+		await h.core.invokeGoalCommand!("goal-direct", "Document the literal /gx resume command in a fixture.", h.ctx);
 		const text = goalPrompt(h.core.state.goal!, loadSettingsSnapshot(h.cwd).value);
 		assert.ok(text.includes("Only creation or user /work continue renews usage"));
-		assert.ok(text.includes("ask the user to run /goal edit"));
-		assert.ok(text.includes("Document the literal /goal-resume command in a fixture."));
+		assert.ok(text.includes("ask the user to run /gx edit"));
+		assert.ok(text.includes("Document the literal /gx resume command in a fixture."));
 	} finally { h.close(); }
 });
 
@@ -406,8 +477,8 @@ test("controls UI edits aliases without a model call, preserves cancelled input 
 	const h = fixture();
 	try {
 		const d = dialog(h);
-		d.press("Revise", ENTER, DOWN, ENTER, "/goal edit", ENTER);
-		assert.deepEqual(loadSettingsSnapshot(h.cwd).value.commands?.["goal-tweak"], ["goal-tweak", "goal edit"]);
+		d.press("Revise", ENTER, DOWN, ENTER, "/gx edit", ENTER);
+		assert.deepEqual(loadSettingsSnapshot(h.cwd).value.commands?.["goal-tweak"], ["gx tweak", "gx edit"]);
 		assert.match(d.text(), /applies command changes/);
 		const before = readFileSync(h.file, "utf8");
 		d.press(ENTER, ENTER, "\x15", "/changed", ESC, ESC);
@@ -513,7 +584,7 @@ test("all command editors support replacement, aliases, disable, default and inh
 			assert.deepEqual(loadSettingsSnapshot(h.cwd).value.commands?.[id], [], id);
 			if (id === "goal-settings") assert.match(d.text(), /recovery only/);
 			d.press(ENTER, DOWN, DOWN, DOWN, ENTER);
-			assert.deepEqual(loadSettingsSnapshot(h.cwd).value.commands?.[id], [id], id);
+			assert.deepEqual(loadSettingsSnapshot(h.cwd).value.commands?.[id], commandPaths(undefined, id), id);
 			d.press(ENTER, DOWN, DOWN, DOWN, DOWN);
 			assert.match(d.text(), new RegExp(`Inherited: /custom ${id}`));
 			d.press(ENTER);

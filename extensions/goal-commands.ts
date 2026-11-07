@@ -82,10 +82,33 @@ import type { GoalCore } from "./goal-state.ts";
 import { offerProjectOrchestrationSetup } from "./goal-project-config.ts";
 import { regenerateGoalReport } from "./goal-report-runtime.ts";
 
+function acceptsDefaultCommandArguments(id: GoalCommandId, args: string): boolean {
+	const value = args.trim();
+	switch (id) {
+		case "goal":
+		case "sisyphus":
+		case "goal-direct":
+		case "sisyphus-direct":
+			return true;
+		case "goal-tweak":
+			return true;
+		case "goal-list":
+			return value === "" || /^recovery$/i.test(value);
+		case "goal-status":
+			return value === "" || value === "verbose" || value === "health";
+		case "goal-recovery":
+			return value === "" || value === "repair";
+		case "goal-settings":
+			return value === "" || value === "controls";
+		default:
+			return value === "";
+	}
+}
+
 /**
  * Stable command actions retain their lifecycle checks. Configured invocation
  * paths are registered at load time; aliases and subcommands share the same
- * handler and argument completion. /goal-settings remains the recovery entry.
+ * handler and argument completion. /gx settings remains the recovery entry.
  */
 export function registerGoalCommands(core: GoalCore): void {
 	const { pi } = core;
@@ -192,7 +215,7 @@ export function registerGoalCommands(core: GoalCore): void {
 	const sampleGoal = "Add CSV export to reports, including tests and documentation.";
 	async function showOnboarding(ctx: ExtensionContext): Promise<"draft" | "sample" | "dismiss" | "cancel"> {
 		if (!ctx.hasUI) {
-			ctx.ui.notify(`goal-x: draft an outcome with /goal, review the proposed plan, then confirm before work starts. Example: “${sampleGoal}”`, "info");
+			ctx.ui.notify(`goal-x: draft an outcome with ${commandHint("goal", core.loadedCommands)}, review the proposed plan, then confirm before work starts. Example: “${sampleGoal}”`, "info");
 			return "cancel";
 		}
 		const choice = await ctx.ui.select("Getting started with goal-x", [
@@ -811,7 +834,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		await startGoalDrafting(core, ctx, "tweak", trimmed, currentGoal);
 	}
 
-	// /goal and /sisyphus are the guided default. -direct commands are the explicit bypass.
+	// /gx and /gx sisyphus are guided paths; /gx direct is the explicit bypass.
 	define("goal", {
 		description: "Draft a regular goal with clarification, task planning, and confirmation.",
 		handler: async (rawArgs, ctx) => {
@@ -914,7 +937,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		description: "Revise the current goal or its token budget with confirmation.",
 
 		handler: async (rawArgs, ctx) => {
-			await runGoalTweak(rawArgs, ctx);
+			await runGoalTweak(rawArgs.replace(/^--(?:\s+|$)/, ""), ctx);
 		},
 	});
 	define("goal-clear", {
@@ -930,20 +953,17 @@ export function registerGoalCommands(core: GoalCore): void {
 		},
 	});
 
-	pi.registerCommand("goal-onboarding", {
-		description: "Show the goal-x getting-started walkthrough again.",
+	define("goal-onboarding", { description: "Show the goal-x getting-started walkthrough again.",
 		handler: async (_args, ctx) => {
 			const choice = await showOnboarding(ctx);
 			if (choice === "draft") await startGoalDrafting(core, ctx, "goal", "");
 			else if (choice === "sample") await startGoalDrafting(core, ctx, "goal", sampleGoal);
-		},
-	});
+		}, });
 
-	pi.registerCommand("goal-report", {
-		description: "Write the focused goal's report now and show its path.",
+	define("goal-report", { description: "Write the focused goal's report now and show its path.",
 		handler: async (_rawArgs, ctx) => {
 			core.reconcileFocusedGoalFromDisk(ctx);
-			if (!core.state.goal) { ctx.ui.notify("No goal is focused. Use /goal-focus first.", "warning"); return; }
+			if (!core.state.goal) { ctx.ui.notify(`No goal is focused. Use ${commandHint("goal-focus", core.loadedCommands)} first.`, "warning"); return; }
 			if (loadGoalSettings(ctx.cwd).disableGoalReport) { ctx.ui.notify("Goal reports are disabled (disableGoalReport).", "info"); return; }
 			try {
 				const written = regenerateGoalReport(core, ctx);
@@ -951,8 +971,7 @@ export function registerGoalCommands(core: GoalCore): void {
 			} catch (error) {
 				ctx.ui.notify(`Goal report failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
 			}
-		},
-	});
+		}, });
 	define("goal-resume", {
 
 		description: "Continue now and renew the configured autonomous-run allowance.",
@@ -960,7 +979,8 @@ export function registerGoalCommands(core: GoalCore): void {
 			await handleGoalResume(ctx);
 		},
 	});
-	let routes = commandRoutes(undefined);
+	const defaultRoutes = commandRoutes(undefined);
+	let routes = defaultRoutes;
 	const registeredRoots = new Set<string>();
 	core.invokeGoalCommand = async (id, args, ctx) => {
 		const action = actions.get(id);
@@ -971,14 +991,13 @@ export function registerGoalCommands(core: GoalCore): void {
 	};
 	const installRoutes = (cwd: string): void => {
 		const configured = loadGoalSettings(cwd).commands;
-		// These fixed commands are registered by goal-loop.ts and the report
-		// handler above, outside this configurable action registry.
-		const problems = commandProblems(configured, ["loop", "goal-report"]);
+		// /loop is registered separately by goal-loop.ts; goal actions route through /gx.
+		const problems = commandProblems(configured, ["loop"]);
 		core.loadedCommands = problems.length ? undefined : configured;
 		core.controlWarnings = problems;
 		routes = commandRoutes(core.loadedCommands);
-		const roots = [...actions.keys()].flatMap(id => commandPaths(core.loadedCommands, id).map(route => route.split(" ")[0]!));
-		for (const root of new Set([...registeredRoots, ...roots, "goal-settings"])) {
+		const roots = routes.map(route => route.path.split(" ")[0]!);
+		for (const root of new Set([...registeredRoots, ...roots])) {
 			const rootRoutes = routes.filter(route => route.path.split(" ")[0] === root);
 			const direct = rootRoutes.find(route => route.path === root);
 			pi.registerCommand(root, {
@@ -986,7 +1005,21 @@ export function registerGoalCommands(core: GoalCore): void {
 				getArgumentCompletions: prefix => routes.filter(route => route.path.split(" ")[0] === root && route.path !== root && route.path.slice(root.length + 1).startsWith(prefix)).map(route => ({ value: route.path.slice(root.length + 1), label: route.path.slice(root.length + 1), description: GOAL_COMMANDS.find(([id]) => id === route.id)![1] })),
 				handler: async (args, ctx) => {
 					const currentRoutes = routes.filter(route => route.path.split(" ")[0] === root);
-					const match = matchCommandRoute(routes, root, args);
+					let match = matchCommandRoute(routes, root, args);
+					if (match && root === "gx") {
+						const defaultMatch = matchCommandRoute(defaultRoutes, root, args);
+						const draftRootAvailable = routes.some(route => route.id === "goal" && route.path === root);
+						if (draftRootAvailable && defaultMatch) {
+							if (defaultMatch.id === match.id && !acceptsDefaultCommandArguments(match.id, match.args)) {
+								match = { id: "goal", args };
+							} else if (match.id === "goal" && defaultMatch.id !== "goal" && acceptsDefaultCommandArguments(defaultMatch.id, defaultMatch.args)) {
+								match = undefined;
+							}
+						}
+					}
+					if (match?.id === "goal" || match?.id === "goal-tweak") {
+						match = { ...match, args: match.args.replace(/^--(?:\s+|$)/, "") };
+					}
 					if (match) await core.invokeGoalCommand!(match.id, match.args, ctx);
 					else if (currentRoutes.length) ctx.ui.notify(`Choose a goal command: ${currentRoutes.map(route => `/${route.path}`).join(", ")}`, "info");
 					else ctx.ui.notify(`/${root} is not configured as a goal command in this project.`, "info");

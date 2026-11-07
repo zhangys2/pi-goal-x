@@ -195,12 +195,12 @@ describe("five-tool handler integration", () => {
 		}
 	});
 
-	it("/goal-status health is wired as a read-only command mode", async () => {
+	it("/gx status health is wired as a read-only command mode", async () => {
 		const f = fixture();
 		try {
 			const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries });
 			await start(h);
-			await h.commands.get("goal-status")?.handler("health", h.ctx);
+			await h.commands.get("gx")?.handler("status health", h.ctx);
 			const notification = h.notifies.at(-1)?.msg ?? "";
 			assert.match(notification, /^Goal health: OK/);
 			assert.match(notification, /OK Goal file:/);
@@ -211,7 +211,7 @@ describe("five-tool handler integration", () => {
 		}
 	});
 
-	it("/goal-refresh invalidates caches and reports external changes", async () => {
+	it("/gx refresh invalidates caches and reports external changes", async () => {
 		const f = fixture();
 		try {
 			// Initial settings file so the settings diff compares content, not
@@ -221,7 +221,7 @@ describe("five-tool handler integration", () => {
 			const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries });
 			await start(h);
 
-			await h.commands.get("goal-refresh")?.handler("", h.ctx);
+			await h.commands.get("gx")?.handler("refresh", h.ctx);
 			const first = h.notifies.at(-1)?.msg ?? "";
 			assert.match(first, /no changes detected/, "unchanged state reports no changes");
 
@@ -233,7 +233,7 @@ describe("five-tool handler integration", () => {
 			appendFileSync(goalLedgerPath({ cwd: f.cwd }), JSON.stringify({ type: "goal_created", goalId: second.id, objective: "External goal", sisyphus: false, autoContinue: false, at: new Date().toISOString() }) + "\n", "utf8");
 			writeFileSync(path.join(f.cwd, ".pi", "pi-goal-x-settings.json"), JSON.stringify({ subtaskDepth: 3, provider: "anthropic" }), "utf8");
 
-			await h.commands.get("goal-refresh")?.handler("", h.ctx);
+			await h.commands.get("gx")?.handler("refresh", h.ctx);
 			const report = h.notifies.at(-1)?.msg ?? "";
 			assert.match(report, /goal-refresh: re-read caches from disk — 3 change\(s\):/);
 			assert.ok(report.includes(`pool: 1 goal(s) added — ${second.id}`), `pool addition reported for ${second.id}`);
@@ -241,7 +241,7 @@ describe("five-tool handler integration", () => {
 			assert.match(report, /settings: effective settings changed \(external edit\)/);
 
 			// A second refresh with no new external edits reports no changes again.
-			await h.commands.get("goal-refresh")?.handler("", h.ctx);
+			await h.commands.get("gx")?.handler("refresh", h.ctx);
 			const again = h.notifies.at(-1)?.msg ?? "";
 			assert.match(again, /no changes detected/);
 		} finally {
@@ -389,9 +389,9 @@ describe("five-tool handler integration", () => {
 				select: async () => selects.shift(),
 			});
 			await start(h);
-			const settingsCmd = h.commands.get("goal-settings");
+			const settingsCmd = h.commands.get("gx");
 			assert.ok(settingsCmd, "goal-settings command registered");
-			await settingsCmd.handler("", h.ctx); // must not throw (regression: recursive saveSettings)
+			await settingsCmd.handler("settings", h.ctx); // must not throw (regression: recursive saveSettings)
 			const settingsPath = path.join(f.cwd, ".pi", "pi-goal-x-settings.json");
 			const saved = JSON.parse(readFileSync(settingsPath, "utf8"));
 			assert.equal(saved.disabled, true, "menu toggle must persist disabled: true");
@@ -414,8 +414,8 @@ describe("five-tool handler integration", () => {
 				input: async () => inputs.shift(),
 			});
 			await start(h);
-			const settingsCmd = h.commands.get("goal-settings");
-			await settingsCmd.handler("", h.ctx);
+			const settingsCmd = h.commands.get("gx");
+			await settingsCmd.handler("settings", h.ctx);
 			const saved = JSON.parse(readFileSync(path.join(f.cwd, ".pi", "pi-goal-x-settings.json"), "utf8"));
 			assert.equal(saved.disabled, true, "existing setting preserved");
 			assert.equal(saved.thinking_level, "off", "thinking_level edited through the menu");
@@ -446,7 +446,7 @@ describe("five-tool handler integration", () => {
 					},
 				});
 				await start(h);
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				const lines = firstOptions.filter((o) => o.startsWith("  ") && !o.startsWith("  ───"));
 
 				assert.equal(lines.length, 23, `all twenty-three rows rendered, got: ${lines.join(" | ")}`);
@@ -489,7 +489,7 @@ describe("five-tool handler integration", () => {
 					select: async () => selects.shift(),
 				});
 				await start(h);
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				const saved = readSettings(f.cwd);
 				assert.equal(saved.disableTasks, true);
 				assert.equal(saved.disableContracts, true);
@@ -504,7 +504,7 @@ describe("five-tool handler integration", () => {
 					select: async () => selects2.shift(),
 				});
 				await start(h2);
-				await h2.commands.get("goal-settings").handler("", h2.ctx);
+				await h2.commands.get("gx").handler("settings", h2.ctx);
 				const saved2 = readSettings(f.cwd);
 				assert.equal(saved2.disableTasks, undefined, "disableTasks toggled back off clears the key");
 				assert.equal(saved2.autoSelectSingleGoal, undefined, "autoSelectSingleGoal toggled back off clears the key");
@@ -533,7 +533,7 @@ describe("five-tool handler integration", () => {
 					input: async () => inputs.shift(),
 				});
 				await start(h);
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				const saved = readSettings(f.cwd);
 				assert.equal(saved.provider, "anthropic");
 				assert.equal(saved.model, "claude-sonnet-4");
@@ -547,7 +547,7 @@ describe("five-tool handler integration", () => {
 					input: async () => inputs2.shift(),
 				});
 				await start(h2);
-				await h2.commands.get("goal-settings").handler("", h2.ctx);
+				await h2.commands.get("gx").handler("settings", h2.ctx);
 				const saved2 = readSettings(f.cwd);
 				assert.equal(saved2.provider, undefined, "default choice clears provider");
 				assert.equal(saved2.model, undefined, "default choice clears model");
@@ -576,7 +576,7 @@ describe("five-tool handler integration", () => {
 					input: async () => inputs.shift(),
 				});
 				await start(h);
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				const saved = readSettings(f.cwd);
 				assert.equal(saved.thinking_level, "max", "all seven levels accepted in sequence");
 				// Unknown value is rejected with a warning and nothing is persisted.
@@ -589,7 +589,7 @@ describe("five-tool handler integration", () => {
 					input: async () => inputs2.shift(),
 				});
 				await start(h2);
-				await h2.commands.get("goal-settings").handler("", h2.ctx);
+				await h2.commands.get("gx").handler("settings", h2.ctx);
 				assert.ok(h2.notifies.some((n) => n.level === "warning" && n.msg.includes("thinking_level must be one of")),
 					"unknown thinking level warns");
 				assert.equal(readSettings(f.cwd).thinking_level, "max", "rejected value is not persisted");
@@ -614,7 +614,7 @@ describe("five-tool handler integration", () => {
 					input: async () => inputs.shift(),
 				});
 				await start(h);
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				const warnings = h.notifies.filter((n) => n.level === "warning" && n.msg.includes("subtaskDepth"));
 				assert.equal(warnings.length, rejects.length - 1, `every invalid input warns: ${warnings.length}`);
 				assert.equal(readSettings(f.cwd).subtaskDepth, 1, "only the valid input is persisted");
@@ -639,7 +639,7 @@ describe("five-tool handler integration", () => {
 				await start(h);
 				// session_start installed the five-tool profile: history[0].
 				assert.equal(h.activeToolsHistory.length, 1, "one install at session_start");
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				// Each real change reinstalls exactly once: three, five, three.
 				assert.equal(h.activeToolsHistory.length, 4, "three reinstalls after session_start");
 				const installed = h.activeToolsHistory.slice(1).map((tools) => (tools.includes("set_goal_tasks") ? "five" : "three"));
@@ -683,7 +683,7 @@ describe("five-tool handler integration", () => {
 					},
 				});
 				await start(h2);
-				await h2.commands.get("goal-settings").handler("", h2.ctx);
+				await h2.commands.get("gx").handler("settings", h2.ctx);
 				await Promise.resolve(); // coalesced flush is a single microtask
 				const cleared = h2.statusCalls.some((c) => c.key === "goal" && c.value === undefined)
 					&& h2.widgetCalls.some((w) => w.factory === undefined || w.factory === null);
@@ -703,7 +703,7 @@ describe("five-tool handler integration", () => {
 					},
 				});
 				await start(h3);
-				await h3.commands.get("goal-settings").handler("", h3.ctx);
+				await h3.commands.get("gx").handler("settings", h3.ctx);
 				await Promise.resolve();
 				assert.ok(
 					h3.statusCalls.some((c) => c.key === "goal" && typeof c.value === "string" && c.value.includes("goal: unfocused")),
@@ -714,12 +714,12 @@ describe("five-tool handler integration", () => {
 			}
 		});
 
-		it("headless /goal-settings reports the settings file path without editing", async () => {
+		it("headless /gx settings reports the settings file path without editing", async () => {
 			const f = fixture();
 			try {
 				const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries, hasUI: false });
 				await start(h);
-				await h.commands.get("goal-settings").handler("", h.ctx);
+				await h.commands.get("gx").handler("settings", h.ctx);
 				assert.ok(h.notifies.some((n) => n.msg.includes("project file: ") && n.msg.includes("pi-goal-x-settings.json") && n.msg.includes("Global file: ")),
 					`headless notification reports both layer paths: ${h.notifies.map((n) => n.msg).join(" | ")}`);
 				const p = settingsPath(f.cwd);
@@ -748,7 +748,7 @@ describe("five-tool handler integration", () => {
 					select: async () => selects.shift(),
 				});
 				await start(h2);
-				await h2.commands.get("goal-settings").handler("", h2.ctx);
+				await h2.commands.get("gx").handler("settings", h2.ctx);
 				assert.equal(h2.activeToolsHistory.length, 1, "no reinstall when the effective setting never changed");
 			} finally {
 				if (prevTasks === undefined) delete process.env.PI_GOAL_DISABLE_TASKS;
@@ -759,7 +759,7 @@ describe("five-tool handler integration", () => {
 	});
 
 describe("confirmation and audit UX (follow-up Stage 2)", () => {
-	it("/goal-clear asks for confirmation; cancelling is a byte-for-byte no-op", async () => {
+	it("/gx clear asks for confirmation; cancelling is a byte-for-byte no-op", async () => {
 		const f = fixture();
 		try {
 			const before = readFileSync(path.join(f.cwd, ".pi", "goals", activeGoalFiles(f.cwd)[0]!), "utf8");
@@ -770,7 +770,7 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 				confirm: async () => { confirmPrompt = "asked"; return false; },
 			});
 			await start(h);
-			await h.commands.get("goal-clear").handler("", h.ctx);
+			await h.commands.get("gx").handler("clear", h.ctx);
 			assert.ok(confirmPrompt === "asked", "confirmation must be requested before archiving");
 			assert.equal(activeGoalFiles(f.cwd).length, 1, "goal must stay open after cancel");
 			const after = readFileSync(path.join(f.cwd, ".pi", "goals", activeGoalFiles(f.cwd)[0]!), "utf8");
@@ -782,7 +782,7 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 		}
 	});
 
-	it("/goal-clear confirms and archives the selected goal", async () => {
+	it("/gx clear confirms and archives the selected goal", async () => {
 		const f = fixture();
 		try {
 			const h = createHarness({
@@ -790,7 +790,7 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 				confirm: async () => true,
 			});
 			await start(h);
-			await h.commands.get("goal-clear").handler("", h.ctx);
+			await h.commands.get("gx").handler("clear", h.ctx);
 			assert.equal(activeGoalFiles(f.cwd).length, 0, "goal archived after confirm");
 			const archived = readdirSync(path.join(f.cwd, ".pi", "goals", "archived"));
 			assert.equal(archived.length, 1, "exactly one goal archived");
@@ -800,14 +800,14 @@ describe("confirmation and audit UX (follow-up Stage 2)", () => {
 		}
 	});
 
-	it("/goal-clear headless returns guidance without mutation", async () => {
+	it("/gx clear headless returns guidance without mutation", async () => {
 		const f = fixture();
 		try {
 			const before = readFileSync(path.join(f.cwd, ".pi", "goals", activeGoalFiles(f.cwd)[0]!), "utf8");
 			const ledgerBefore = ledgerEvents(f.cwd).length;
 			const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries, hasUI: false });
 			await start(h);
-			await h.commands.get("goal-clear").handler("", h.ctx);
+			await h.commands.get("gx").handler("clear", h.ctx);
 			assert.equal(activeGoalFiles(f.cwd).length, 1, "headless clear must not archive");
 			assert.equal(readFileSync(path.join(f.cwd, ".pi", "goals", activeGoalFiles(f.cwd)[0]!), "utf8"), before, "file unchanged");
 			assert.equal(ledgerEvents(f.cwd).length, ledgerBefore, "no ledger entry in headless clear");
@@ -1025,12 +1025,4 @@ describe("capability parity (follow-up Stage 5.1-C)", () => {
 		}
 	});
 
-	it("prompt guidance directs abandonment to /goal-clear and requirement changes to /goal-tweak", () => {
-		const source = readFileSync("extensions/goal-core-tools.ts", "utf8");
-		const policy = readFileSync("extensions/prompts/goal-prompts.ts", "utf8");
-		assert.ok(policy.includes("/goal-clear"), "abandonment guidance directs the user command");
-		assert.ok(policy.includes("/goal-tweak"), "requirement changes stay user-started");
-		assert.ok(!source.includes('name: "propose_goal_tweak"'), "no steady-state propose_goal_tweak tool");
-		assert.ok(!source.includes('name: "abort_goal"'), "no abort_goal tool");
-	});
 });

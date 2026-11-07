@@ -130,14 +130,14 @@ test("a blocked goal announces the reason, what was tried, the fix and the comma
 		objective: "=== Goal ===\nObjective: Finish the roadmap",
 		status: "blocked",
 		reason: "cargo test cannot link: CC/AR point to MinGW for an MSVC target",
-		suggestedAction: "Unset CC and AR, or add .cargo/config.toml forcing MSVC tools, then /goal-resume",
+		suggestedAction: "Unset CC and AR, or add .cargo/config.toml forcing MSVC tools, then /gx resume",
 		attempts: ["unset CC only", "clang-cl override", "rust-lld linker"],
 	});
 	assert.match(message, /^⛔ Goal blocked: Finish the roadmap$/m);
 	assert.match(message, /^Why: cargo test cannot link/m);
 	assert.match(message, /^Already tried: unset CC only; clang-cl override; rust-lld linker$/m);
 	assert.match(message, /^To fix: Unset CC and AR/m);
-	assert.match(message, /\/goal-resume .*\/goal-clear to abandon\./);
+	assert.match(message, /\/gx resume .*\/gx clear to abandon\./);
 });
 
 test("a paused goal announces without inventing missing fields", () => {

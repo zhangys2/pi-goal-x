@@ -22,7 +22,7 @@
   },
   {
     "id": "no-tweak-tool",
-    "desc": "propose_goal_tweak is removed; /goal-tweak is a user command.",
+    "desc": "propose_goal_tweak is removed; /gx tweak is a user command.",
     "kind": "tool-not-called",
     "tool": "propose_goal_tweak"
   }

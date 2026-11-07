@@ -452,7 +452,7 @@ export function registerDraftingTools(core: GoalCore): void {
 						? undefined
 						: goal.currentTaskId;
 					// §tweak-resume: resume a paused/blocked goal (mirror the
-					// /goal-resume transition: status active + pause metadata
+					// /gx resume transition: status active + pause metadata
 					// cleared). A budget-limited goal needs an explicit budget
 					// change that clears the resource gate; preserve scheduler limits.
 					const exhausted = budgetReached({...goal, tokenBudget: proposedBudget});
@@ -478,7 +478,7 @@ export function registerDraftingTools(core: GoalCore): void {
 						updatedAt: now,
 					};
 				},
-				ledger: (written) => [...(target.tokenBudget !== written.tokenBudget ? [{type: "goal_budget_changed" as const, goalId: written.id, oldBudget: target.tokenBudget ?? null, newBudget: written.tokenBudget ?? null, tokensUsed: written.usage.tokensUsed, at: written.updatedAt}] : []), ...(target.status !== "budget_limited" && written.status === "budget_limited" ? [{type: "goal_budget_limited" as const, goalId: written.id, budget: written.tokenBudget!, tokensUsed: written.usage.tokensUsed, at: written.updatedAt}] : []), { type: "goal_tweaked", goalId: written.id, changeSummary: "Goal revised through /goal-tweak drafting.", at: written.updatedAt }, ...(taskResult.value ? [{ type: "task_list_set" as const, goalId: written.id, taskCount: countTasks(written.taskList?.tasks), blockCompletion: taskResult.value.blockCompletion, at: written.updatedAt }] : [])],
+				ledger: (written) => [...(target.tokenBudget !== written.tokenBudget ? [{type: "goal_budget_changed" as const, goalId: written.id, oldBudget: target.tokenBudget ?? null, newBudget: written.tokenBudget ?? null, tokensUsed: written.usage.tokensUsed, at: written.updatedAt}] : []), ...(target.status !== "budget_limited" && written.status === "budget_limited" ? [{type: "goal_budget_limited" as const, goalId: written.id, budget: written.tokenBudget!, tokensUsed: written.usage.tokensUsed, at: written.updatedAt}] : []), { type: "goal_tweaked", goalId: written.id, changeSummary: "Goal revised through /gx tweak drafting.", at: written.updatedAt }, ...(taskResult.value ? [{ type: "task_list_set" as const, goalId: written.id, taskCount: countTasks(written.taskList?.tasks), blockCompletion: taskResult.value.blockCompletion, at: written.updatedAt }] : [])],
 			});
 			if (!result.ok) return { content: [{ type: "text", text: "Goal tweak was not applied: " + result.message }], details: goalDetails(core.state.goal) };
 			if (resumed) {

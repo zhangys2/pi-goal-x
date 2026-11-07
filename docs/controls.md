@@ -1,6 +1,6 @@
 # Commands and keys
 
-Open `/goal-settings` and choose **Controls**, or run `/goal-settings controls`.
+Open `/gx settings` and choose **Controls**, or run `/gx settings controls`.
 The screen has three sections: **Commands**, **Keys** and **Pausing**. Type to
 filter, use the arrow keys and Enter to edit, and Tab to switch sections.
 Page Up/Down moves through long lists; Home/End jumps to the first/last row.
@@ -15,11 +15,14 @@ removes only that section's overrides in the selected scope.
 
 ## Commands
 
-Each action has a preferred command followed by any aliases. Choose **Edit
+Default actions share the `/gx` root: `/gx` starts regular drafting, `/gx sisyphus` starts ordered drafting, and lifecycle operations use subcommands such as `/gx tweak` and `/gx status`. Each action has a preferred command followed by any aliases. Choose **Edit
 command paths** to replace them, **Add an alias** to keep the current spellings,
-or **Disable** to remove its command invocations. For example, add `/goal edit`
+or **Disable** to remove its command invocations. For example, add `/gx edit`
 to **Revise the goal** to use the existing confirmation workflow with that
-spelling. Arguments after the command path are passed through to the action.
+spelling. Arguments after a command path are passed through to the action. At
+`/gx`, unrecognized trailing text after a subcommand starts a guided goal draft;
+free-form `/gx tweak <change>` text stays with the tweak action. Prefix an
+objective with `--` (`/gx -- <objective>`) when it matches a valid command form.
 Subcommands appear in argument completion; the longest matching complete path
 wins. A routing-only root lists its available subcommands when called without
 a matching action.
@@ -29,12 +32,12 @@ Ctrl+R applies them while Pi is idle when controls were opened through a slash
 command. If controls were opened from a shortcut, close them and run `/reload`.
 Keys and pause order take effect immediately.
 
-`/goal-settings` always remains available as a recovery entry. You can give the
+`/gx settings` always remains available as a recovery entry. You can give the
 settings action other spellings, but this entry cannot be removed. Pi command
 roots such as `/reload` and `/settings` are reserved. The editor checks conflicts
 with other commands before saving.
 For settings, **Recovery entry only** removes additional aliases while keeping
-`/goal-settings` available.
+`/gx settings` available.
 
 The settings keys below are stable action IDs, even after renaming an invocation:
 
@@ -56,6 +59,8 @@ The settings keys below are stable action IDs, even after renaming an invocation
 | `goal-unfocus` | Detach this session |
 | `goal-settings` | Settings and controls |
 | `goal-cancel` | Cancel a draft |
+| `goal-report` | Write the focused goal report |
+| `goal-onboarding` | Reopen the getting-started walkthrough |
 
 ## Keys
 
@@ -120,7 +125,7 @@ their meaning. For example:
 ```json
 {
   "commands": {
-    "goal-tweak": ["goal-tweak", "goal edit"],
+    "goal-tweak": ["gx tweak", "gx edit"],
     "goal-resume": ["work continue"]
   },
   "pauseOrder": "turn-first",
@@ -135,6 +140,6 @@ their meaning. For example:
 }
 ```
 
-Use `/goal-refresh` after external key or pause-order edits, and `/reload` after
+Use `/gx refresh` after external key or pause-order edits, and `/reload` after
 external command edits. Verbose goal status reports the effective controls and
 their sources. Developer-only `PI_GOAL_DEBUG` shortcuts are unchanged.

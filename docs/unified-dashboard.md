@@ -1,7 +1,7 @@
 # Unified Dashboard
 
 `pi-goal-x` renders one dashboard component in two presentation modes. The
-above-editor widget, `/goal-status`, and the completion flow all derive from
+above-editor widget, `/gx status`, and the completion flow all derive from
 the same presentation model (`extensions/widgets/goal-dashboard-model.ts`),
 so they can never drift apart on data or terminology.
 
@@ -155,7 +155,7 @@ compact widget never touches the editor's arrows — it scrolls with the
 never hijacked. The chords are consumed only when the compact list actually
 overflows its viewport; on a short list they pass through unused. When the
 list overflows, the compact footer advertises the chords
-(`Ctrl+Shift+↑↓: scroll`). `/goal-status` renders the same anchored window as
+(`Ctrl+Shift+↑↓: scroll`). `/gx status` renders the same anchored window as
 a static snapshot (it is not interactive). The window and its indicators are
 width-safe at every layout width.
 
@@ -180,7 +180,7 @@ When open goals exist but none is focused:
 ```text
 ╭─ pi-goal-x ─ Goal focus required ───────────────────────────────────────────╮
 │ 3 open goals are available.                                                │
-│ Run /goal-focus to choose the goal for this session.                       │
+│ Run /gx focus to choose the goal for this session.                       │
 ╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -250,13 +250,13 @@ and truncation is visible-width aware (ANSI colors, Unicode, and double-width
 characters included). Golden tests assert `visibleWidth(line) <= width` for
 every rendered line at 40, 50, 60, 80, 100, and 140 columns.
 
-## `/goal-status`
+## `/gx status`
 
-`/goal-status` renders the same model as the widget.
+`/gx status` renders the same model as the widget.
 
 - Standard mode: a static compact-dashboard rendering, current-task details,
   recent activity, and the last audit result. No effective-settings noise.
-- `/goal-status verbose`: goal id, revision, full objective, the complete
+- `/gx status verbose`: goal id, revision, full objective, the complete
   task tree with full evidence and contracts, recent ledger history, token
   budget detail, pause/blocker detail, active and archived paths, the last
   audit report, and effective settings with provenance.

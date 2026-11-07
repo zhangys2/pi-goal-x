@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createGoal, type GoalTaskList } from "../extensions/goal-record.ts";
+import { commandInstructions } from "../extensions/goal-controls.ts";
 import {
 	CHECKPOINT_TRIGGER_MAX_CHARS,
 	checkpointTriggerPrompt,
@@ -80,11 +81,11 @@ test("edited-objective and stale prompts point the agent at the right lifecycle 
 });
 
 test("unfocused prompt keeps multi-goal focus human-owned", () => {
-	const prompt = unfocusedOpenGoalsPrompt(3);
+	const prompt = commandInstructions(unfocusedOpenGoalsPrompt(3));
 	assert.match(prompt, /^\[PI GOAL UNFOCUSED\]/);
 	assert.match(prompt, /3 open pi goals exist,/);
 	assert.match(prompt, /Do not choose or switch focus autonomously/);
-	assert.match(prompt, /\/goal-focus/);
+	assert.match(prompt, /\/gx focus/);
 });
 
 test("unfocused prompt uses singular grammar for exactly one open goal", () => {
