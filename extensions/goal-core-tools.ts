@@ -33,6 +33,7 @@ import {
 	runBlockerOracle,
 } from "./goal-oracle.ts";
 import { loadSettingsSnapshot, type ResolvedGoalOracleSettings } from "./goal-settings.ts";
+import { planUpdateGoal } from "./goal-tool-inputs.ts";
 import { notifyGoalNeedsUser } from "./widgets/goal-notifications.ts";
 
 /** Current + first-pending (excluding current) task pointers for concise get_goal. */
@@ -550,23 +551,21 @@ pi.registerTool(defineTool({
 	async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 		signal = combineAbortSignals(signal, ctx.signal, core.sessionAbortController.signal);
 		signal?.throwIfAborted();
-		// P1-3: persist any buffered in-turn mutations now so the auditor and
-		// status transitions observe the current task/state, not the stale disk.
+		const planned = planUpdateGoal(params);
+		if (!planned.ok) return { content: [{ type: "text", text: planned.message }], details: {}, terminate: false };
+		// Validate before flushing buffered mutations: malformed filler must not
+		// commit state or trigger lifecycle side effects.
 		core.flushGoalTransaction(ctx);
-		if (!!params.continuation === !!params.status || (params.continuation && (params.reason !== undefined || params.attempted_actions !== undefined || params.suggested_action !== undefined || params.completion_summary !== undefined))) {
-			return { content: [{ type: "text", text: "Provide exactly one lifecycle status or continuation, without mixing their fields." }], details: {}, terminate: false };
+		switch (planned.plan.action) {
+			case "continuation":
+				return core.scheduler.declare(ctx, planned.plan.continuation);
+			case "blocked":
+				return runGoalBlockedFlow(ctx, planned.plan.reason, planned.plan.attemptedActions, planned.plan.suggestedAction, signal);
+			case "paused":
+				return runGoalAgentPauseFlow(ctx, planned.plan.reason, planned.plan.suggestedAction);
+			case "complete":
+				return deps.runGoalCompletionFlow(core, ctx, planned.plan.completionSummary, signal);
 		}
-		if (params.continuation) return core.scheduler.declare(ctx, params.continuation as GoalContinuation);
-		if (params.status === "blocked") {
-			const attempted = Array.isArray((params as { attempted_actions?: unknown }).attempted_actions)
-				? ((params as { attempted_actions: unknown[] }).attempted_actions.filter((a): a is string => typeof a === "string"))
-				: [];
-			return runGoalBlockedFlow(ctx, params.reason, attempted, params.suggested_action, signal);
-		}
-		if (params.status === "paused") {
-			return runGoalAgentPauseFlow(ctx, params.reason, params.suggested_action);
-		}
-		return deps.runGoalCompletionFlow(core, ctx, params.completion_summary, signal);
 	},
 	renderCall(args, theme) {
 		return new Text(theme.fg("toolTitle", "update_goal ") + theme.fg("muted", args?.status ?? ""), 0, 0);

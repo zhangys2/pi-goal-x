@@ -47,12 +47,14 @@ export async function runChecks(checks, {directory, cwd=process.cwd(), concurren
 
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const directory=process.env.PI_GOAL_CI_LOG_DIR??mkdtempSync(path.join(tmpdir(),'pi-goal-ci-'));
+ process.env.PI_GOAL_PACKAGE_EVIDENCE??=path.join(directory,'package');
  console.log(`Validation logs: ${directory}`);
  const results=await runChecks([
   {name:'tests',args:['scripts/run-unit-tests.mjs','all'],noSkippedTests:true,allowedSkips:[/a real \.cmd receives its arguments unchanged.*#(?:\s*SKIP)? requires Windows cmd\.exe/i]},
   {name:'manifest-selfcheck',args:['scripts/run-unit-tests.mjs','all','--selfcheck']},
   {name:'controls-cli',args:['experiments/controls/cli-walkthrough.mjs']},
   {name:'lifecycle-cli',args:['scripts/live-session-check.mjs']},
+  {name:'package',args:['scripts/package-stabilization-check.mjs']},
  ],{directory});
  process.exitCode=results.every(result=>result.passed)?0:1;
 }

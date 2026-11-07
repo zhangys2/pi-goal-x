@@ -392,6 +392,15 @@ export class GoalWidgetComponent implements Component {
 		this.getAuditResult = options.getAuditResult ?? (() => null);
 	}
 
+	/** Whether the main Pi editor, rather than another dialog, owns terminal input. */
+	isMainEditorFocused(): boolean | undefined {
+		const tui = this.tui as TUI & { getFocusedComponent?: () => Component | null };
+		if (typeof tui.getFocusedComponent !== "function") return undefined;
+		const focused = tui.getFocusedComponent() as (Component & { onSubmit?: unknown; actionHandlers?: unknown }) | null;
+		return !!focused && typeof focused.onSubmit === "function"
+			&& focused.actionHandlers instanceof Map && focused.actionHandlers.has("app.clear");
+	}
+
 	/** Whether the dashboard is currently in expanded mode (§10). */
 	isExpanded(): boolean {
 		return this.getExpanded();

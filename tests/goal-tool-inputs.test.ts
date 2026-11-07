@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeTaskProgress } from "../extensions/goal-tool-inputs.ts";
+import { normalizeTaskProgress, planUpdateGoal } from "../extensions/goal-tool-inputs.ts";
 
 const update = {task_id: "child", status: "complete", evidence: "verified"};
 
@@ -28,6 +28,27 @@ test("malformed batches never fall back to valid single-task fields", () => {
 	for (const updates of [null, {}, "bad", [null], [3], [update, {task_id: "other", status: "bogus"}], [{...update, evidence: 2}], [{...update, unexpected: true}], Array(101).fill(update)]) {
 		assert.equal(normalizeTaskProgress({...update, updates}).ok, false, JSON.stringify(updates));
 	}
+});
+
+test("update_goal planner accepts one lifecycle action and matching ready filler", () => {
+	assert.deepEqual(planUpdateGoal({status: "complete", continuation: {kind: "ready"}, completion_summary: "verified"}), {
+		ok: true, plan: {action: "complete", completionSummary: "verified"},
+	});
+	assert.deepEqual(planUpdateGoal({status: "blocked", reason: "credential missing", suggested_action: "add token", attempted_actions: []}), {
+		ok: true, plan: {action: "blocked", reason: "credential missing", suggestedAction: "add token", attemptedActions: []},
+	});
+});
+
+test("update_goal planner rejects conflicting and malformed filler before execution", () => {
+	for (const input of [
+		{status: "complete", reason: "unexpected"},
+		{status: "blocked", reason: "missing credential"},
+		{status: "paused", reason: 4},
+		{status: "complete", unexpected: true},
+		{status: "blocked", reason: "x", suggested_action: "y", attempted_actions: [4]},
+		{continuation: {kind: "ready", extra: true}},
+		{continuation: {kind: "wait", reason: "external", deadline: "tomorrow", depends_on: "invalid"}},
+	]) assert.equal(planUpdateGoal(input).ok, false, JSON.stringify(input));
 });
 
 test("identifiers retain their meaning while whitespace is normalized", () => {

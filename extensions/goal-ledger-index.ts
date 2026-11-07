@@ -8,6 +8,7 @@ export interface GoalLedgerIndex {
  activity: GoalLedgerEvent[];
  lastActivityEvent?: GoalLedgerEvent;
  audit?: GoalLedgerEvent;
+ auditStarted?: GoalLedgerEvent;
  completion?: GoalLedgerEvent;
  lifecycle?: GoalLedgerEvent;
  oracle: Map<string, OracleConsultState>;
@@ -23,7 +24,18 @@ export function indexLedgerEvent(index: Map<string, GoalLedgerIndex>, event: Goa
  goal.recent.push(event);
  if (goal.recent.length > 12) goal.recent.shift();
  if (lifecycleEvents.has(event.type)) goal.lifecycle = event;
- if (event.type === "audit_result") goal.audit = event;
+ if (event.type === "audit_started") goal.auditStarted = event;
+ if (event.type === "audit_result" && (!goal.auditStarted || (goal.auditStarted.type === "audit_started" && goal.auditStarted.auditId === event.auditId))) {
+  goal.audit = event;
+ }
+ if (event.type === "audit_skipped" && event.reason === "disabled") {
+  goal.audit = event;
+  goal.auditStarted = undefined;
+ }
+ if (event.type === "audit_skipped" && event.reason === "user_aborted"
+  && (!goal.auditStarted || (goal.auditStarted.type === "audit_started" && goal.auditStarted.auditId === event.auditId))) {
+  goal.audit = event;
+ }
  if (event.type === "completion_requested") goal.completion = event;
  if (isActivityEvent(event) && (!goal.lastActivityEvent || !sameActivityEvent(event, goal.lastActivityEvent))) {
   goal.lastActivityEvent = event;

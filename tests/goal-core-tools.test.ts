@@ -241,6 +241,46 @@ test("a cancelled old-session audit cannot clear a replacement session's audit r
 	}
 });
 
+test("a newer completion attempt ignores the older audit verdict", async () => {
+	const f = makeFixture();
+	let resolveFirst!: (value: any) => void;
+	let resolveSecond!: (value: any) => void;
+	let firstEntered!: () => void;
+	let secondEntered!: () => void;
+	const firstReady = new Promise<void>(resolve => { firstEntered = resolve; });
+	const secondReady = new Promise<void>(resolve => { secondEntered = resolve; });
+	let calls = 0;
+	const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries, runCompletionAuditor: async () => {
+		calls++;
+		return new Promise(resolve => {
+			if (calls === 1) { resolveFirst = resolve; firstEntered(); }
+			else { resolveSecond = resolve; secondEntered(); }
+		});
+	} });
+	try {
+		await start(h);
+		const execute = h.tools.get("update_goal")!.execute as any;
+		const first = execute("old", { status: "complete" }, undefined, undefined, h.ctx);
+		await firstReady;
+		const second = execute("new", { status: "complete" }, undefined, undefined, h.ctx);
+		await secondReady;
+		resolveFirst({ approved: true, output: "stale approval" });
+		const oldResult = await first;
+		assert.match(oldResult.content[0].text, /cancelled/i);
+		assert.equal(h.core.state.goal.status, "active");
+		resolveSecond({ approved: true, output: "current approval" });
+		await second;
+		const audits = ledgerEvents(f.cwd).filter(event => event.type === "audit_result");
+		assert.equal(audits.length, 1);
+		assert.equal(audits[0]?.auditId, ledgerEvents(f.cwd).filter(event => event.type === "audit_started").at(-1)?.auditId);
+	} finally {
+		resolveFirst?.({ approved: false, output: "cleanup" });
+		resolveSecond?.({ approved: false, output: "cleanup" });
+		h.core.clearAuditResult();
+		f.cleanup();
+	}
+});
+
 test("an unexpected auditor exception releases completion resources", async () => {
 	const f = makeFixture();
 	try {
@@ -449,6 +489,19 @@ test("get_goal default is concise; verbose retains full diagnostics", async () =
 });
 
 // ── update_goal(complete) without paperwork ──────────────────────────────────
+
+test("malformed update_goal input does not flush buffered goal state", async () => {
+	const f = makeFixture();
+	try {
+		const h = createHarness({ cwd: f.cwd, sessionEntries: f.sessionEntries });
+		await start(h);
+		h.core.goalService.beginTurn(h.ctx, h.core.state.goal.id);
+		const result = await (h.tools.get("update_goal")!.execute as any)("invalid", { status: "complete", reason: "conflicting filler" }, undefined, undefined, h.ctx);
+		assert.equal(result.terminate, false);
+		assert.match(result.content[0].text, /conflicts/);
+		assert.equal(h.core.goalService.isTurnBuffered(), true);
+	} finally { f.cleanup(); }
+});
 
 test("update_goal(complete) runs the auditor without a verification-summary parameter", async () => {
 	const f = makeFixture();
