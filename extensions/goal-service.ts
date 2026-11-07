@@ -1,5 +1,6 @@
 import { cloneGoal, nowIso, type GoalFocusReason, type GoalRecord, type GoalTask, type GoalUsage } from "./goal-record.ts";
 import { appendGoalEvent, appendGoalEvents, type GoalLedgerEvent } from "./goal-ledger.ts";
+import { recordGoalMeasurements } from "./goal-measurements.ts";
 import { findTaskInTree, updateTaskInTree } from "./goal-policy.ts";
 import {
 	GOALS_DIR,
@@ -306,9 +307,14 @@ export class GoalService {
 	 */
 	private appendLedgerEventsBestEffort(ctx: GoalServiceContext, events: GoalLedgerEvent[]): void {
 		if (events.length === 0) return;
-		if (events.length > 1 && appendGoalEvents(ctx, events).ok) return;
+		if (events.length > 1 && appendGoalEvents(ctx, events).ok) {
+			try { recordGoalMeasurements(ctx.cwd, events); } catch { /* measurements are optional and never affect goal work */ }
+			return;
+		}
+		const recorded: GoalLedgerEvent[] = [];
 		for (const event of events) {
 			const append = appendGoalEvent(ctx, event);
+			if (append.ok) recorded.push(event);
 			if (!append.ok) {
 				this.ref.onDiagnostic({
 					severity: "warning",
@@ -318,6 +324,9 @@ export class GoalService {
 					message: `Ledger append failed for ${event.type}${"goalId" in event ? ` (goal ${event.goalId})` : ""}: ${String(append.error)}`,
 				});
 			}
+		}
+		if (recorded.length) {
+			try { recordGoalMeasurements(ctx.cwd, recorded); } catch { /* measurements are optional and never affect goal work */ }
 		}
 	}
 

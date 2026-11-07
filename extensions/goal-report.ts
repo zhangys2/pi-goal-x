@@ -168,8 +168,17 @@ export function renderGoalReport(model: GoalReportModel, options: { now: number;
 		].join("\n")
 		: "";
 
+	const attentionSummary = [
+		...model.attention.filter((span) => span.open).map((span) => `- **${span.kind}** — ${span.reason}${span.suggestedAction ? ` Next: ${span.suggestedAction}` : ""}`),
+		...model.recommendations.map((item) => `- **Next action${item.taskId ? ` · ${item.taskId}` : ""}:** ${item.text}`),
+	];
+	const attentionSummarySection = attentionSummary.length
+		? section("Attention / next actions", attentionSummary.join("\n"))
+		: section("Attention / next actions", "No open attention items or recommendations are recorded.");
+
 	return [
 		header,
+		attentionSummarySection,
 		section("Plan", mermaidGraph(model.plan, { styled: false, ordered: model.sisyphus })),
 		section("Current state", mermaidGraph(model.current, { styled: true, ordered: false })),
 		section("Tasks", tasksTable),

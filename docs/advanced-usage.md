@@ -55,6 +55,16 @@ pi.events.emit("pi-goal:wake", { goalId, waitToken });
 
 Existing producers that directly send `triggerTurn`/`followUp` messages still run as ordinary host work and supersede old pending decisions. Those independently started turns are **outside this extension's allowance**; use `pi-goal:wake` to put them through its spending gate. The allowance also does not limit Pi's own within-run tool loop or native retries. It bounds the goal extension's kickoff, continuation, check, signal, repair and recovery dispatches.
 
+## First goal and interrupted work
+
+On a first bare `/goal`, goal-x offers a short getting-started prompt with an example goal. Choosing the example starts the existing guided draft; it does not create a goal until you confirm the proposal. Choosing your own goal continues the usual drafting flow. `/goal-onboarding` reopens the walkthrough. `/goal-list recovery` summarizes paused, blocked (awaiting user action), waiting, and interrupted-checkpoint goals with suggested next steps when persisted state provides them; it is read-only, and focus/resume remain explicit actions. `/goal-recovery` remains the separate storage-integrity diagnostic and repair command.
+
+## Process presets and local outcome measurements
+
+In `/goal-settings` at project scope, **Process preset** applies one of three profiles to newly created goals: lightweight disables task/contracts and the auditor; structured enables tasks/contracts and leaves the auditor off for new goals; audited enables tasks/contracts and the auditor. Existing goals and unrelated settings are unchanged, and precheck stays off. Presets are explicit and can be customized afterward.
+
+**Outcome measurements** are disabled by default. Opt in per project from `/goal-settings` to store local daily aggregate counts for goal starts/completions/abandonments, blocks/resumes, check results, and auditor verdicts. The store contains no goal IDs, text, paths, prompts, or per-goal records; it is never sent over the network and rolls off after 90 days. The settings menu can inspect or reset the counts and disable future recording.
+
 ## Prompt caching
 
 Goal state is refreshed at the request tail while the system prompt and conversation prefix stay stable. Pi retains control of provider cache settings. See [prompt caching](prompt-caching.md) for explicit-cache handling, validation, and cache invalidation boundaries.

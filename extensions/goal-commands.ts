@@ -18,7 +18,7 @@ import {
 	readSettingsLayer,
 	envOverrideFor,
 	type GoalSettings,
-	type SettingsMutation,
+	type SettingsLeafMutation,
 	type SettingsScope,
 } from "./goal-settings.ts";
 import {
@@ -188,6 +188,23 @@ export function registerGoalCommands(core: GoalCore): void {
 		ctx.ui.notify(`Goal unfocused for this session. It remains open in .pi/goals: ${current.id}`, "info");
 	}
 
+	const sampleGoal = "Add CSV export to reports, including tests and documentation.";
+	async function showOnboarding(ctx: ExtensionContext): Promise<"draft" | "sample" | "dismiss" | "cancel"> {
+		if (!ctx.hasUI) {
+			ctx.ui.notify(`goal-x: draft an outcome with /goal, review the proposed plan, then confirm before work starts. Example: “${sampleGoal}”`, "info");
+			return "cancel";
+		}
+		const choice = await ctx.ui.select("Getting started with goal-x", [
+			`Start with your own goal`, `Try the example: ${sampleGoal}`, "Not now", "Cancel",
+		]);
+		if (!choice || choice === "Cancel") return "cancel";
+		try { mutateSettingsLayer({ scope: "project", cwd: ctx.cwd, mutation: { op: "set", path: ["onboardingDismissed"], value: true } }); }
+		catch (err) { ctx.ui.notify(`Could not save onboarding state: ${err instanceof Error ? err.message : String(err)}`, "warning"); }
+		if (choice.startsWith("Try the example:")) return "sample";
+		if (choice.startsWith("Start with your own")) return "draft";
+		return "dismiss";
+	}
+
 	async function handleDirectGoalSet(rawObjective: string, ctx: ExtensionContext, mode: GoalMode): Promise<void> {
 		const raw = rawObjective.trim();
 		if (!raw) {
@@ -205,7 +222,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		core.clearContinuationState();
 		core.clearActiveAccounting();
 		await offerProjectOrchestrationSetup(core, ctx);
-		core.replaceGoal({ objective, autoContinue: true, sisyphus: mode === "sisyphus" }, ctx, true, verificationContract);
+		core.replaceGoal({ objective, autoContinue: true, sisyphus: mode === "sisyphus", skipAuditor: !settings.defaultAuditorEnabled || settings.disabled }, ctx, true, verificationContract);
 	}
 
 	async function runGoalRecovery(rawArgs: string, ctx: ExtensionContext): Promise<void> {
@@ -391,6 +408,7 @@ export function registerGoalCommands(core: GoalCore): void {
 
 	const SETTING_ROWS: readonly SettingRow[] = [
 		{ key: "autoSelectSingleGoal", label: "autoSelectSingleGoal", section: "Goal behavior", kind: "boolean" },
+
 		{ key: "hideUnfocusedBanner", label: "hideUnfocusedBanner", section: "Goal behavior", kind: "boolean" },
 		{ key: "hideUnfocusedPrompt", label: "hideUnfocusedPrompt", section: "Goal behavior", kind: "boolean" },
 		{ key: "disableContracts", label: "disableContracts", section: "Goal behavior", kind: "boolean" },
@@ -404,6 +422,7 @@ export function registerGoalCommands(core: GoalCore): void {
 		{ key: "disableTasks", label: "disableTasks", section: "Task tracking", kind: "boolean" },
 		{ key: "subtaskDepth", label: "subtaskDepth", section: "Task tracking", kind: "positiveInteger" },
 		{ key: "disabled", label: "auditor disabled", section: "Completion auditor", kind: "boolean" },
+		{ key: "defaultAuditorEnabled", label: "auditor enabled for new goals", section: "Completion auditor", kind: "boolean" },
 		{ key: "provider", label: "provider", section: "Completion auditor", kind: "modelSelector" },
 		{ key: "model", label: "model", section: "Completion auditor", kind: "modelSelector" },
 		{ key: "thinkingLevel", label: "thinking_level", section: "Completion auditor", kind: "thinking" },
@@ -462,7 +481,7 @@ export function registerGoalCommands(core: GoalCore): void {
 			core.updateUI(ctx);
 		};
 
-		const applyMutation = (scope: SettingsScope, mutation: SettingsMutation): boolean => {
+		const applyMutation = (scope: SettingsScope, mutation: SettingsLeafMutation): boolean => {
 			try {
 				mutateSettingsLayer({ scope, cwd: ctx.cwd, mutation });
 				applyEffectiveSettings();
@@ -487,6 +506,8 @@ export function registerGoalCommands(core: GoalCore): void {
 				options.push(`─── Editing: ${scope} (${scopePath(scope)}) ───`);
 				options.push(`Scope: ${scope} (select to switch)`);
 				options.push("Controls: commands, keys and pause order…");
+				options.push("Process preset: choose lightweight, structured or audited…");
+				options.push("Outcome measurements: inspect, opt in/out or reset…");
 				let lastSection: string | null = null;
 				const pathOf = (row: SettingRow): string[] => row.path ?? [String(row.key)];
 				const valueAtPath = (obj: unknown, path: string[]): unknown => {
@@ -525,6 +546,39 @@ export function registerGoalCommands(core: GoalCore): void {
 				const selected = await ctx.ui.select("Goal settings", options);
 				if (!selected || selected === "Done") break;
 				if (selected.startsWith("Controls:")) { if (await showGoalControls(core, ctx, scope)) return; continue; }
+				if (selected.startsWith("Outcome measurements:")) {
+					if (scope !== "project") { ctx.ui.notify("Measurements are project-only. Switch to project scope first.", "warning"); continue; }
+					const { formatGoalMeasurements, readGoalMeasurements, resetGoalMeasurements } = await import("./goal-measurements.ts");
+					const action = await ctx.ui.select("Local outcome measurements", ["Inspect aggregate counts", "Opt in", "Opt out", "Reset stored counts", "Cancel"]);
+					if (!action || action === "Cancel") continue;
+					if (action === "Inspect aggregate counts") { ctx.ui.notify(formatGoalMeasurements(readGoalMeasurements(ctx.cwd)), "info"); continue; }
+					if (action === "Opt in" || action === "Opt out") {
+						const enabled = action === "Opt in";
+					if (enabled && !await ctx.ui.confirm("Enable local measurements?", "Only daily aggregate workflow counts are stored locally; goal text, identifiers and paths are not collected. Nothing is sent over the network.")) continue;
+						if (applyMutation("project", { op: "set", path: ["measureOutcomes"], value: enabled })) ctx.ui.notify(`Local outcome measurements ${enabled ? "enabled" : "disabled"}.`, "info");
+						continue;
+					}
+					if (await ctx.ui.confirm("Reset measurements?", "This permanently deletes the local aggregate counts for this project.")) {
+						try { resetGoalMeasurements(ctx.cwd); ctx.ui.notify("Local outcome measurements reset.", "info"); }
+						catch (err) { ctx.ui.notify(`Reset failed: ${err instanceof Error ? err.message : String(err)}`, "warning"); }
+					}
+					continue;
+				}
+				if (selected.startsWith("Process preset:")) {
+					if (scope !== "project") { ctx.ui.notify("Process presets are project-only. Switch to project scope first.", "warning"); continue; }
+					const preset = await ctx.ui.select("Apply project process preset", ["Lightweight — disable tasks/contracts/auditor for new goals", "Structured — enable tasks/contracts, keep auditor off for new goals", "Audited — enable tasks/contracts/auditor for new goals", "Cancel"]);
+					if (!preset || preset === "Cancel") continue;
+					const id = preset.startsWith("Lightweight") ? "lightweight" : preset.startsWith("Structured") ? "structured" : "audited";
+					const confirmed = await ctx.ui.confirm(`Apply ${id} preset?`, "Only task/contract defaults and the auditor default for new goals change. Other settings and existing goals remain unchanged; precheck stays off.");
+					if (!confirmed) continue;
+					try {
+						const { applyGoalPreset } = await import("./goal-presets.ts");
+						applyGoalPreset(ctx.cwd, id);
+						applyEffectiveSettings();
+						ctx.ui.notify(`Applied ${id} preset to project settings. You can customize settings afterward.`, "info");
+					} catch (err) { ctx.ui.notify(`Preset failed: ${err instanceof Error ? err.message : String(err)}`, "warning"); }
+					continue;
+				}
 				if (selected.startsWith("───")) continue; // headers are not rows
 				const trimmed = selected.trim();
 				if (trimmed.startsWith("Scope:")) {
@@ -536,6 +590,10 @@ export function registerGoalCommands(core: GoalCore): void {
 				const label = trimmed.slice(0, colon).trim();
 				const row = SETTING_ROWS.find((r) => r.label === label);
 				if (!row) continue;
+				if (row.key === "defaultAuditorEnabled" && scope !== "project") {
+					ctx.ui.notify("The auditor default is project-only and applies to newly created goals.", "info");
+					continue;
+				}
 				const envVarForRow2 = envOverrideFor(row.key as keyof GoalSettings);
 				if (envVarForRow2) {
 					ctx.ui.notify(`${row.label} is read-only: overridden by the ${envVarForRow2} env var.`, "warning");
@@ -708,6 +766,12 @@ export function registerGoalCommands(core: GoalCore): void {
 		const archived = core.archiveCurrentGoal(ctx, "user");
 		const didArchive = !!archived;
 		core.setGoal(null, ctx, true, "cleared");
+		if (didArchive && target.status !== "complete") {
+			try {
+				const { recordGoalMeasurements } = await import("./goal-measurements.ts");
+				recordGoalMeasurements(ctx.cwd, [{ type: "goal_aborted", goalId: target.id, reason: "user cleared", at: nowIso() }]);
+			} catch { /* optional local measurements never affect archival */ }
+		}
 		const msg = clearGoalCommandMessage({ archived: didArchive });
 		ctx.ui.notify(msg, didArchive ? "info" : "warning");
 	}
@@ -750,7 +814,13 @@ export function registerGoalCommands(core: GoalCore): void {
 	define("goal", {
 		description: "Draft a regular goal with clarification, task planning, and confirmation.",
 		handler: async (rawArgs, ctx) => {
-			await startGoalDrafting(core, ctx, "goal", rawArgs);
+			let seed = rawArgs;
+			if (!rawArgs.trim() && ctx.hasUI && !loadGoalSettings(ctx.cwd).onboardingDismissed) {
+				const choice = await showOnboarding(ctx);
+				if (choice === "cancel" || choice === "dismiss") return;
+				if (choice === "sample") seed = sampleGoal;
+			}
+			await startGoalDrafting(core, ctx, "goal", seed);
 		},
 	});
 	define("sisyphus", {
@@ -780,10 +850,24 @@ export function registerGoalCommands(core: GoalCore): void {
 		handler: async (rawArgs, ctx) => { await handleDirectGoalSet(rawArgs, ctx, "sisyphus"); },
 	});
 	define("goal-list", {
-		description: "List all open goals and the current focus.",
-		handler: async (_rawArgs, ctx) => {
+		description: "List open goals; append recovery for paused, blocked, waiting, or interrupted goals.",
+		handler: async (rawArgs, ctx) => {
 			core.reconcileFocusedGoalFromDisk(ctx);
-			ctx.ui.notify(buildGoalListText(core.goalsById, core.focusedGoalId), "info");
+			if (/^recovery$/i.test(rawArgs.trim())) {
+				const needsAttention = core.openGoals().filter((goal) => goal.status === "paused" || goal.status === "blocked" || goal.scheduler?.phase === "waiting" || goal.scheduler?.phase === "interrupted");
+				const lines = needsAttention.length
+					? needsAttention.map((goal) => {
+						const scheduler = goal.scheduler;
+						const state = goal.status === "blocked" ? "awaiting user action" : goal.status === "paused" ? "paused" : scheduler?.phase === "waiting" ? "waiting" : "interrupted checkpoint";
+						const why = goal.pauseReason ? ` — ${goal.pauseReason}` : scheduler?.wait ? ` — ${scheduler.wait.reason}` : "";
+						const next = goal.pauseSuggestedAction ? ` Next: ${goal.pauseSuggestedAction}` : scheduler?.phase === "waiting" ? ` Next: check again after ${new Date(scheduler.wait?.nextCheckAt ?? scheduler.wait?.deadline ?? Date.now()).toLocaleString()}; resume explicitly if needed.` : ` Next: inspect with ${commandHint("goal-status", core.loadedCommands)} and resume when ready.`;
+						return `- ${goal.id} [${state}] ${oneLineSummary(goal)}${why}.${next}`;
+					})
+					: ["No paused, blocked, waiting, or interrupted goals need attention."];
+				ctx.ui.notify(`Goal recovery — suggestions only; no goal state changed.\n${lines.join("\n")}\nChoose a goal with ${commandHint("goal-focus", core.loadedCommands)}; resume explicitly with ${commandHint("goal-resume", core.loadedCommands)}.`, needsAttention.length ? "warning" : "info");
+			} else {
+				ctx.ui.notify(buildGoalListText(core.goalsById, core.focusedGoalId), "info");
+			}
 			core.updateUI(ctx);
 		},
 	});
@@ -842,6 +926,15 @@ export function registerGoalCommands(core: GoalCore): void {
 		description: "Pause the currently running goal and stop its turn.",
 		handler: async (_rawArgs, ctx) => {
 			await handleGoalPause(ctx);
+		},
+	});
+
+	pi.registerCommand("goal-onboarding", {
+		description: "Show the goal-x getting-started walkthrough again.",
+		handler: async (_args, ctx) => {
+			const choice = await showOnboarding(ctx);
+			if (choice === "draft") await startGoalDrafting(core, ctx, "goal", "");
+			else if (choice === "sample") await startGoalDrafting(core, ctx, "goal", sampleGoal);
 		},
 	});
 
